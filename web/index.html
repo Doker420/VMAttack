@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Анонимные послания — бережный способ сказать то, что давно хотелось сказать." />
+  <title>послания — анонимные сообщения</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,600;1,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="announcement">
+    <span class="announcement-dot"></span>
+    Новый способ говорить о важном — мягко, честно, анонимно
+    <a href="#how-it-works">Как это работает <span aria-hidden="true">↗</span></a>
+  </div>
+
+  <header class="site-header" id="top">
+    <a class="brand" href="#top" aria-label="Послания — на главную">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" fill="none"><path d="M5.3 8.1A3.1 3.1 0 0 1 8.4 5h15.2a3.1 3.1 0 0 1 3.1 3.1v11.8a3.1 3.1 0 0 1-3.1 3.1H15l-5.7 4v-4H8.4a3.1 3.1 0 0 1-3.1-3.1V8.1Z" fill="currentColor"/><path d="m9 10 7 5 7-5" stroke="#FFF9EF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <span class="brand-name">послания<span class="brand-heart">♡</span></span>
+    </a>
+
+    <nav class="desktop-nav" aria-label="Основная навигация">
+      <a href="#how-it-works">Как это работает</a>
+      <a href="#features">Возможности</a>
+      <a href="#pricing">Тарифы</a>
+    </nav>
+
+    <div class="header-actions">
+      <button class="button button-ghost button-small" data-open-dialog="dashboardDialog">Мои послания</button>
+      <button class="button button-dark button-small" data-open-dialog="creatorDialog">Создать ссылку <span aria-hidden="true">↗</span></button>
+      <button class="menu-toggle" type="button" aria-label="Открыть меню" aria-expanded="false"><span></span><span></span></button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero section-wrap">
+      <div class="hero-copy">
+        <div class="eyebrow"><span class="eyebrow-line"></span> Место для честных слов</div>
+        <h1>Иногда главное —<br /><em>сказать.</em></h1>
+        <p class="hero-lead">Создайте свою ссылку и получайте тёплые, важные и даже немного неловкие сообщения. Анонимно — значит искренне.</p>
+        <div class="hero-actions">
+          <button class="button button-primary button-large" data-open-dialog="creatorDialog">Получить свою ссылку <span aria-hidden="true">↗</span></button>
+          <a class="text-link" href="#how-it-works">Узнать больше <span aria-hidden="true">↓</span></a>
+        </div>
+        <div class="social-proof">
+          <div class="avatar-stack" aria-hidden="true"><span class="avatar avatar-a">Л</span><span class="avatar avatar-b">М</span><span class="avatar avatar-c">А</span><span class="avatar avatar-d">К</span></div>
+          <span><strong>12 400+</strong> людей уже открыли<br />свой почтовый ящик</span>
+        </div>
+      </div>
+
+      <div class="hero-message-wrap">
+        <div class="scribble scribble-top" aria-hidden="true">можно честно</div>
+        <div class="hero-message-card">
+          <div class="card-topline"><span class="mini-status"><i></i> ссылка активна</span><span class="card-menu">•••</span></div>
+          <div class="recipient-row">
+            <div class="recipient-avatar">А</div>
+            <div><span class="small-label">послание для</span><strong>Ани</strong></div>
+            <span class="recipient-sparkle">✦</span>
+          </div>
+          <div class="message-paper">
+            <span class="paper-quote">“</span>
+            <p>Ты очень классно справляешься. Просто хотела, чтобы ты это знала 🤍</p>
+            <span class="paper-quote paper-quote-end">”</span>
+          </div>
+          <form class="quick-message-form" id="heroMessageForm">
+            <label for="heroMessage">Напишите что-нибудь Ане</label>
+            <textarea id="heroMessage" maxlength="500" rows="2" placeholder="Начните с «Привет...»" required></textarea>
+            <div class="form-bottom"><span class="char-counter"><span id="heroCharCount">0</span>/500</span><button class="send-button" type="submit" aria-label="Отправить анонимное сообщение">Отправить <span>→</span></button></div>
+          </form>
+          <div class="form-success" id="heroSuccess" hidden><span>✓</span><div><strong>Послание отправлено</strong><small>Спасибо за честность. Аня его обязательно увидит.</small></div></div>
+          <div class="anonymous-note"><span>⌁</span> Ваше имя и профиль останутся в тайне</div>
+        </div>
+        <div class="scribble scribble-bottom" aria-hidden="true">без регистрации <span>♡</span></div>
+      </div>
+    </section>
+
+    <section class="logo-strip section-wrap" aria-label="Поддерживаемые платформы">
+      <span>Работает там, где вы общаетесь</span>
+      <div class="platform-list"><span><b class="platform-icon tg">➤</b> Telegram</span><span><b class="platform-icon vk">vk</b> ВКонтакте</span><span><b class="platform-icon web">⌁</b> На сайте</span></div>
+    </section>
+
+    <section class="manifesto section-wrap" id="features">
+      <div class="section-kicker">01 <span></span> Зачем это нужно</div>
+      <div class="manifesto-grid">
+        <h2>Важные слова<br /><em>не должны</em><br />оставаться внутри.</h2>
+        <div class="manifesto-copy"><p>«Послания» помогают начать разговор, который в обычной жизни всё никак не начинается.</p><p class="muted">Без сложных настроек, без публичных комментариев, без лишнего шума. Только вы, ваша ссылка и сообщения, которые действительно имеют значение.</p><button class="arrow-link" data-open-dialog="creatorDialog">Попробовать бесплатно <span>→</span></button></div>
+      </div>
+    </section>
+
+    <section class="features-grid section-wrap">
+      <article class="feature-card feature-pink"><div class="feature-number">01</div><div class="feature-illustration illustration-envelope" aria-hidden="true"><span>✦</span><div class="envelope-shape"></div></div><h3>По-настоящему<br />анонимно</h3><p>Мы не показываем отправителя. Можно говорить искренне — и не бояться быть собой.</p></article>
+      <article class="feature-card feature-lilac"><div class="feature-number">02</div><div class="feature-illustration illustration-bubbles" aria-hidden="true"><i></i><i></i><i></i><span>♡</span></div><h3>Всё в одном<br />месте</h3><p>Получайте ответы на сайте, в Telegram или ВКонтакте — как вам удобно.</p></article>
+      <article class="feature-card feature-yellow"><div class="feature-number">03</div><div class="feature-illustration illustration-lock" aria-hidden="true"><div class="lock-body"></div><div class="lock-shackle"></div><span>✦</span></div><h3>Ваши правила<br />и границы</h3><p>Фильтр слов, блокировка и жалоба — спокойствие начинается с контроля.</p></article>
+    </section>
+
+    <section class="how-section section-wrap" id="how-it-works">
+      <div class="section-kicker">02 <span></span> Всё просто</div>
+      <div class="how-heading"><h2>Три шага до<br /><em>честного разговора.</em></h2><span class="round-sticker">легко<br />как раз-два-три</span></div>
+      <div class="steps"><div class="step"><span class="step-index">01</span><div class="step-icon">↗</div><h3>Создайте ссылку</h3><p>Придумайте имя и поделитесь ссылкой в профиле, сторис или личном чате.</p></div><div class="step-divider"></div><div class="step"><span class="step-index">02</span><div class="step-icon">✎</div><h3>Получайте послания</h3><p>Кто угодно может написать вам. Регистрация для отправителя не нужна.</p></div><div class="step-divider"></div><div class="step"><span class="step-index">03</span><div class="step-icon">♡</div><h3>Отвечайте по желанию</h3><p>Сохраните понравившееся, ответьте в соцсети или оставьте его только себе.</p></div></div>
+    </section>
+
+    <section class="creator-banner section-wrap">
+      <div class="banner-sparkles" aria-hidden="true">✦<br /><span>✧</span></div>
+      <div><div class="eyebrow eyebrow-light"><span class="eyebrow-line"></span> Начните сегодня</div><h2>Ваша ссылка.<br /><em>Ваши послания.</em></h2><p>Бесплатно, анонимно и без лишних вопросов.</p></div>
+      <button class="button button-light button-large" data-open-dialog="creatorDialog">Создать ссылку <span>↗</span></button>
+    </section>
+
+    <section class="pricing section-wrap" id="pricing">
+      <div class="section-kicker">03 <span></span> Для тех, кому мало</div><div class="pricing-heading"><div><h2>Больше посланий.<br /><em>Больше возможностей.</em></h2><p>Начните бесплатно, а когда понадобится — подключите дополнительные функции.</p></div><a class="text-link" href="#pricing">Все тарифы <span>→</span></a></div>
+      <div class="plans"><article class="plan-card"><span class="plan-label">Базовый</span><h3>0 ₽ <small>/ навсегда</small></h3><p>Чтобы попробовать и понять, как это работает.</p><ul><li>1 активная ссылка</li><li>До 50 сообщений в месяц</li><li>Веб-ящик посланий</li></ul><button class="button button-outline" data-open-dialog="creatorDialog">Начать бесплатно</button></article><article class="plan-card plan-featured"><div class="plan-ribbon">самый популярный</div><span class="plan-label">Тёплый круг</span><h3>199 ₽ <small>/ месяц</small></h3><p>Для тех, кто хочет сохранить всё важное.</p><ul><li>Неограниченные сообщения</li><li>Telegram и ВКонтакте боты</li><li>Фильтр и экспорт посланий</li></ul><button class="button button-primary" data-open-dialog="paymentDialog">Подключить тариф <span>↗</span></button></article></div>
+    </section>
+  </main>
+
+  <footer class="site-footer"><div class="footer-top"><a class="brand brand-footer" href="#top"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M5.3 8.1A3.1 3.1 0 0 1 8.4 5h15.2a3.1 3.1 0 0 1 3.1 3.1v11.8a3.1 3.1 0 0 1-3.1 3.1H15l-5.7 4v-4H8.4a3.1 3.1 0 0 1-3.1-3.1V8.1Z" fill="currentColor"/><path d="m9 10 7 5 7-5" stroke="#FFF9EF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="brand-name">послания<span class="brand-heart">♡</span></span></a><p>Говорить важное —<br />можно бережно.</p><div class="footer-links"><a href="#how-it-works">Как это работает</a><a href="#pricing">Тарифы</a><a href="mailto:hello@poslaniya.example">Поддержка</a></div></div><div class="footer-bottom"><span>© 2024–2026 Послания</span><span>Сделано с теплом <b>♡</b></span><span><a href="#">Политика конфиденциальности</a> · <a href="#">Оферта</a></span></div></footer>
+
+  <dialog class="app-dialog" id="creatorDialog" aria-labelledby="creatorTitle"><div class="dialog-inner creator-dialog-inner"><button class="dialog-close" data-close-dialog aria-label="Закрыть">×</button><div class="dialog-kicker">Ваша личная ссылка</div><h2 id="creatorTitle">Начнём с имени.</h2><p class="dialog-lead">Так вас будут узнавать в ссылке. Например: <strong>poslaniya.app/anya</strong></p><form id="creatorForm" class="dialog-form"><label for="creatorName">Имя или никнейм</label><div class="slug-input"><span>poslaniya.app/</span><input id="creatorName" name="creatorName" placeholder="вашеимя" pattern="[A-Za-zА-Яа-яЁё0-9_-]{3,24}" minlength="3" maxlength="24" autocomplete="off" required /></div><span class="input-hint">3–24 символа, без пробелов</span><button class="button button-primary button-full" type="submit">Создать мою ссылку <span>↗</span></button></form><div class="created-link" id="createdLink" hidden><div class="created-link-icon">✓</div><div><span>Готово! Ваша ссылка</span><strong id="createdLinkText">poslaniya.app/вашеимя</strong></div><button class="copy-button" id="copyLinkButton" type="button">Скопировать</button></div><button class="dialog-text-button" data-open-dialog="dashboardDialog">У меня уже есть ссылка →</button></div></dialog>
+
+  <dialog class="app-dialog" id="dashboardDialog" aria-labelledby="dashboardTitle"><div class="dialog-inner dashboard-dialog-inner"><button class="dialog-close" data-close-dialog aria-label="Закрыть">×</button><div class="dashboard-head"><div><div class="dialog-kicker">Личный кабинет</div><h2 id="dashboardTitle">Ваш ящик <span class="live-pill"><i></i> онлайн</span></h2></div><button class="icon-button" id="dashboardCopyButton" type="button" title="Скопировать ссылку">↗</button></div><div class="dashboard-link"><span>poslaniya.app/anya</span><button id="dashboardLinkCopy" type="button">Скопировать</button></div><div class="dashboard-stats"><div><strong id="messageCount">3</strong><span>всего посланий</span></div><div><strong id="unreadCount">2</strong><span>непрочитанных</span></div><div><strong>7</strong><span>дней активна</span></div></div><div class="inbox-header"><h3>Последние послания</h3><button class="filter-button" type="button">Все <span>⌄</span></button></div><div class="inbox-list" id="inboxList"><article class="inbox-item unread"><div class="message-avatar avatar-pink">?</div><div class="inbox-message"><div><strong>Анонимно</strong><time>сегодня, 12:44</time></div><p>Ты очень классно справляешься. Просто хотела, чтобы ты это знала 🤍</p><div class="message-actions"><button type="button">Ответить</button><button type="button">Сохранить</button></div></div><span class="unread-dot"></span></article><article class="inbox-item unread"><div class="message-avatar avatar-yellow">✦</div><div class="inbox-message"><div><strong>Анонимно</strong><time>вчера, 20:18</time></div><p>Кажется, ты мне нравишься. Давно хотел сказать.</p><div class="message-actions"><button type="button">Ответить</button><button type="button">Сохранить</button></div></div><span class="unread-dot"></span></article><article class="inbox-item"><div class="message-avatar avatar-lilac">♡</div><div class="inbox-message"><div><strong>Анонимно</strong><time>12 марта, 09:02</time></div><p>Спасибо, что однажды поддержала меня. Я этого не забыл.</p><div class="message-actions"><button type="button">Ответить</button><button type="button">Сохранить</button></div></div></article></div><div class="dashboard-footer"><button class="text-button" data-open-dialog="integrationDialog">Подключить Telegram или VK →</button><button class="text-button muted-button" type="button" id="clearDemoButton">Очистить демо-данные</button></div></div></dialog>
+
+  <dialog class="app-dialog compact-dialog" id="integrationDialog" aria-labelledby="integrationTitle"><div class="dialog-inner"><button class="dialog-close" data-close-dialog aria-label="Закрыть">×</button><div class="dialog-kicker">Оповещения</div><h2 id="integrationTitle">Не пропускайте<br /><em>важные слова.</em></h2><p class="dialog-lead">Подключите бота — новые сообщения будут приходить туда, где вы уже общаетесь.</p><div class="integration-options"><button class="integration-option telegram-option" type="button" data-integration="Telegram"><span class="integration-logo">➤</span><span><strong>Telegram</strong><small>Подключить бота</small></span><b>→</b></button><button class="integration-option vk-option" type="button" data-integration="ВКонтакте"><span class="integration-logo">vk</span><span><strong>ВКонтакте</strong><small>Подключить бота</small></span><b>→</b></button></div><div class="integration-note"><span>i</span> Подключение займёт меньше минуты</div></div></dialog>
+
+  <dialog class="app-dialog compact-dialog" id="paymentDialog" aria-labelledby="paymentTitle"><div class="dialog-inner"><button class="dialog-close" data-close-dialog aria-label="Закрыть">×</button><div class="payment-mark">✦</div><div class="dialog-kicker">Тёплый круг</div><h2 id="paymentTitle">Больше места<br />для важного.</h2><p class="dialog-lead">Подписка на месяц — <strong>199 ₽</strong>. Оплата проходит через CloudPayments.</p><div class="payment-summary"><span>Тёплый круг <small>1 месяц</small></span><strong>199 ₽</strong></div><button class="button button-primary button-full" id="fakePaymentButton" type="button">Перейти к оплате <span>↗</span></button><small class="secure-note">⌁ Безопасная оплата · можно отменить в любой момент</small><div class="payment-success" id="paymentSuccess" hidden>✓ Демо-оплата прошла успешно</div></div></dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"><span>✓</span><span id="toastText">Ссылка скопирована</span></div>
+  <script src="app.js"></script>
+</body>
+</html>
