@@ -202,10 +202,11 @@ async function handleApi(req, res, url) {
   }
   if (req.method === 'POST' && url.pathname === '/api/v1/payments/checkout') {
     const body = await readBody(req);
+    const user = getUserFromRequest(req);
     const plan = body.plan === 'reveal' ? 'reveal' : 'vip';
     const amount = plan === 'reveal' ? 7 : 20;
     const invoiceId = `demo-${plan}-${randomUUID()}`;
-    payments.set(invoiceId, { plan, amount, status: 'pending', createdAt: new Date().toISOString() });
+    payments.set(invoiceId, { plan, amount, userId: user?.id || null, messageId: body.messageId || null, status: 'pending', createdAt: new Date().toISOString() });
     return json(res, 200, { invoiceId, plan, amount, currency: 'RUB', status: 'pending', provider: 'cloudpayments' });
   }
   if (req.method === 'POST' && url.pathname.startsWith('/webhooks/cloudpayments/')) {
@@ -219,7 +220,13 @@ async function handleApi(req, res, url) {
     try { body = raw.length ? JSON.parse(raw.toString('utf8')) : {}; } catch { return json(res, 400, { code: 12, error: 'invalid_json' }); }
     const event = url.pathname.split('/').pop();
     const invoiceId = body.InvoiceId || body.invoiceId;
-    if (invoiceId && payments.has(invoiceId)) payments.get(invoiceId).status = event === 'pay' ? 'paid' : event === 'fail' ? 'failed' : event;
+    const payment = invoiceId && payments.get(invoiceId);
+    if (payment) {
+      payment.status = event === 'pay' ? 'paid' : event === 'fail' ? 'failed' : event;
+      const user = payment.userId && users.get(payment.userId);
+      if (event === 'pay' && user && payment.plan === 'vip') user.vipUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      if (event === 'pay' && user && payment.plan === 'reveal') user.revealCredits += 1;
+    }
     console.log(`[cloudpayments] event=${event} invoice=${invoiceId || 'unknown'}`);
     return json(res, 200, { code: 0 });
   }
