@@ -17,12 +17,16 @@
   let toastTimer;
   let pendingAuthProvider = null;
   let pendingAuthChallenge = null;
+  let activeMessageId = null;
+  const telegramWebApp = window.Telegram?.WebApp || null;
+  const isTelegramWebApp = Boolean(telegramWebApp?.initData);
 
   async function apiRequest(path, options = {}) {
     try {
       const storedAuth = JSON.parse(localStorage.getItem(authKey) || 'null');
       const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
       if (storedAuth?.token) headers.Authorization = `Bearer ${storedAuth.token}`;
+      if (telegramWebApp?.initData) headers['X-Telegram-Init-Data'] = telegramWebApp.initData;
       const response = await fetch(path, { ...options, headers });
       if (!response.ok) return { __error: true, status: response.status };
       return await response.json();
@@ -78,7 +82,7 @@
       list.innerHTML = messages.map((message) => `
         <article class="inbox-item ${message.unread ? 'unread' : ''}">
           <div class="message-avatar avatar-${message.mood || 'pink'}">${message.mood === 'yellow' ? '✦' : message.mood === 'lilac' ? '♡' : '?'}</div>
-          <div class="inbox-message"><div><strong>Анонимно</strong><time>${message.time}</time></div><p>${escapeHtml(message.text)}</p><div class="message-actions"><button type="button" data-reveal-sender>Узнать отправителя · 7 ₽</button><button type="button" data-save>Сохранить</button></div></div>
+          <div class="inbox-message"><div><strong>Анонимно</strong><time>${message.time}</time></div><p>${escapeHtml(message.text)}</p><div class="message-actions"><button type="button" data-reveal-sender data-message-id="${message.id || ''}">Узнать отправителя · 7 ₽</button><button type="button" data-save>Сохранить</button></div></div>
           ${message.unread ? '<span class="unread-dot"></span>' : ''}
         </article>`).join('');
     }
@@ -88,19 +92,58 @@
     if (unread) unread.textContent = messages.filter((message) => message.unread).length;
   }
 
-  function escapeHtml(value) {
-    return value.replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#039;', '"': '&quot;' }[char]));
+  function renderWebAppInbox() {
+    const list = $('#webappInbox');
+    if (!list) return;
+    const unreadMessages = messages.filter((message) => message.unread).length;
+    if ($('#webappMessageCount')) $('#webappMessageCount').textContent = messages.length;
+    if ($('#webappUnreadCount')) $('#webappUnreadCount').textContent = unreadMessages;
+    if (!messages.length) {
+      list.innerHTML = '<div class="webapp-empty">Пока тихо. Поделитесь ссылкой — и здесь появится первое послание ♡</div>';
+      return;
+    }
+    list.innerHTML = messages.slice(0, 10).map((message) => `
+      <article class="webapp-message ${message.unread ? 'unread' : ''}">
+        <div class="message-avatar avatar-${message.mood || 'pink'}">${message.mood === 'yellow' ? '✦' : message.mood === 'lilac' ? '♡' : '?'}</div>
+        <div class="webapp-message-body"><div class="webapp-message-meta"><strong>Анонимно</strong><time>${escapeHtml(message.time || 'недавно')}</time></div><p>${escapeHtml(message.text)}</p></div>
+        ${message.unread ? '<span class="unread-dot"></span>' : ''}
+      </article>`).join('');
   }
 
-  function submitAnonymousMessage(text) {
+  async function syncInbox() {
+    const result = await apiRequest('/api/v1/inbox');
+    if (result?.messages) {
+      messages = result.messages.map((message) => ({ ...message, time: message.time || new Date(message.createdAt).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) }));
+      persistMessages();
+      renderInbox();
+    }
+    renderWebAppInbox();
+    return result;
+  }
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#039;', '"': '&quot;' }[char]));
+  }
+
+  async function submitAnonymousMessage(text) {
     const cleanText = text.trim();
     if (cleanText.length < 3) {
       showToast('Напишите хотя бы несколько слов');
       return false;
     }
-    messages.unshift({ text: cleanText, time: 'только что', mood: 'pink', unread: true });
-    persistMessages();
-    renderInbox();
+    const result = await apiRequest('/api/v1/links/anya/messages', { method: 'POST', body: JSON.stringify({ text: cleanText, channel: 'web' }) });
+    if (result?.__error && result.status >= 500) {
+      showToast('Не удалось отправить. Попробуйте ещё раз');
+      return false;
+    }
+    if (!result?.__error && result?.message) {
+      await syncInbox();
+    } else {
+      messages.unshift({ id: `local-${Date.now()}`, text: cleanText, time: 'только что', mood: 'pink', unread: true });
+      persistMessages();
+      renderInbox();
+      renderWebAppInbox();
+    }
     return true;
   }
 
@@ -144,6 +187,7 @@
       }
       $('.menu-toggle')?.setAttribute('aria-expanded', 'false');
       $('.desktop-nav')?.classList.remove('open');
+      if (targetId === 'dashboardDialog') requestAnimationFrame(syncInbox);
       return;
     }
     const closeTrigger = event.target.closest('[data-close-dialog]');
@@ -162,6 +206,7 @@
       const button = event.target;
       const item = button.closest('.inbox-item');
       if (button.hasAttribute('data-reveal-sender')) {
+        activeMessageId = button.dataset.messageId || null;
         openDialog('revealDialog');
         return;
       }
@@ -170,6 +215,9 @@
         if (messages[messageIndex]) {
           messages[messageIndex].unread = false;
           persistMessages();
+          if (messages[messageIndex].id && !String(messages[messageIndex].id).startsWith('local-')) {
+            apiRequest(`/api/v1/messages/${messages[messageIndex].id}/save`, { method: 'POST', body: '{}' });
+          }
         }
         item?.classList.remove('unread');
         item?.querySelector('.unread-dot')?.remove();
@@ -228,12 +276,13 @@
   }
 
   const creatorForm = $('#creatorForm');
-  creatorForm?.addEventListener('submit', (event) => {
+  creatorForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const input = $('#creatorName');
     const normalized = input.value.trim().toLowerCase().replace(/\s+/g, '-');
     if (!normalized || normalized.length < 3) return;
-    const link = `poslaniya.app/${normalized}`;
+    const result = await apiRequest('/api/v1/links', { method: 'POST', body: JSON.stringify({ slug: normalized }) });
+    const link = result?.link || `poslaniya.app/${normalized}`;
     $('#createdLinkText').textContent = link;
     $('#createdLink').hidden = false;
     input.closest('.slug-input').style.borderColor = '#aaca9f';
@@ -247,9 +296,9 @@
   const heroMessage = $('#heroMessage');
   const counter = $('#heroCharCount');
   heroMessage?.addEventListener('input', () => { counter.textContent = heroMessage.value.length; });
-  $('#heroMessageForm')?.addEventListener('submit', (event) => {
+  $('#heroMessageForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    if (!submitAnonymousMessage(heroMessage.value)) return;
+    if (!await submitAnonymousMessage(heroMessage.value)) return;
     $('#heroMessageForm').hidden = true;
     $('#heroSuccess').hidden = false;
     heroMessage.value = '';
@@ -277,7 +326,7 @@
     button.disabled = true;
     button.innerHTML = 'Проверяем…';
     await apiRequest('/api/v1/payments/checkout', { method: 'POST', body: JSON.stringify({ plan: 'reveal', amount: 7, currency: 'RUB', days: 0 }) });
-    await apiRequest('/api/v1/messages/demo/reveal', { method: 'POST', body: JSON.stringify({ amount: 7 }) });
+    await apiRequest(`/api/v1/messages/${activeMessageId || 'demo'}/reveal`, { method: 'POST', body: JSON.stringify({ amount: 7 }) });
     setTimeout(() => {
       button.hidden = true;
       $('#revealSuccess').hidden = false;
@@ -299,6 +348,32 @@
     toggle.setAttribute('aria-expanded', String(open));
   });
 
+  async function initializeTelegramWebApp() {
+    if (!isTelegramWebApp) return;
+    document.body.classList.add('telegram-webapp');
+    $('#webappPanel')?.removeAttribute('hidden');
+    telegramWebApp.ready();
+    telegramWebApp.expand();
+    const result = await apiRequest('/api/v1/auth/telegram/webapp', { method: 'POST', body: JSON.stringify({ initData: telegramWebApp.initData }) });
+    if (result?.token) {
+      localStorage.setItem(authKey, JSON.stringify({ provider: 'telegram', loggedInAt: Date.now(), ...result }));
+      if ($('#webappUserLine') && result.user) $('#webappUserLine').textContent = `${result.user.displayName || 'Ваш ящик'} · Telegram подключён`;
+    }
+    await syncInbox();
+  }
+
+  $('#webappClose')?.addEventListener('click', () => {
+    if (telegramWebApp) telegramWebApp.close();
+    else document.body.classList.remove('telegram-webapp');
+  });
+  $('#webappShareButton')?.addEventListener('click', () => copyText('https://poslaniya.app/anya', 'Ссылка скопирована'));
+  $('#webappRefreshButton')?.addEventListener('click', () => syncInbox().then(() => showToast('Ящик обновлён')));
+  $('#webappVipButton')?.addEventListener('click', () => openDialog('paymentDialog'));
+  $('#webappSettingsButton')?.addEventListener('click', () => openDialog('integrationDialog'));
+  $('#webappRetentionButton')?.addEventListener('click', () => openDialog('integrationDialog'));
+
   // Keep the demo dashboard counters in sync after a sent message.
   renderInbox();
+  renderWebAppInbox();
+  initializeTelegramWebApp();
 })();

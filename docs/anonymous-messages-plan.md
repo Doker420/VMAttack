@@ -67,6 +67,8 @@
 - демо-личный кабинет с unread-счётчиками и списком посланий;
 - сохранение демо-сообщений между обновлениями страницы через `localStorage`;
 - demo-вход через Telegram/VK-бота с экраном deep link и подтверждением;
+- Telegram Web App shell с общим inbox и общей сессией;
+- единый demo API для сайта, Web App и webhook-ботов;
 - тариф VIP 20 ₽ / 30 дней;
 - разовая опция «узнать отправителя» за 7 ₽;
 - переключатель ежедневных рандомных посланий с opt-in;
@@ -103,6 +105,18 @@
                          │ CloudPayments  │
                          └────────────────┘
 ```
+
+### Единая точка входа
+
+Сайт и Telegram Web App не должны быть двумя продуктами. Это один frontend на одном origin и один backend API:
+
+- Telegram `/start` или `/app` привязывает `provider_user_id` и выдаёт кнопку открытия Web App;
+- Web App передаёт `Telegram.WebApp.initData`, backend проверяет HMAC через bot token и выдаёт обычную сессию;
+- Web App, сайт и боты читают один inbox, одну персональную ссылку, один VIP-статус и одни настройки daily-уведомлений;
+- новое послание из любого канала вызывает общий notification service, который доставляет его в подключённые identities;
+- VK использует ту же ссылку на Web App через кнопку `open_link`.
+
+Нельзя доверять `initDataUnsafe` на сервере и нельзя считать Web App пользователя авторизованным без HMAC-проверки `initData`.
 
 ### Стек
 
@@ -151,6 +165,7 @@ VIP создаёт доступ до `paid_at + 30 дней`; `reveal_sender` п
 ```http
 POST /api/v1/auth/{telegram|vk}/start
 POST /api/v1/auth/{telegram|vk}/complete
+POST /api/v1/auth/telegram/webapp
 GET  /api/v1/me
 GET  /api/v1/plans
 POST /api/v1/links
@@ -192,6 +207,16 @@ GET  /health
 > 💌 Новое анонимное послание для вас\n\n«Текст сообщения…»\n\n[Открыть ящик] [Сохранить] [Пожаловаться]
 
 Использовать webhook, secret token, проверку `X-Telegram-Bot-Api-Secret-Token`, idempotency по `update_id` и очередь отправки.
+
+### Telegram Web App
+
+- `WEB_APP_URL` — HTTPS origin сайта;
+- `/start` и `/app` создают/находят пользователя и отправляют inline keyboard с `web_app.url`;
+- `setChatMenuButton` задаёт постоянную кнопку «Мой ящик»;
+- frontend вызывает `Telegram.WebApp.ready()` и `expand()`;
+- backend принимает `Telegram.WebApp.initData`, проверяет HMAC по алгоритму Telegram и срок `auth_date`;
+- после валидации Web App получает обычную сессию и использует `/api/v1/inbox`, `/api/v1/links`, `/api/v1/payments` и `/api/v1/retention/settings`;
+- в Telegram-сообщениях о новом послании прикладывается кнопка «Открыть мой ящик».
 
 ## 8. Ежедневные рандомные послания
 

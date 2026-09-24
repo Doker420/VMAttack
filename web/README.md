@@ -1,6 +1,6 @@
-# Послания — UI MVP
+# Послания — единый Web + Bot MVP
 
-Интерактивный frontend-прототип сервиса анонимных посланий.
+Интерактивный сервис анонимных посланий, где сайт, Telegram Web App, Telegram-бот и VK-бот используют общий API, аккаунт, ящик, тарифы и настройки рассылок.
 
 ## Запуск
 
@@ -28,10 +28,22 @@ TELEGRAM_BOT_TOKEN=...
 VK_GROUP_ID=...
 VK_GROUP_TOKEN=...
 VK_CONFIRMATION_TOKEN=...
+WEB_APP_URL=https://your-domain.example
 PORT=4173
 ```
 
-Без токенов работают demo-авторизация, тарифы и настройки удержания. При наличии токенов scheduler сможет отправлять ежедневные сообщения через официальные API Telegram/VK.
+Без токенов работают demo-авторизация, Web App shell, общий inbox, тарифы и настройки удержания. При наличии токенов scheduler сможет отправлять ежедневные сообщения через официальные API Telegram/VK.
+
+## Единый организм
+
+- `/start` и `/app` в Telegram автоматически создают/находят общий аккаунт и отправляют кнопку Telegram Web App;
+- `setChatMenuButton` на production настраивает постоянную кнопку «Мой ящик»;
+- Web App подтверждает `Telegram.WebApp.initData` на backend, после чего получает ту же сессию, что и сайт;
+- сайт и Web App читают один `/api/v1/inbox`, отправляют в один `/api/v1/links/{slug}/messages` и используют одинаковые платежи/retention settings;
+- новое послание из сайта вызывает общий `notifyUser`, который доставляет уведомление в привязанные Telegram и VK identities;
+- VK-бот отправляет такую же ссылку на общий Web App через inline keyboard.
+
+Telegram Web App требует HTTPS в production. Укажите его адрес в `WEB_APP_URL` и установите webhook на `/webhooks/telegram`.
 
 ## Что можно проверить
 
@@ -43,4 +55,4 @@ PORT=4173
 - «Узнать отправителя» → демо-сценарий разовой оплаты 7 ₽;
 - обновите страницу: демо-сообщения сохраняются в `localStorage`.
 
-Текущие Telegram/VK/CloudPayments в интерфейсе являются сценариями-заглушками. Контракт настоящих webhook/API интеграций и план запуска находятся в [`../docs/anonymous-messages-plan.md`](../docs/anonymous-messages-plan.md).
+Без production-токенов кнопки платежей и авторизации работают в demo-режиме. Webhook/API-контракты и план запуска находятся в [`../docs/anonymous-messages-plan.md`](../docs/anonymous-messages-plan.md).
