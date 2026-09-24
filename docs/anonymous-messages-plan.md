@@ -12,9 +12,9 @@
 
 ### Роли
 
-- **Получатель** — создаёт ссылку, принимает послания, модерирует их, подключает уведомления и тариф.
+- **Получатель** — входит через Telegram/VK-бота, создаёт ссылку, принимает послания, модерирует их и подключает тариф.
 - **Отправитель** — открывает публичную ссылку, пишет послание без регистрации.
-- **Администратор** — управляет пользователями, жалобами, стоп-словами, оплатами и настройками каналов.
+- **Администратор** — управляет пользователями, жалобами, стоп-словами, оплатами, рассылками и настройками каналов.
 
 ## 2. Сценарии MVP
 
@@ -37,11 +37,23 @@
 
 ### Оплата
 
-1. Получатель выбирает тариф «Тёплый круг».
-2. Сервер создаёт платёжную сессию и передаёт в браузер только публичные параметры.
-3. Открывается CloudPayments Widget.
-4. Статус тарифа меняется **только после серверного callback Pay** с проверенной подписью.
-5. При `Fail` доступ не выдаётся; при `Refund`/`Recurrent` состояние подписки синхронизируется.
+1. Получатель выбирает VIP — **20 ₽ на 30 дней**.
+2. Если у конкретного послания доступен отправитель, получатель может купить разовое раскрытие — **7 ₽ за одно послание**.
+3. Сервер создаёт платёжную сессию и передаёт в браузер только публичные параметры.
+4. Открывается CloudPayments Widget.
+5. Статус тарифа меняется **только после серверного callback Pay** с проверенной подписью.
+6. При `Fail` доступ не выдаётся; при `Refund`/`Recurrent` состояние подписки синхронизируется.
+
+### Авторизация через бота
+
+1. Сайт создаёт одноразовый challenge с TTL 10 минут.
+2. Пользователь нажимает «Войти через Telegram» или «Войти через VK».
+3. Сайт открывает deep link бота: `t.me/{bot}?start=auth_{challenge}` либо ссылку VK с ref-параметром.
+4. Бот получает challenge, связывает `provider_user_id` с аккаунтом и отправляет подтверждение.
+5. Backend переводит challenge в короткую сессию; frontend получает только access/refresh токены.
+6. Повторное использование challenge, истёкшие challenge и чужой provider id отклоняются.
+
+В UI-прототипе этот сценарий можно пройти в demo-режиме кнопкой «Я уже в боте». В `web/server.mjs` уже есть challenge endpoints и обработчики `/webhooks/telegram` и `/webhooks/vk`.
 
 ## 3. Объем первой версии
 
@@ -54,8 +66,11 @@
 - генерация и копирование персональной ссылки;
 - демо-личный кабинет с unread-счётчиками и списком посланий;
 - сохранение демо-сообщений между обновлениями страницы через `localStorage`;
-- заглушки экранов подключения Telegram/VK;
-- демо-сценарий платежа на 199 ₽ через CloudPayments;
+- demo-вход через Telegram/VK-бота с экраном deep link и подтверждением;
+- тариф VIP 20 ₽ / 30 дней;
+- разовая опция «узнать отправителя» за 7 ₽;
+- переключатель ежедневных рандомных посланий с opt-in;
+- demo-сценарии платежа через CloudPayments;
 - тарифы, объяснение сервиса и блок безопасности.
 
 ### Требует подключения серверной части
@@ -121,7 +136,9 @@
 
 ### `subscriptions` / `payments`
 
-`id`, `user_id`, `plan`, `cloudpayments_transaction_id`, `status`, `amount`, `currency`, `paid_at`, `next_payment_at`, `raw_event_hash`.
+`id`, `user_id`, `plan` (`vip_30d` | `reveal_sender`), `message_id` nullable, `cloudpayments_transaction_id`, `status`, `amount`, `currency`, `paid_at`, `next_payment_at`, `raw_event_hash`.
+
+VIP создаёт доступ до `paid_at + 30 дней`; `reveal_sender` привязан к конкретному `message_id` и расходуется ровно один раз.
 
 `raw_event_hash` нужен для идемпотентной обработки callback: повторный Pay не должен дважды включать тариф.
 
@@ -133,7 +150,9 @@
 
 ```http
 POST /api/v1/auth/{telegram|vk}/start
+POST /api/v1/auth/{telegram|vk}/complete
 GET  /api/v1/me
+GET  /api/v1/plans
 POST /api/v1/links
 GET  /api/v1/links/{slug}
 POST /api/v1/links/{slug}/messages
@@ -142,6 +161,9 @@ POST /api/v1/messages/{id}/read
 POST /api/v1/messages/{id}/save
 POST /api/v1/messages/{id}/report
 POST /api/v1/integrations/{telegram|vk}/connect
+PUT  /api/v1/retention/settings
+POST /api/v1/retention/broadcast
+POST /api/v1/messages/{id}/reveal
 POST /api/v1/payments/checkout
 POST /webhooks/cloudpayments/{check|pay|fail|confirm|refund|recurrent|cancel}
 POST /webhooks/telegram
@@ -171,7 +193,22 @@ GET  /health
 
 Использовать webhook, secret token, проверку `X-Telegram-Bot-Api-Secret-Token`, idempotency по `update_id` и очередь отправки.
 
-## 8. Бот ВКонтакте
+## 8. Ежедневные рандомные послания
+
+Функция удержания включается пользователем в настройках бота и по умолчанию выключена. Это не безусловный спам: отправлять сообщение можно только пользователям с явным согласием на daily-уведомления и активной связкой Telegram/VK.
+
+- scheduler запускается раз в 24 часа;
+- выбирает случайный текст из безопасного каталога или генерирует его из заранее проверенных шаблонов;
+- выбирает всех пользователей с `daily_enabled = true` и активной подпиской/согласием;
+- отправляет одно сообщение через Telegram Bot API или VK Messages API;
+- пишет результат доставки в `notification_deliveries`, повторяет временные ошибки через очередь;
+- кнопка `/settings` и ссылка «Отключить ежедневные послания» должны быть в каждом сообщении;
+- тихие часы и часовой пояс пользователя учитываются перед отправкой;
+- дневной лимит — одно послание на пользователя.
+
+В demo API есть `PUT /api/v1/retention/settings` и `POST /api/v1/retention/broadcast`; встроенный scheduler запускается в `web/server.mjs`. Для production заменить in-memory хранилища на Redis/PostgreSQL и вынести worker в отдельный процесс.
+
+## 9. Бот ВКонтакте
 
 - Callback API, подтверждение callback-сервера;
 - клавиатура: «Моя ссылка», «Последние послания», «Настройки»;
@@ -179,7 +216,7 @@ GET  /health
 - обработка повторов по `event_id`;
 - хранение только минимального `vk_user_id` и статуса согласия на уведомления.
 
-## 9. CloudPayments
+## 10. CloudPayments
 
 Использовать [официальную документацию CloudPayments](https://developers.cloudpayments.ru/):
 
@@ -198,8 +235,8 @@ GET  /health
 const widget = new cp.CloudPayments();
 widget.pay('charge', {
   publicId: window.RUNTIME_CLOUDPAYMENTS_PUBLIC_ID,
-  description: 'Тариф «Тёплый круг», 1 месяц',
-  amount: 199,
+  description: 'VIP-доступ «Послания», 30 дней',
+  amount: 20,
   currency: 'RUB',
   invoiceId: checkout.invoiceId,
   accountId: checkout.accountId
@@ -212,7 +249,7 @@ widget.pay('charge', {
 
 Frontend не должен считать `onSuccess` подтверждением подписки: окончательный статус приходит через API после callback `Pay`.
 
-## 10. Безопасность и модерация
+## 11. Безопасность и модерация
 
 - HTTPS везде, secure/httpOnly/sameSite cookies;
 - CSRF для cookie-сессии или короткоживущие access/refresh tokens;
@@ -226,7 +263,7 @@ Frontend не должен считать `onSuccess` подтверждение
 
 Важно явно написать в оферте, privacy policy и интерфейсе: анонимность означает отсутствие отображения профиля отправителя, но не обещает абсолютную неотслеживаемость при противоправных действиях.
 
-## 11. Этапы реализации
+## 12. Этапы реализации
 
 ### Этап 0 — уточнение (1–2 дня)
 
@@ -264,7 +301,7 @@ Frontend не должен считать `onSuccess` подтверждение
 - нагрузочный тест отправки;
 - мониторинг, backup, staging и production deploy.
 
-## 12. Definition of Done для MVP
+## 13. Definition of Done для MVP
 
 - послание от отправителя попадает в ящик не более чем за 5 секунд;
 - отправитель не обязан регистрироваться;
