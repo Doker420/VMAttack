@@ -37,7 +37,7 @@
 
 ### Оплата
 
-1. Получатель выбирает VIP — **20 ₽ на 30 дней**.
+1. Получатель выбирает VIP — **20 ₽ на 7 дней**.
 2. Если у конкретного послания доступен отправитель, получатель может купить разовое раскрытие — **7 ₽ за одно послание**.
 3. Сервер создаёт платёжную сессию и передаёт в браузер только публичные параметры.
 4. Открывается CloudPayments Widget.
@@ -69,7 +69,7 @@
 - demo-вход через Telegram/VK-бота с экраном deep link и подтверждением;
 - Telegram Web App shell с общим inbox и общей сессией;
 - единый demo API для сайта, Web App и webhook-ботов;
-- тариф VIP 20 ₽ / 30 дней;
+- тариф VIP 20 ₽ / 7 дней;
 - разовая опция «узнать отправителя» за 7 ₽;
 - переключатель ежедневных рандомных посланий с opt-in;
 - demo-сценарии платежа через CloudPayments;
@@ -152,7 +152,7 @@
 
 `id`, `user_id`, `plan` (`vip_30d` | `reveal_sender`), `message_id` nullable, `cloudpayments_transaction_id`, `status`, `amount`, `currency`, `paid_at`, `next_payment_at`, `raw_event_hash`.
 
-VIP создаёт доступ до `paid_at + 30 дней`; `reveal_sender` привязан к конкретному `message_id` и расходуется ровно один раз.
+VIP создаёт доступ до `paid_at + 7 дней`; `reveal_sender` привязан к конкретному `message_id` и расходуется ровно один раз.
 
 `raw_event_hash` нужен для идемпотентной обработки callback: повторный Pay не должен дважды включать тариф.
 
@@ -260,7 +260,7 @@ GET  /health
 const widget = new cp.CloudPayments();
 widget.pay('charge', {
   publicId: window.RUNTIME_CLOUDPAYMENTS_PUBLIC_ID,
-  description: 'VIP-доступ «Послания», 30 дней',
+  description: 'VIP-доступ «Послания», 7 дней',
   amount: 20,
   currency: 'RUB',
   invoiceId: checkout.invoiceId,

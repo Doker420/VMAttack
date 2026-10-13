@@ -51,8 +51,24 @@ Telegram Web App требует HTTPS в production. Укажите его ад�
 - форма на hero-экране → отправьте тестовое послание;
 - «Мои послания» → откройте inbox, увидите счётчики и тестовое сообщение;
 - «Подключить Telegram или VK» → сценарии каналов;
-- «Подключить VIP» → демо-сценарий оплаты 20 ₽ за 30 дней;
+- «Подключить VIP» → демо-сценарий оплаты 20 ₽ за 7 дней;
 - «Узнать отправителя» → демо-сценарий разовой оплаты 7 ₽;
 - обновите страницу: демо-сообщения сохраняются в `localStorage`.
 
 Без production-токенов кнопки платежей и авторизации работают в demo-режиме. Webhook/API-контракты и план запуска находятся в [`../docs/anonymous-messages-plan.md`](../docs/anonymous-messages-plan.md).
+
+## Быстрый запуск Telegram-бота в polling-режиме
+
+Polling нужен для первого запуска без публичного HTTPS webhook:
+
+```bash
+export TELEGRAM_BOT_TOKEN='токен_бота'
+export TELEGRAM_BOT_USERNAME='имя_бота_без_@'
+export TELEGRAM_ADMIN_IDS='ваш_telegram_id'
+export TELEGRAM_MODE=polling
+node web/server.mjs
+```
+
+После запуска бот отвечает на `/start`, показывает выбор `Русский / English`, открывает Web App, принимает callback-кнопки, отправляет daily-послания и поддерживает `/admin`, `/stats` через админскую панель.
+
+Команда `/id` показывает Telegram ID, который нужно добавить в `TELEGRAM_ADMIN_IDS`. Токен не следует хранить в Git или публиковать в чате.

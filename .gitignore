@@ -397,3 +397,9 @@ FodyWeavers.xsd
 # JetBrains Rider
 *.sln.iml
 .idea
+
+# Local bot credentials and runtime state
+.env
+.env.*
+!.env.example
+web/data/

@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHmac, randomUUID } from 'node:crypto';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +13,7 @@ const VK_GROUP_ID = process.env.VK_GROUP_ID || 'poslaniya_demo';
 const VK_GROUP_TOKEN = process.env.VK_GROUP_TOKEN || '';
 const VK_CONFIRMATION_TOKEN = process.env.VK_CONFIRMATION_TOKEN || '';
 const WEB_APP_URL = process.env.WEB_APP_URL || `http://localhost:${PORT}`;
+const DATA_FILE = process.env.DATA_FILE || join(ROOT, 'data', 'store.json');
 
 // In-memory stores keep this starter runnable without a database. Replace them with
 // PostgreSQL + Redis before production; the API shape is intentionally stable.
@@ -24,14 +25,57 @@ const payments = new Map();
 const retentionSettings = new Map();
 const publicLinks = new Map();
 const messages = new Map();
+let persistenceTimer = null;
+
+async function persistState() {
+  try {
+    await mkdir(join(ROOT, 'data'), { recursive: true });
+    const snapshot = {
+      users: [...users.values()],
+      publicLinks: [...publicLinks.values()],
+      messages: [...messages.values()],
+      payments: [...payments.entries()],
+      retentionSettings: [...retentionSettings.entries()]
+    };
+    await writeFile(DATA_FILE, JSON.stringify(snapshot, null, 2));
+  } catch (error) {
+    console.error('[store] persist failed:', error.message);
+  }
+}
+
+function schedulePersist() {
+  clearTimeout(persistenceTimer);
+  persistenceTimer = setTimeout(() => persistState(), 100);
+}
+
+async function loadState() {
+  try {
+    const raw = await readFile(DATA_FILE, 'utf8');
+    const snapshot = JSON.parse(raw);
+    if (Array.isArray(snapshot.users)) { users.clear(); snapshot.users.forEach((user) => users.set(user.id, user)); }
+    if (Array.isArray(snapshot.publicLinks)) { publicLinks.clear(); snapshot.publicLinks.forEach((link) => publicLinks.set(link.slug, link)); }
+    if (Array.isArray(snapshot.messages)) { messages.clear(); snapshot.messages.forEach((message) => messages.set(message.id, message)); }
+    if (Array.isArray(snapshot.payments)) { payments.clear(); snapshot.payments.forEach(([id, payment]) => payments.set(id, payment)); }
+    if (Array.isArray(snapshot.retentionSettings)) { retentionSettings.clear(); snapshot.retentionSettings.forEach(([id, settings]) => retentionSettings.set(id, settings)); }
+    console.log(`[store] loaded ${users.size} users, ${messages.size} messages`);
+  } catch (error) {
+    if (error.code !== 'ENOENT') console.error('[store] load failed:', error.message);
+    schedulePersist();
+  }
+}
 
 const randomMessages = [
-  'Небольшое напоминание: вы уже справились со многим. Берегите себя сегодня 🤍',
-  'Напишите сегодня тому, о ком давно думаете. Иногда одного «привет» достаточно.',
-  'Ваши слова важны. Оставьте кому-нибудь тёплое послание — просто так.',
-  'Пауза тоже часть пути. Сделайте вдох и найдите пять минут для себя ✦',
-  'Кому сегодня можно сказать спасибо? Отправьте это послание, пока мысль рядом.'
+  { ru: 'Небольшое напоминание: вы уже справились со многим. Берегите себя сегодня 🤍', en: 'A little reminder: you have already made it through so much. Be kind to yourself today 🤍' },
+  { ru: 'Напишите сегодня тому, о ком давно думаете. Иногда одного «привет» достаточно.', en: 'Message someone you have been thinking about. Sometimes one “hello” is enough.' },
+  { ru: 'Ваши слова важны. Оставьте кому-нибудь тёплое послание — просто так.', en: 'Your words matter. Leave someone a warm message today, just because.' },
+  { ru: 'Пауза тоже часть пути. Сделайте вдох и найдите пять минут для себя ✦', en: 'A pause is part of the journey too. Take a breath and find five minutes for yourself ✦' },
+  { ru: 'Кому сегодня можно сказать спасибо? Отправьте это послание, пока мысль рядом.', en: 'Who could you thank today? Send the message while the thought is still with you.' }
 ];
+
+function randomMessage(language = 'ru') {
+  const message = randomMessages[Math.floor(Math.random() * randomMessages.length)];
+  return message[language === 'en' ? 'en' : 'ru'];
+}
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -91,7 +135,7 @@ function verifyTelegramWebAppInitData(initData) {
   const receivedHash = params.get('hash');
   const authDate = Number(params.get('auth_date'));
   if (!receivedHash || !authDate || Date.now() / 1000 - authDate > 24 * 60 * 60) return null;
-  const dataCheckString = [...params.entries()].filter(([key]) => key !== 'hash').sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => `${key}=${value}`).join('\\n');
+  const dataCheckString = [...params.entries()].filter(([key]) => key !== 'hash').sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => `${key}=${value}`).join('\n');
   const secret = createHmac('sha256', 'WebAppData').update(TELEGRAM_BOT_TOKEN).digest();
   const expectedHash = createHmac('sha256', secret).update(dataCheckString).digest('hex');
   if (expectedHash !== receivedHash) return null;
@@ -131,6 +175,7 @@ function ensurePublicLink(user, requestedSlug = null) {
   const link = existing || { id: randomUUID(), userId: user.id, slug, createdAt: new Date().toISOString(), isActive: true };
   link.slug = slug;
   publicLinks.set(slug, link);
+  schedulePersist();
   return link;
 }
 
@@ -144,6 +189,8 @@ function completeAuth(provider, providerUserId, profile = {}) {
     createdAt: new Date().toISOString(),
     vipUntil: null,
     revealCredits: 0,
+    language: profile.language || 'ru',
+    dailyEnabled: true,
     identities: []
   };
   const identity = identityFor(user, provider);
@@ -152,9 +199,10 @@ function completeAuth(provider, providerUserId, profile = {}) {
   Object.assign(user, profile);
   users.set(user.id, user);
   ensurePublicLink(user);
-  if (!retentionSettings.has(user.id)) retentionSettings.set(user.id, { dailyEnabled: false });
+  if (!retentionSettings.has(user.id)) retentionSettings.set(user.id, { dailyEnabled: user.dailyEnabled !== false });
   const token = randomUUID();
   sessions.set(token, user.id);
+  schedulePersist();
   return { user, token };
 }
 
@@ -179,14 +227,32 @@ function vkAppKeyboard() {
   return { inline: true, buttons: [[{ action: { type: 'open_link', label: 'Открыть мой ящик 💌', link: WEB_APP_URL } }]] };
 }
 
-async function sendTelegramMessage(chatId, text, withApp = true) {
+async function telegramRequest(method, body = {}, timeoutMs = 15000) {
+  if (!TELEGRAM_BOT_TOKEN) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/${method}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.description || `Telegram API ${response.status}`);
+    return result.result;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function sendTelegramMessage(chatId, text, options = true) {
   if (!TELEGRAM_BOT_TOKEN || !chatId) return { skipped: true, reason: 'TELEGRAM_BOT_TOKEN is not configured' };
   const payload = { chat_id: chatId, text };
-  if (withApp) payload.reply_markup = telegramAppKeyboard();
-  const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-  });
-  return { sent: response.ok, status: response.status };
+  if (options === true) payload.reply_markup = telegramAppKeyboard();
+  if (options?.reply_markup) payload.reply_markup = options.reply_markup;
+  try {
+    await telegramRequest('sendMessage', payload);
+    return { sent: true };
+  } catch (error) {
+    console.error('[telegram] sendMessage failed:', error.message);
+    return { sent: false, error: error.message };
+  }
 }
 
 async function sendVkMessage(userId, text, withApp = true) {
@@ -219,16 +285,275 @@ async function configureTelegramBot() {
   ]).catch((error) => console.error('[telegram] bot setup failed:', error.message));
 }
 
+const botCopy = {
+  ru: {
+    chooseLanguage: 'Выберите язык. Я буду присылать послания на выбранном языке:',
+    welcome: 'Добро пожаловать в «Послания» 💌',
+    menuHint: 'Ваш сайт, боты и Web App синхронизированы.',
+    openApp: 'Открыть мой ящик',
+    myLink: 'Моя ссылка',
+    daily: 'Послание дня',
+    vip: 'VIP — 20 ₽ / 7 дней',
+    reveal: 'Открыть отправителя — 7 ₽',
+    settings: 'Настройки',
+    help: 'Помощь',
+    language: 'Язык',
+    dailyOn: 'Ежедневные послания включены',
+    dailyOff: 'Ежедневные послания выключены',
+    paymentTitle: 'Выберите способ оплаты',
+    stub: 'Этот способ пока заглушка. Подключим позже.',
+    admin: 'Панель администратора',
+    broadcastAsk: 'Отправьте следующим сообщением текст или медиа для рассылки. Для отмены: /cancel',
+    broadcastDone: 'Рассылка завершена',
+    noAccess: 'Доступно только администратору.'
+  },
+  en: {
+    chooseLanguage: 'Choose your language. I will send messages in this language:',
+    welcome: 'Welcome to “Messages” 💌',
+    menuHint: 'Your website, bots and Web App are synchronized.',
+    openApp: 'Open my inbox',
+    myLink: 'My link',
+    daily: 'Message of the day',
+    vip: 'VIP — 20 RUB / 7 days',
+    reveal: 'Reveal sender — 7 RUB',
+    settings: 'Settings',
+    help: 'Help',
+    language: 'Language',
+    dailyOn: 'Daily messages enabled',
+    dailyOff: 'Daily messages disabled',
+    paymentTitle: 'Choose a payment method',
+    stub: 'This payment method is a placeholder for now.',
+    admin: 'Admin panel',
+    broadcastAsk: 'Send text or media in the next message. Cancel with /cancel',
+    broadcastDone: 'Broadcast finished',
+    noAccess: 'Admin access only.'
+  }
+};
+
+function botText(language, key) {
+  return botCopy[language === 'en' ? 'en' : 'ru'][key];
+}
+
+function languageKeyboard() {
+  return { inline_keyboard: [[{ text: '🇷🇺 Русский', callback_data: 'lang:ru' }, { text: '🇬🇧 English', callback_data: 'lang:en' }]] };
+}
+
+function botMenuKeyboard(language) {
+  return { inline_keyboard: [
+    [{ text: `💌 ${botText(language, 'openApp')}`, web_app: { url: WEB_APP_URL } }],
+    [{ text: `🔗 ${botText(language, 'myLink')}`, callback_data: 'menu:link' }, { text: `✦ ${botText(language, 'daily')}`, callback_data: 'menu:daily' }],
+    [{ text: `♛ ${botText(language, 'vip')}`, callback_data: 'pay:choose:vip' }, { text: `? ${botText(language, 'reveal')}`, callback_data: 'pay:choose:reveal' }],
+    [{ text: `⚙ ${botText(language, 'settings')}`, callback_data: 'menu:settings' }, { text: `? ${botText(language, 'help')}`, callback_data: 'menu:help' }]
+  ] };
+}
+
+function paymentKeyboard(language, plan) {
+  const label = plan === 'vip' ? botText(language, 'vip') : botText(language, 'reveal');
+  return { inline_keyboard: [
+    [{ text: `💳 ${label}`, web_app: { url: `${WEB_APP_URL}?payment=${plan}` } }],
+    [{ text: 'СБП / SBP — скоро', callback_data: `pay:stub:sbp:${plan}` }],
+    [{ text: 'ЮMoney — заглушка', callback_data: `pay:stub:yoomoney:${plan}` }, { text: 'CryptoBot — заглушка', callback_data: `pay:stub:crypto:${plan}` }]
+  ] };
+}
+
+function dailyKeyboard(language) {
+  return { inline_keyboard: [
+    [{ text: `🔓 ${botText(language, 'reveal')}`, callback_data: 'pay:choose:reveal' }, { text: `♛ ${botText(language, 'vip')}`, callback_data: 'pay:choose:vip' }],
+    [{ text: `💌 ${botText(language, 'openApp')}`, web_app: { url: WEB_APP_URL } }]
+  ] };
+}
+
+function isTelegramAdmin(chatId) {
+  const admins = new Set((process.env.TELEGRAM_ADMIN_IDS || '').split(',').map((id) => id.trim()).filter(Boolean));
+  return admins.has(String(chatId));
+}
+
+function getTelegramUser(message) {
+  const chatId = message.chat?.id || message.from?.id;
+  const providerId = String(message.from?.id || chatId);
+  const existing = [...users.values()].find((candidate) => identityFor(candidate, 'telegram')?.providerUserId === providerId);
+  if (existing) return existing;
+  return completeAuth('telegram', providerId, { displayName: [message.from?.first_name, message.from?.last_name].filter(Boolean).join(' ') || 'Telegram user', username: message.from?.username || null, language: null }).user;
+}
+
+function telegramChatId(user) {
+  return identityFor(user, 'telegram')?.providerUserId;
+}
+
+async function sendBotMenu(user, chatId, text = null) {
+  const language = user.language || 'ru';
+  return sendTelegramMessage(chatId, text || `${botText(language, 'welcome')}\n\n${botText(language, 'menuHint')}`, { reply_markup: botMenuKeyboard(language) });
+}
+
+async function answerCallback(callbackId, text = '') {
+  if (!TELEGRAM_BOT_TOKEN) return;
+  await telegramRequest('answerCallbackQuery', { callback_query_id: callbackId, text }).catch(() => {});
+}
+
+async function sendAdminPanel(chatId) {
+  return sendTelegramMessage(chatId, botText('ru', 'admin'), { reply_markup: { inline_keyboard: [[{ text: 'Статистика', callback_data: 'admin:stats' }], [{ text: 'Создать рассылку', callback_data: 'admin:broadcast' }], [{ text: 'Пользователи', callback_data: 'admin:users' }]] } });
+}
+
+async function sendAdminBroadcast(chatId, message) {
+  const recipients = [...users.values()].filter((user) => telegramChatId(user) && telegramChatId(user) !== String(chatId));
+  let delivered = 0;
+  for (const user of recipients) {
+    try {
+      await telegramRequest('copyMessage', { chat_id: telegramChatId(user), from_chat_id: chatId, message_id: message.message_id, reply_markup: dailyKeyboard(user.language || 'ru') });
+      delivered += 1;
+    } catch (error) {
+      console.error('[admin broadcast] failed:', error.message);
+    }
+  }
+  return delivered;
+}
+
+const adminBroadcastMode = new Set();
+
+async function handleTelegramCallback(callback) {
+  const chatId = callback.message?.chat?.id;
+  const data = callback.data || '';
+  const user = callback.message ? getTelegramUser(callback.message) : null;
+  if (!user || !chatId) return answerCallback(callback.id);
+  if (data.startsWith('lang:')) {
+    user.language = data.slice(5) === 'en' ? 'en' : 'ru';
+    schedulePersist();
+    await answerCallback(callback.id, user.language === 'en' ? 'English selected' : 'Язык выбран');
+    return sendBotMenu(user, chatId);
+  }
+  if (data === 'menu:link') {
+    const link = ensurePublicLink(user);
+    await answerCallback(callback.id);
+    return sendTelegramMessage(chatId, `${botText(user.language, 'myLink')}:\n${new URL(WEB_APP_URL).origin}/${link.slug}`, { reply_markup: botMenuKeyboard(user.language) });
+  }
+  if (data === 'menu:daily') {
+    const text = randomMessage(user.language);
+    await answerCallback(callback.id);
+    return sendTelegramMessage(chatId, `💌 ${botText(user.language, 'daily')}\n\n${text}`, { reply_markup: dailyKeyboard(user.language) });
+  }
+  if (data === 'menu:settings') {
+    await answerCallback(callback.id);
+    return sendTelegramMessage(chatId, `${botText(user.language, 'settings')}\n\n${botText(user.language, 'daily')}: ${user.dailyEnabled === false ? 'OFF' : 'ON'}`, { reply_markup: { inline_keyboard: [[{ text: user.dailyEnabled === false ? '▶ Включить daily' : '⏸ Выключить daily', callback_data: 'menu:toggle_daily' }], [{ text: botText(user.language, 'language'), callback_data: 'menu:language' }], [{ text: '← Меню', callback_data: 'menu:home' }]] } });
+  }
+  if (data === 'menu:toggle_daily') {
+    user.dailyEnabled = user.dailyEnabled === false;
+    retentionSettings.set(user.id, { dailyEnabled: user.dailyEnabled, updatedAt: new Date().toISOString() });
+    schedulePersist();
+    await answerCallback(callback.id, user.dailyEnabled ? botText(user.language, 'dailyOn') : botText(user.language, 'dailyOff'));
+    return sendBotMenu(user, chatId, user.dailyEnabled ? botText(user.language, 'dailyOn') : botText(user.language, 'dailyOff'));
+  }
+  if (data === 'menu:language') {
+    await answerCallback(callback.id);
+    return sendTelegramMessage(chatId, botText(user.language, 'chooseLanguage'), { reply_markup: languageKeyboard() });
+  }
+  if (data === 'menu:help') {
+    await answerCallback(callback.id);
+    return sendTelegramMessage(chatId, '💌 Отправьте свою ссылку друзьям. Новые сообщения появятся в ящике и в боте.\n\nVIP: 20 ₽ / 7 дней. Раскрытие отправителя: 7 ₽.', { reply_markup: botMenuKeyboard(user.language) });
+  }
+  if (data === 'menu:home' || data === 'app') {
+    await answerCallback(callback.id);
+    return sendBotMenu(user, chatId);
+  }
+  if (data === 'pay:choose:vip' || data === 'pay:choose:reveal') {
+    const plan = data.endsWith('vip') ? 'vip' : 'reveal';
+    await answerCallback(callback.id);
+    return sendTelegramMessage(chatId, botText(user.language, 'paymentTitle'), { reply_markup: paymentKeyboard(user.language, plan) });
+  }
+  if (data.startsWith('pay:stub:')) {
+    await answerCallback(callback.id, botText(user.language, 'stub'));
+    return sendTelegramMessage(chatId, botText(user.language, 'stub'), { reply_markup: botMenuKeyboard(user.language) });
+  }
+  if (data === 'admin:stats' || data === 'admin:users' || data === 'admin:broadcast') {
+    if (!isTelegramAdmin(chatId)) return answerCallback(callback.id, botText(user.language, 'noAccess'));
+    if (data === 'admin:broadcast') {
+      adminBroadcastMode.add(String(chatId));
+      await answerCallback(callback.id);
+      return sendTelegramMessage(chatId, botCopy.ru.broadcastAsk);
+    }
+    const botUsers = [...users.values()].filter((candidate) => telegramChatId(candidate));
+    const activeDaily = botUsers.filter((candidate) => candidate.dailyEnabled !== false).length;
+    await answerCallback(callback.id);
+    return sendTelegramMessage(chatId, data === 'admin:stats' ? `📊 Статистика\n\nПользователей бота: ${botUsers.length}\nАктивные daily: ${activeDaily}\nПосланий в общей базе: ${messages.size}\nПерсональных ссылок: ${publicLinks.size}` : `Пользователей бота: ${botUsers.length}`, { reply_markup: { inline_keyboard: [[{ text: '← Админ-панель', callback_data: 'admin:home' }]] } });
+  }
+  if (data === 'admin:home') {
+    if (!isTelegramAdmin(chatId)) return answerCallback(callback.id, botText(user.language, 'noAccess'));
+    await answerCallback(callback.id);
+    return sendAdminPanel(chatId);
+  }
+  return answerCallback(callback.id);
+}
+
+async function handleTelegramUpdate(update) {
+  if (update.callback_query) return handleTelegramCallback(update.callback_query);
+  const message = update.message;
+  if (!message?.chat) return;
+  const chatId = message.chat.id;
+  const text = message.text || '';
+  const user = getTelegramUser(message);
+  const authMatch = text.match(/^\/start\s+auth_([a-z0-9]+)$/i);
+  if (authMatch && pendingAuth.has(authMatch[1])) {
+    const auth = pendingAuth.get(authMatch[1]);
+    if (auth.provider === 'telegram' && Date.now() - auth.createdAt < 10 * 60 * 1000) {
+      authResults.set(authMatch[1], completeAuth('telegram', message.from?.id || chatId, { displayName: user.displayName, username: user.username, language: user.language }));
+      pendingAuth.delete(authMatch[1]);
+      await sendTelegramMessage(chatId, 'Готово! Авторизация подтверждена. Вернитесь на сайт 💌');
+    }
+    return;
+  }
+  if (isTelegramAdmin(chatId) && adminBroadcastMode.has(String(chatId)) && text !== '/cancel' && !text.startsWith('/')) {
+    adminBroadcastMode.delete(String(chatId));
+    const delivered = await sendAdminBroadcast(chatId, message);
+    return sendTelegramMessage(chatId, `${botCopy.ru.broadcastDone}: ${delivered}`);
+  }
+  if (text === '/cancel' && isTelegramAdmin(chatId)) {
+    adminBroadcastMode.delete(String(chatId));
+    return sendTelegramMessage(chatId, 'Отменено.');
+  }
+  if (text === '/id') return sendTelegramMessage(chatId, `Telegram ID: ${chatId}`);
+  if (text === '/admin') return isTelegramAdmin(chatId) ? sendAdminPanel(chatId) : sendTelegramMessage(chatId, botText(user.language, 'noAccess'));
+  if (text === '/stats' && isTelegramAdmin(chatId)) {
+    const botUsers = [...users.values()].filter((candidate) => telegramChatId(candidate));
+    return sendTelegramMessage(chatId, `📊 Статистика\n\nПользователей бота: ${botUsers.length}\nАктивные daily: ${botUsers.filter((candidate) => candidate.dailyEnabled !== false).length}\nПосланий в общей базе: ${messages.size}\nПерсональных ссылок: ${publicLinks.size}`);
+  }
+  if (text === '/broadcast' && isTelegramAdmin(chatId)) {
+    adminBroadcastMode.add(String(chatId));
+    return sendTelegramMessage(chatId, botCopy.ru.broadcastAsk);
+  }
+  if (text === '/start' && !user.language) return sendTelegramMessage(chatId, botCopy.ru.chooseLanguage, { reply_markup: languageKeyboard() });
+  if (text === '/start' || text === '/app') return sendBotMenu(user, chatId);
+  if (text === '/settings') return handleTelegramCallback({ id: `settings-${update.update_id}`, data: 'menu:settings', message });
+  return sendBotMenu(user, chatId);
+}
+
+async function startTelegramPolling() {
+  if (!TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_MODE === 'webhook' || process.env.TELEGRAM_POLLING === 'false') return;
+  await telegramRequest('deleteWebhook', { drop_pending_updates: false }).catch((error) => console.error('[telegram] deleteWebhook failed:', error.message));
+  console.log('[telegram] polling started');
+  let offset = 0;
+  while (true) {
+    try {
+      const updates = await telegramRequest('getUpdates', { offset, timeout: 25, allowed_updates: ['message', 'callback_query'] }, 35000) || [];
+      for (const update of updates) {
+        offset = update.update_id + 1;
+        await handleTelegramUpdate(update).catch((error) => console.error('[telegram] update failed:', error.message));
+      }
+    } catch (error) {
+      console.error('[telegram] polling error:', error.message);
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+  }
+}
+
 async function runDailyRetentionBroadcast() {
   const targets = [...users.values()].filter((user) => retentionSettings.get(user.id)?.dailyEnabled);
-  const text = randomMessages[Math.floor(Math.random() * randomMessages.length)];
   let delivered = 0;
   for (const user of targets) {
+    const text = randomMessage(user.language || 'ru');
     for (const identity of userIdentities(user)) {
       try {
         const result = identity.provider === 'telegram'
-          ? await sendTelegramMessage(identity.providerUserId, `💌 Послания на сегодня\n\n${text}`)
-          : await sendVkMessage(identity.providerUserId, `💌 Послания на сегодня\n\n${text}`);
+          ? await sendTelegramMessage(identity.providerUserId, `💌 Послание дня\n\n${text}`, { reply_markup: dailyKeyboard(user.language || 'ru') })
+          : await sendVkMessage(identity.providerUserId, `💌 Послание дня\n\n${text}`);
         if (result.sent) delivered += 1;
       } catch (error) {
         console.error(`[retention] delivery failed for ${user.id}:`, error.message);
@@ -236,13 +561,13 @@ async function runDailyRetentionBroadcast() {
     }
   }
   console.log(`[retention] ${new Date().toISOString()} targets=${targets.length} delivered=${delivered}`);
-  return { targets: targets.length, delivered, text };
+  return { targets: targets.length, delivered };
 }
 
 async function handleApi(req, res, url) {
   if (req.method === 'OPTIONS') return json(res, 204, {});
   if (req.method === 'GET' && url.pathname === '/api/v1/plans') {
-    return json(res, 200, { plans: [{ id: 'vip', amount: 20, currency: 'RUB', durationDays: 30 }, { id: 'reveal', amount: 7, currency: 'RUB', durationDays: 0 }] });
+    return json(res, 200, { plans: [{ id: 'vip', amount: 20, currency: 'RUB', durationDays: 7 }, { id: 'reveal', amount: 7, currency: 'RUB', durationDays: 0 }] });
   }
   if (req.method === 'POST' && /^\/api\/v1\/auth\/(telegram|vk)\/start$/.test(url.pathname)) {
     const provider = url.pathname.split('/')[4];
@@ -308,6 +633,7 @@ async function handleApi(req, res, url) {
     if (cleanText.length < 3 || cleanText.length > 500) return json(res, 422, { error: 'message_length' });
     const message = { id: randomUUID(), publicLinkId: link.id, body: cleanText, text: cleanText, source: body.channel || 'web', senderAvailable: false, unread: true, saved: false, createdAt: new Date().toISOString(), time: 'только что', mood: 'pink' };
     messages.set(message.id, message);
+    schedulePersist();
     const owner = users.get(link.userId);
     if (owner) await notifyUser(owner, `💌 Новое анонимное послание\n\n«${cleanText}»`);
     return json(res, 200, { message: 'Послание отправлено', id: message.id });
@@ -321,6 +647,7 @@ async function handleApi(req, res, url) {
     if (!ownerLink) return json(res, 404, { error: 'message_not_found' });
     if (action === 'read') message.unread = false;
     if (action === 'save') message.saved = true;
+    schedulePersist();
     return json(res, 200, { ok: true, message });
   }
   if (req.method === 'POST' && /^\/api\/v1\/messages\/[^/]+\/reveal$/.test(url.pathname)) {
@@ -336,7 +663,9 @@ async function handleApi(req, res, url) {
     // The preview sends no bearer token, so keep the anonymous demo setting separate.
     const userId = user?.id || 'demo';
     const settings = { dailyEnabled: Boolean(body.dailyEnabled), updatedAt: new Date().toISOString() };
+    if (user) user.dailyEnabled = settings.dailyEnabled;
     retentionSettings.set(userId, settings);
+    schedulePersist();
     return json(res, 200, settings);
   }
   if (req.method === 'POST' && url.pathname === '/api/v1/retention/broadcast') {
@@ -350,6 +679,7 @@ async function handleApi(req, res, url) {
     const amount = plan === 'reveal' ? 7 : 20;
     const invoiceId = `demo-${plan}-${randomUUID()}`;
     payments.set(invoiceId, { plan, amount, userId: user?.id || null, messageId: body.messageId || null, status: 'pending', createdAt: new Date().toISOString() });
+    schedulePersist();
     return json(res, 200, { invoiceId, plan, amount, currency: 'RUB', status: 'pending', provider: 'cloudpayments' });
   }
   if (req.method === 'POST' && url.pathname.startsWith('/webhooks/cloudpayments/')) {
@@ -367,8 +697,9 @@ async function handleApi(req, res, url) {
     if (payment) {
       payment.status = event === 'pay' ? 'paid' : event === 'fail' ? 'failed' : event;
       const user = payment.userId && users.get(payment.userId);
-      if (event === 'pay' && user && payment.plan === 'vip') user.vipUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      if (event === 'pay' && user && payment.plan === 'vip') user.vipUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
       if (event === 'pay' && user && payment.plan === 'reveal') user.revealCredits += 1;
+      schedulePersist();
     }
     console.log(`[cloudpayments] event=${event} invoice=${invoiceId || 'unknown'}`);
     return json(res, 200, { code: 0 });
@@ -377,23 +708,7 @@ async function handleApi(req, res, url) {
     const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
     if (webhookSecret && req.headers['x-telegram-bot-api-secret-token'] !== webhookSecret) return json(res, 403, { error: 'invalid_telegram_secret' });
     const body = await readBody(req);
-    const message = body.message;
-    const text = message?.text || '';
-    if (text === '/start' || text === '/app' || text === '/settings') {
-      completeAuth('telegram', message.from?.id || message.chat?.id, { displayName: [message.from?.first_name, message.from?.last_name].filter(Boolean).join(' ') || 'Telegram user', username: message.from?.username || null });
-      const intro = text === '/settings' ? 'Настройки уведомлений и ежедневных посланий доступны в приложении:' : 'Добро пожаловать в «Послания» 💌\\n\\nЗдесь живут ваши анонимные сообщения. Откройте ящик в приложении:';
-      await sendTelegramMessage(message.chat?.id, intro);
-      return json(res, 200, { ok: true });
-    }
-    const match = text.match(/^\/start\s+auth_([a-z0-9]+)$/i);
-    if (match && pendingAuth.has(match[1])) {
-      const auth = pendingAuth.get(match[1]);
-      if (auth.provider === 'telegram' && Date.now() - auth.createdAt < 10 * 60 * 1000) {
-        authResults.set(match[1], completeAuth('telegram', message.from?.id || message.chat?.id, { displayName: [message.from?.first_name, message.from?.last_name].filter(Boolean).join(' ') || 'Telegram user', username: message.from?.username || null }));
-        pendingAuth.delete(match[1]);
-        await sendTelegramMessage(message.chat?.id, 'Готово! Авторизация подтверждена. Вернитесь на сайт 💌');
-      }
-    }
+    await handleTelegramUpdate(body);
     return json(res, 200, { ok: true });
   }
   if (req.method === 'POST' && url.pathname.startsWith('/webhooks/vk')) {
@@ -406,7 +721,7 @@ async function handleApi(req, res, url) {
     const text = object.text || '';
     if (text === '/start' || text === '/app' || text === '/settings') {
       completeAuth('vk', object.from_id || object.peer_id, { displayName: 'VK user' });
-      const intro = text === '/settings' ? 'Настройки уведомлений и ежедневных посланий доступны в приложении:' : 'Добро пожаловать в «Послания» 💌\\n\\nОткройте общий ящик в приложении:';
+      const intro = text === '/settings' ? 'Настройки уведомлений и ежедневных посланий доступны в приложении:' : 'Добро пожаловать в «Послания» 💌\n\nОткройте общий ящик в приложении:';
       await sendVkMessage(object.from_id || object.peer_id, intro);
       return json(res, 200, { ok: true });
     }
@@ -426,7 +741,7 @@ async function handleApi(req, res, url) {
 
 async function serveStatic(req, res, url) {
   const requested = url.pathname === '/' ? 'index.html' : url.pathname.replace(/^\//, '');
-  const rootPath = normalize(ROOT).replace(/[\\/]$/, '');
+  const rootPath = normalize(ROOT).replace(/[\/]$/, '');
   const filePath = normalize(join(rootPath, requested));
   if (!(filePath === rootPath || filePath.startsWith(rootPath + sep))) return res.writeHead(403).end('Forbidden');
   try {
@@ -451,10 +766,16 @@ const server = createServer(async (req, res) => {
   }
 });
 
-setInterval(runDailyRetentionBroadcast, RETENTION_INTERVAL_MS).unref();
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Послания listening on http://0.0.0.0:${PORT}`);
-  console.log(`Telegram Web App: ${WEB_APP_URL}`);
-  console.log(`Daily retention scheduler: every ${Math.round(RETENTION_INTERVAL_MS / 1000)}s, only opted-in users`);
-  configureTelegramBot();
-});
+async function bootstrap() {
+  await loadState();
+  setInterval(runDailyRetentionBroadcast, RETENTION_INTERVAL_MS).unref();
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`Послания listening on http://0.0.0.0:${PORT}`);
+    console.log(`Telegram Web App: ${WEB_APP_URL}`);
+    console.log(`Daily retention scheduler: every ${Math.round(RETENTION_INTERVAL_MS / 1000)}s, only opted-in users`);
+    configureTelegramBot();
+    startTelegramPolling();
+  });
+}
+
+bootstrap();
