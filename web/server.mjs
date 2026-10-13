@@ -290,6 +290,19 @@ async function notifyUser(user, text) {
   return Promise.allSettled(deliveries);
 }
 
+function revealRewardText(language = 'ru') {
+  return language === 'en'
+    ? '🙈 Sorry — this was a playful daily teaser from Poslaniya, so there is no real sender to reveal. As a thank-you, we gifted you VIP for 7 days. Real messages will appear in your inbox 💌'
+    : '🙈 Извините — это было игровое послание дня от «Посланий», поэтому настоящего отправителя здесь нет. В качестве извинения дарим вам VIP на 7 дней. Настоящие сообщения появятся в вашем ящике 💌';
+}
+
+async function giftVipAfterReveal(user) {
+  const start = user.vipUntil && new Date(user.vipUntil).getTime() > Date.now() ? new Date(user.vipUntil).getTime() : Date.now();
+  user.vipUntil = new Date(start + 7 * 24 * 60 * 60 * 1000).toISOString();
+  schedulePersist();
+  await notifyUser(user, revealRewardText(user.language || 'ru'));
+}
+
 async function configureTelegramBot() {
   if (!TELEGRAM_BOT_TOKEN || !WEB_APP_URL.startsWith('https://')) return;
   const headers = { 'Content-Type': 'application/json' };
@@ -311,7 +324,7 @@ const botCopy = {
     instructions: 'Как поставить ссылку',
     daily: 'Послание дня',
     vip: 'VIP — 20 ₽ / 7 дней',
-    reveal: 'Открыть отправителя — 7 ₽',
+    reveal: 'Открыть за 7 ₽',
     settings: 'Настройки',
     help: 'Помощь',
     language: 'Язык',
@@ -333,7 +346,7 @@ const botCopy = {
     instructions: 'How to add the link',
     daily: 'Message of the day',
     vip: 'VIP — 20 RUB / 7 days',
-    reveal: 'Reveal sender — 7 RUB',
+    reveal: 'Unlock for 7 RUB',
     settings: 'Settings',
     help: 'Help',
     language: 'Language',
@@ -477,7 +490,7 @@ async function handleTelegramCallback(callback) {
   if (data === 'menu:daily') {
     const text = randomMessage(user.language);
     await answerCallback(callback.id);
-    return sendTelegramMessage(chatId, `💌 ${botText(user.language, 'daily')}\n\n${text}`, { reply_markup: dailyKeyboard(user.language) });
+    return sendTelegramMessage(chatId, `🎲 ${botText(user.language, 'daily')} от «Посланий»\n\n${text}\n\nЭто игровой тизер от сервиса — в нём нет реального автора.`, { reply_markup: dailyKeyboard(user.language) });
   }
   if (data === 'menu:settings') {
     await answerCallback(callback.id);
@@ -581,8 +594,8 @@ async function runDailyRetentionBroadcast() {
     for (const identity of userIdentities(user)) {
       try {
         const result = identity.provider === 'telegram'
-          ? await sendTelegramMessage(identity.providerUserId, `💌 Послание дня\n\n${text}`, { reply_markup: dailyKeyboard(user.language || 'ru') })
-          : await sendVkMessage(identity.providerUserId, `💌 Послание дня\n\n${text}`);
+          ? await sendTelegramMessage(identity.providerUserId, `🎲 Послание дня от «Посланий»\n\n${text}\n\nЭто игровой тизер от сервиса — в нём нет реального автора.`, { reply_markup: dailyKeyboard(user.language || 'ru') })
+          : await sendVkMessage(identity.providerUserId, `🎲 Послание дня от «Посланий»\n\n${text}\n\nЭто игровой тизер от сервиса — в нём нет реального автора.`);
         if (result.sent) delivered += 1;
       } catch (error) {
         console.error(`[retention] delivery failed for ${user.id}:`, error.message);
@@ -727,7 +740,12 @@ async function handleApi(req, res, url) {
       payment.status = event === 'pay' ? 'paid' : event === 'fail' ? 'failed' : event;
       const user = payment.userId && users.get(payment.userId);
       if (event === 'pay' && user && payment.plan === 'vip') user.vipUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-      if (event === 'pay' && user && payment.plan === 'reveal') user.revealCredits += 1;
+      if (event === 'pay' && user && payment.plan === 'reveal') {
+        user.revealCredits += 1;
+        // Daily teaser messages have no real sender. We are transparent about that
+        // and turn the 7 RUB purchase into a 7-day VIP apology reward.
+        if (!payment.messageId) await giftVipAfterReveal(user);
+      }
       schedulePersist();
     }
     console.log(`[cloudpayments] event=${event} invoice=${invoiceId || 'unknown'}`);
