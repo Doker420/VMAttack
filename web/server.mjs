@@ -308,6 +308,7 @@ const botCopy = {
     menuHint: 'Ваш сайт, боты и Web App синхронизированы.',
     openApp: 'Открыть мой ящик',
     myLink: 'Моя ссылка',
+    instructions: 'Как поставить ссылку',
     daily: 'Послание дня',
     vip: 'VIP — 20 ₽ / 7 дней',
     reveal: 'Открыть отправителя — 7 ₽',
@@ -329,6 +330,7 @@ const botCopy = {
     menuHint: 'Your website, bots and Web App are synchronized.',
     openApp: 'Open my inbox',
     myLink: 'My link',
+    instructions: 'How to add the link',
     daily: 'Message of the day',
     vip: 'VIP — 20 RUB / 7 days',
     reveal: 'Reveal sender — 7 RUB',
@@ -350,6 +352,22 @@ function botText(language, key) {
   return botCopy[language === 'en' ? 'en' : 'ru'][key];
 }
 
+function platformLinks() {
+  const site = new URL(WEB_APP_URL).origin;
+  return {
+    telegram: `https://t.me/${TELEGRAM_BOT_USERNAME}`,
+    vk: `https://vk.me/${VK_GROUP_ID}`,
+    site
+  };
+}
+
+function profileInstructions(language = 'ru', user = null) {
+  const links = platformLinks();
+  const link = user ? `${links.site}/${ensurePublicLink(user).slug}` : `${links.site}/anya`;
+  if (language === 'en') return `📌 How to add your link to a profile\n\n1. Telegram — add this link to your bio: ${links.telegram}\n2. VK — add this link to your profile: ${links.vk}\n3. Website — share your personal link: ${link}\n\nAfter adding it, your followers can open the bot or site and send you anonymous messages.`;
+  return `📌 Как поставить ссылку в профиль\n\n1. Telegram — добавьте в описание профиля: ${links.telegram}\n2. ВКонтакте — добавьте в профиль ссылку: ${links.vk}\n3. Сайт — поделитесь своей ссылкой: ${link}\n\nПосле этого подписчики смогут открыть бота или сайт и отправить вам анонимное послание.`;
+}
+
 function languageKeyboard() {
   return { inline_keyboard: [[{ text: '🇷🇺 Русский', callback_data: 'lang:ru' }, { text: '🇬🇧 English', callback_data: 'lang:en' }]] };
 }
@@ -359,6 +377,7 @@ function botMenuKeyboard(language) {
     [{ text: `💌 ${botText(language, 'openApp')}`, web_app: { url: WEB_APP_URL } }],
     [{ text: `🔗 ${botText(language, 'myLink')}`, callback_data: 'menu:link' }, { text: `✦ ${botText(language, 'daily')}`, callback_data: 'menu:daily' }],
     [{ text: `♛ ${botText(language, 'vip')}`, callback_data: 'pay:choose:vip' }, { text: `? ${botText(language, 'reveal')}`, callback_data: 'pay:choose:reveal' }],
+    [{ text: `📌 ${botText(language, 'instructions')}`, callback_data: 'menu:instructions' }],
     [{ text: `⚙ ${botText(language, 'settings')}`, callback_data: 'menu:settings' }, { text: `? ${botText(language, 'help')}`, callback_data: 'menu:help' }]
   ] };
 }
@@ -449,7 +468,11 @@ async function handleTelegramCallback(callback) {
   if (data === 'menu:link') {
     const link = ensurePublicLink(user);
     await answerCallback(callback.id);
-    return sendTelegramMessage(chatId, `${botText(user.language, 'myLink')}:\n${new URL(WEB_APP_URL).origin}/${link.slug}`, { reply_markup: botMenuKeyboard(user.language) });
+    return sendTelegramMessage(chatId, `${botText(user.language, 'myLink')}:\n${new URL(WEB_APP_URL).origin}/${link.slug}\n\n${profileInstructions(user.language, user)}`, { reply_markup: { inline_keyboard: [[{ text: `💌 ${botText(user.language, 'openApp')}`, web_app: { url: WEB_APP_URL } }], [{ text: '← Меню', callback_data: 'menu:home' }]] } });
+  }
+  if (data === 'menu:instructions') {
+    await answerCallback(callback.id);
+    return sendTelegramMessage(chatId, profileInstructions(user.language, user), { reply_markup: { inline_keyboard: [[{ text: `🔗 ${botText(user.language, 'myLink')}`, callback_data: 'menu:link' }], [{ text: '← Меню', callback_data: 'menu:home' }]] } });
   }
   if (data === 'menu:daily') {
     const text = randomMessage(user.language);

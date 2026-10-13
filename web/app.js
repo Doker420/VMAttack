@@ -371,6 +371,22 @@
   $('#webappVipButton')?.addEventListener('click', () => openDialog('paymentDialog'));
   $('#webappSettingsButton')?.addEventListener('click', () => openDialog('integrationDialog'));
   $('#webappRetentionButton')?.addEventListener('click', () => openDialog('integrationDialog'));
+  $('#webappDailySetting')?.addEventListener('click', () => openDialog('integrationDialog'));
+  $('#webappIntegrationsSetting')?.addEventListener('click', () => openDialog('integrationDialog'));
+  $('#webappSiteLink')?.addEventListener('click', () => copyText('https://poslaniya.app/anya', 'Ссылка скопирована'));
+  $$('[data-webapp-tab]').forEach((tab) => tab.addEventListener('click', () => {
+    const name = tab.dataset.webappTab;
+    if (name === 'vip') {
+      openDialog('paymentDialog');
+      return;
+    }
+    $$('[data-webapp-tab]').forEach((item) => item.classList.toggle('active', item === tab));
+    ['inbox', 'link', 'settings'].forEach((view) => {
+      const element = $(`#webapp${view[0].toUpperCase()}${view.slice(1)}View`);
+      if (element) element.hidden = view !== name;
+    });
+  }));
+  $('#profileCopyButton')?.addEventListener('click', () => copyText('https://poslaniya.app/anya', 'Ссылка скопирована'));
 
   // Keep the demo dashboard counters in sync after a sent message.
   renderInbox();
