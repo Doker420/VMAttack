@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHmac, randomUUID } from 'node:crypto';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createTelegramBot } from './telegram-bot.mjs';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PORT = Number(process.env.PORT || 4173);
@@ -14,6 +15,7 @@ const VK_GROUP_TOKEN = process.env.VK_GROUP_TOKEN || '';
 const VK_CONFIRMATION_TOKEN = process.env.VK_CONFIRMATION_TOKEN || '';
 const WEB_APP_URL = process.env.WEB_APP_URL || `http://localhost:${PORT}`;
 const DATA_FILE = process.env.DATA_FILE || join(ROOT, 'data', 'store.json');
+const START_BANNER_URL = process.env.TELEGRAM_START_BANNER_URL || (WEB_APP_URL.startsWith('https://') ? `${WEB_APP_URL.replace(/\/$/, '')}/assets/start-banner.png` : '');
 
 // In-memory stores keep this starter runnable without a database. Replace them with
 // PostgreSQL + Redis before production; the API shape is intentionally stable.
@@ -255,6 +257,20 @@ async function sendTelegramMessage(chatId, text, options = true) {
   }
 }
 
+async function sendTelegramPhoto(chatId, caption, options = true) {
+  if (!START_BANNER_URL || !TELEGRAM_BOT_TOKEN || !chatId) return sendTelegramMessage(chatId, caption, options);
+  const payload = { chat_id: chatId, photo: START_BANNER_URL, caption };
+  if (options === true) payload.reply_markup = telegramAppKeyboard();
+  if (options?.reply_markup) payload.reply_markup = options.reply_markup;
+  try {
+    await telegramRequest('sendPhoto', payload);
+    return { sent: true };
+  } catch (error) {
+    console.error('[telegram] sendPhoto failed, falling back to text:', error.message);
+    return sendTelegramMessage(chatId, caption, options);
+  }
+}
+
 async function sendVkMessage(userId, text, withApp = true) {
   if (!VK_GROUP_TOKEN || !userId) return { skipped: true, reason: 'VK_GROUP_TOKEN is not configured' };
   const payload = { user_id: String(userId), random_id: String(Date.now()), message: text, access_token: VK_GROUP_TOKEN, v: '5.199' };
@@ -380,9 +396,18 @@ function telegramChatId(user) {
   return identityFor(user, 'telegram')?.providerUserId;
 }
 
-async function sendBotMenu(user, chatId, text = null) {
+async function sendBotMenu(user, chatId, text = null, { withBanner = false } = {}) {
   const language = user.language || 'ru';
-  return sendTelegramMessage(chatId, text || `${botText(language, 'welcome')}\n\n${botText(language, 'menuHint')}`, { reply_markup: botMenuKeyboard(language) });
+  const caption = text || `${botText(language, 'welcome')}\n\n${botText(language, 'menuHint')}`;
+  const options = { reply_markup: botMenuKeyboard(language) };
+  return withBanner ? sendTelegramPhoto(chatId, caption, options) : sendTelegramMessage(chatId, caption, options);
+}
+
+async function sendStartLanguage(chatId, language = 'ru') {
+  const caption = language === 'en'
+    ? '💌 Welcome to Poslaniya\n\nAnonymous messages, warm words and honest thoughts in one place.\n\nChoose your language:'
+    : '💌 Добро пожаловать в «Послания»\n\nАнонимные сообщения, тёплые слова и честные мысли в одном месте.\n\nВыберите язык:';
+  return sendTelegramPhoto(chatId, caption, { reply_markup: languageKeyboard() });
 }
 
 async function answerCallback(callbackId, text = '') {
@@ -519,29 +544,10 @@ async function handleTelegramUpdate(update) {
     adminBroadcastMode.add(String(chatId));
     return sendTelegramMessage(chatId, botCopy.ru.broadcastAsk);
   }
-  if (text === '/start' && !user.language) return sendTelegramMessage(chatId, botCopy.ru.chooseLanguage, { reply_markup: languageKeyboard() });
-  if (text === '/start' || text === '/app') return sendBotMenu(user, chatId);
+  if (text === '/start' && !user.language) return sendStartLanguage(chatId);
+  if (text === '/start' || text === '/app') return sendBotMenu(user, chatId, null, { withBanner: text === '/start' });
   if (text === '/settings') return handleTelegramCallback({ id: `settings-${update.update_id}`, data: 'menu:settings', message });
   return sendBotMenu(user, chatId);
-}
-
-async function startTelegramPolling() {
-  if (!TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_MODE === 'webhook' || process.env.TELEGRAM_POLLING === 'false') return;
-  await telegramRequest('deleteWebhook', { drop_pending_updates: false }).catch((error) => console.error('[telegram] deleteWebhook failed:', error.message));
-  console.log('[telegram] polling started');
-  let offset = 0;
-  while (true) {
-    try {
-      const updates = await telegramRequest('getUpdates', { offset, timeout: 25, allowed_updates: ['message', 'callback_query'] }, 35000) || [];
-      for (const update of updates) {
-        offset = update.update_id + 1;
-        await handleTelegramUpdate(update).catch((error) => console.error('[telegram] update failed:', error.message));
-      }
-    } catch (error) {
-      console.error('[telegram] polling error:', error.message);
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-    }
-  }
 }
 
 async function runDailyRetentionBroadcast() {
@@ -766,6 +772,12 @@ const server = createServer(async (req, res) => {
   }
 });
 
+const telegramBot = createTelegramBot({
+  token: TELEGRAM_BOT_TOKEN,
+  onUpdate: handleTelegramUpdate,
+  onError: (label, error) => console.error(label, error?.message || error)
+});
+
 async function bootstrap() {
   await loadState();
   setInterval(runDailyRetentionBroadcast, RETENTION_INTERVAL_MS).unref();
@@ -774,7 +786,7 @@ async function bootstrap() {
     console.log(`Telegram Web App: ${WEB_APP_URL}`);
     console.log(`Daily retention scheduler: every ${Math.round(RETENTION_INTERVAL_MS / 1000)}s, only opted-in users`);
     configureTelegramBot();
-    startTelegramPolling();
+    telegramBot.start();
   });
 }
 

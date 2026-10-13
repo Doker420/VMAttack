@@ -43,7 +43,9 @@ PORT=4173
 - новое послание из сайта вызывает общий `notifyUser`, который доставляет уведомление в привязанные Telegram и VK identities;
 - VK-бот отправляет такую же ссылку на общий Web App через inline keyboard.
 
-Telegram Web App требует HTTPS в production. Укажите его адрес в `WEB_APP_URL` и установите webhook на `/webhooks/telegram`.
+Telegram Web App требует HTTPS в production. Укажите его адрес в `WEB_APP_URL` и устанавливайте webhook на `/webhooks/telegram` только в webhook-режиме.
+
+По умолчанию бот работает через отдельный модуль `telegram-bot.mjs` в polling-режиме, поэтому для старта не нужен публичный webhook. Баннер `/start` находится в `web/assets/start-banner.png`, а Telegram получает его через `TELEGRAM_START_BANNER_URL`.
 
 ## Что можно проверить
 
