@@ -18,7 +18,7 @@ const WEB_APP_URL = process.env.WEB_APP_URL || 'https://app.gogoa.club';
 const DATA_FILE = process.env.DATA_FILE || join(ROOT, 'data', 'store.json');
 const DB_DRIVER = process.env.DB_DRIVER || 'sqlite';
 const SQLITE_FILE = process.env.SQLITE_FILE || join(ROOT, 'data', 'dev.sqlite');
-const devStore = DB_DRIVER === 'json' ? null : createSqliteStore(SQLITE_FILE);
+const devStore = DB_DRIVER === 'json' ? null : await createSqliteStore(SQLITE_FILE);
 const START_BANNER_URL = process.env.TELEGRAM_START_BANNER_URL || (WEB_APP_URL.startsWith('https://') ? `${WEB_APP_URL.replace(/\/$/, '')}/assets/start-banner.png` : '');
 
 // In-memory stores keep this starter runnable without a database. Replace them with

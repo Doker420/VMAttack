@@ -1,0 +1,12 @@
+{
+  "name": "poslaniya-dev",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node web/server.mjs",
+    "start:dev": "node --watch web/server.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0"
+  }
+}

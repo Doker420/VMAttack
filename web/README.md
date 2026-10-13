@@ -7,12 +7,16 @@
 Из корня репозитория:
 
 ```bash
+# Node 20: ставим SQLite-драйвер
+npm install
 node web/server.mjs
 ```
 
+На Node.js 22+ встроенный `node:sqlite` используется автоматически. На Node.js 20 используется `better-sqlite3` из `package.json`.
+
 Откройте `http://localhost:4173`.
 
-Сервер использует только встроенные модули Node.js, SQLite для development и одновременно отдаёт сайт и demo API. Файл dev-базы создаётся в `web/data/dev.sqlite` и не попадает в Git. Для одного только UI также можно запустить:
+Сервер использует встроенные модули Node.js и SQLite-драйвер для development, одновременно отдавая сайт и demo API. На Node 20 после `npm install` используется `better-sqlite3`; если драйвер временно недоступен, включается JSON fallback с предупреждением. Файл dev-базы создаётся в `web/data/dev.sqlite` и не попадает в Git. Для одного только UI также можно запустить:
 
 ```bash
 python3 -m http.server 4173 --directory web --bind 0.0.0.0

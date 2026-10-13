@@ -1,16 +1,39 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+
+async function loadDriver() {
+  // Node 22+ ships an experimental SQLite API. Node 20 uses the optional
+  // better-sqlite3 package so the same server can run on both versions.
+  try {
+    const native = await import('node:sqlite');
+    return { type: 'native', Database: native.DatabaseSync };
+  } catch {
+    try {
+      const better = await import('better-sqlite3');
+      return { type: 'better', Database: better.default || better };
+    } catch {
+      return null;
+    }
+  }
+}
 
 /**
  * Small SQLite adapter for local development.
+ * On Node 20 install the optional better-sqlite3 dependency first.
  * Production can replace it with PostgreSQL without changing the API layer.
  */
-export function createSqliteStore(filePath) {
+export async function createSqliteStore(filePath) {
   mkdirSync(dirname(filePath), { recursive: true });
-  const db = new DatabaseSync(filePath);
+  const driver = await loadDriver();
+  if (!driver) {
+    console.warn('[store] SQLite driver unavailable; using JSON fallback. Run `npm install` on Node 20 to enable SQLite.');
+    return null;
+  }
+
+  const db = new driver.Database(filePath);
+  if (driver.type === 'better') db.pragma('journal_mode = WAL');
+  else db.exec('PRAGMA journal_mode = WAL;');
   db.exec(`
-    PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS app_state (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
