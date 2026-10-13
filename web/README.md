@@ -12,7 +12,7 @@ node web/server.mjs
 
 Откройте `http://localhost:4173`.
 
-Сервер использует только встроенные модули Node.js и одновременно отдаёт сайт и demo API. Для одного только UI также можно запустить:
+Сервер использует только встроенные модули Node.js, SQLite для development и одновременно отдаёт сайт и demo API. Файл dev-базы создаётся в `web/data/dev.sqlite` и не попадает в Git. Для одного только UI также можно запустить:
 
 ```bash
 python3 -m http.server 4173 --directory web --bind 0.0.0.0
@@ -23,12 +23,14 @@ python3 -m http.server 4173 --directory web --bind 0.0.0.0
 ### Переменные для ботов
 
 ```bash
-TELEGRAM_BOT_USERNAME=your_bot
+TELEGRAM_BOT_USERNAME=poslaniya_robot
 TELEGRAM_BOT_TOKEN=...
-VK_GROUP_ID=...
+VK_GROUP_ID=poslaniya_demo
 VK_GROUP_TOKEN=...
 VK_CONFIRMATION_TOKEN=...
-WEB_APP_URL=https://your-domain.example
+WEB_APP_URL=https://app.gogoa.club
+DB_DRIVER=sqlite
+SQLITE_FILE=web/data/dev.sqlite
 PORT=4173
 ```
 

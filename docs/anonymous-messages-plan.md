@@ -122,7 +122,7 @@
 
 - **Frontend:** Next.js/React или текущий статический UI как стартовая страница; TypeScript, CSS Modules.
 - **API:** ASP.NET Core 8 Minimal API (логично для текущего .NET-репозитория) либо NestJS. REST API + webhook endpoints.
-- **Хранилище:** PostgreSQL; Redis для rate limit, идемпотентности и очереди уведомлений.
+- **Хранилище:** SQLite для локальной разработки (`web/data/dev.sqlite` через `node:sqlite`); PostgreSQL для production; Redis для rate limit, идемпотентности и очереди уведомлений.
 - **Файлы/экспорт:** S3-совместимое хранилище, если понадобится экспорт в файл.
 - **Инфраструктура:** Docker Compose для разработки, HTTPS reverse proxy, CI с миграциями и health-check.
 

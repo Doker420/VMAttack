@@ -4,17 +4,21 @@ import { createHmac, randomUUID } from 'node:crypto';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTelegramBot } from './telegram-bot.mjs';
+import { createSqliteStore } from './sqlite-store.mjs';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PORT = Number(process.env.PORT || 4173);
 const RETENTION_INTERVAL_MS = Number(process.env.RETENTION_INTERVAL_MS || 24 * 60 * 60 * 1000);
-const TELEGRAM_BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME || 'poslaniya_demo_bot';
+const TELEGRAM_BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME || 'poslaniya_robot';
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const VK_GROUP_ID = process.env.VK_GROUP_ID || 'poslaniya_demo';
 const VK_GROUP_TOKEN = process.env.VK_GROUP_TOKEN || '';
 const VK_CONFIRMATION_TOKEN = process.env.VK_CONFIRMATION_TOKEN || '';
-const WEB_APP_URL = process.env.WEB_APP_URL || `http://localhost:${PORT}`;
+const WEB_APP_URL = process.env.WEB_APP_URL || 'https://app.gogoa.club';
 const DATA_FILE = process.env.DATA_FILE || join(ROOT, 'data', 'store.json');
+const DB_DRIVER = process.env.DB_DRIVER || 'sqlite';
+const SQLITE_FILE = process.env.SQLITE_FILE || join(ROOT, 'data', 'dev.sqlite');
+const devStore = DB_DRIVER === 'json' ? null : createSqliteStore(SQLITE_FILE);
 const START_BANNER_URL = process.env.TELEGRAM_START_BANNER_URL || (WEB_APP_URL.startsWith('https://') ? `${WEB_APP_URL.replace(/\/$/, '')}/assets/start-banner.png` : '');
 
 // In-memory stores keep this starter runnable without a database. Replace them with
@@ -29,17 +33,24 @@ const publicLinks = new Map();
 const messages = new Map();
 let persistenceTimer = null;
 
+function currentSnapshot() {
+  return {
+    users: [...users.values()],
+    publicLinks: [...publicLinks.values()],
+    messages: [...messages.values()],
+    payments: [...payments.entries()],
+    retentionSettings: [...retentionSettings.entries()]
+  };
+}
+
 async function persistState() {
   try {
-    await mkdir(join(ROOT, 'data'), { recursive: true });
-    const snapshot = {
-      users: [...users.values()],
-      publicLinks: [...publicLinks.values()],
-      messages: [...messages.values()],
-      payments: [...payments.entries()],
-      retentionSettings: [...retentionSettings.entries()]
-    };
-    await writeFile(DATA_FILE, JSON.stringify(snapshot, null, 2));
+    const snapshot = currentSnapshot();
+    if (devStore) devStore.save(snapshot);
+    else {
+      await mkdir(join(ROOT, 'data'), { recursive: true });
+      await writeFile(DATA_FILE, JSON.stringify(snapshot, null, 2));
+    }
   } catch (error) {
     console.error('[store] persist failed:', error.message);
   }
@@ -52,14 +63,18 @@ function schedulePersist() {
 
 async function loadState() {
   try {
-    const raw = await readFile(DATA_FILE, 'utf8');
-    const snapshot = JSON.parse(raw);
+    let snapshot = devStore?.load() || null;
+    if (!devStore) {
+      const raw = await readFile(DATA_FILE, 'utf8');
+      snapshot = JSON.parse(raw);
+    }
+    if (!snapshot) return schedulePersist();
     if (Array.isArray(snapshot.users)) { users.clear(); snapshot.users.forEach((user) => users.set(user.id, user)); }
     if (Array.isArray(snapshot.publicLinks)) { publicLinks.clear(); snapshot.publicLinks.forEach((link) => publicLinks.set(link.slug, link)); }
     if (Array.isArray(snapshot.messages)) { messages.clear(); snapshot.messages.forEach((message) => messages.set(message.id, message)); }
     if (Array.isArray(snapshot.payments)) { payments.clear(); snapshot.payments.forEach(([id, payment]) => payments.set(id, payment)); }
     if (Array.isArray(snapshot.retentionSettings)) { retentionSettings.clear(); snapshot.retentionSettings.forEach(([id, settings]) => retentionSettings.set(id, settings)); }
-    console.log(`[store] loaded ${users.size} users, ${messages.size} messages`);
+    console.log(`[store] loaded ${users.size} users, ${messages.size} messages via ${devStore ? 'SQLite' : 'JSON'}`);
   } catch (error) {
     if (error.code !== 'ENOENT') console.error('[store] load failed:', error.message);
     schedulePersist();
@@ -365,29 +380,34 @@ function botText(language, key) {
   return botCopy[language === 'en' ? 'en' : 'ru'][key];
 }
 
-function platformLinks() {
+function platformLinks(user = null) {
   const site = new URL(WEB_APP_URL).origin;
+  const slug = user ? ensurePublicLink(user).slug : 'anya';
   return {
     telegram: `https://t.me/${TELEGRAM_BOT_USERNAME}`,
+    telegramReferral: `https://t.me/${TELEGRAM_BOT_USERNAME}?start=ref_${encodeURIComponent(slug)}`,
     vk: `https://vk.me/${VK_GROUP_ID}`,
-    site
+    vkReferral: `https://vk.me/${VK_GROUP_ID}?ref=ref_${encodeURIComponent(slug)}`,
+    site,
+    siteReferral: `${site}/?ref=${encodeURIComponent(slug)}`
   };
 }
 
 function profileInstructions(language = 'ru', user = null) {
-  const links = platformLinks();
-  const link = user ? `${links.site}/${ensurePublicLink(user).slug}` : `${links.site}/anya`;
-  if (language === 'en') return `📌 How to add your link to a profile\n\n1. Telegram — add this link to your bio: ${links.telegram}\n2. VK — add this link to your profile: ${links.vk}\n3. Website — share your personal link: ${link}\n\nAfter adding it, your followers can open the bot or site and send you anonymous messages.`;
-  return `📌 Как поставить ссылку в профиль\n\n1. Telegram — добавьте в описание профиля: ${links.telegram}\n2. ВКонтакте — добавьте в профиль ссылку: ${links.vk}\n3. Сайт — поделитесь своей ссылкой: ${link}\n\nПосле этого подписчики смогут открыть бота или сайт и отправить вам анонимное послание.`;
+  const links = platformLinks(user);
+  const link = links.siteReferral;
+  if (language === 'en') return `📌 How to add your link to a profile\n\n1. Telegram — add this link to your bio: ${links.telegram}\n2. VK — add this link to your profile: ${links.vk}\n3. Website — add the site to your profile: ${links.site}\n\nReferral links that open your inbox directly:\nTelegram: ${links.telegramReferral}\nVK: ${links.vkReferral}\nWebsite: ${links.siteReferral}\n\nReady-to-post text:\n“Send me an anonymous message 💌\nLeave it here: ${links.siteReferral}”\n\nAfter adding it, your followers can open the bot or site and send you anonymous messages.`;
+  return `📌 Как поставить ссылку в профиль\n\n1. Telegram — добавьте в описание профиля: ${links.telegram}\n2. ВКонтакте — добавьте в профиль ссылку: ${links.vk}\n3. Сайт — добавьте сайт в профиль: ${links.site}\n\nРеферальные ссылки, которые сразу ведут к вашему ящику:\nTelegram: ${links.telegramReferral}\nВКонтакте: ${links.vkReferral}\nСайт: ${links.siteReferral}\n\nГотовый текст для профиля:\n«Напиши мне анонимно 💌\nОставь послание здесь: ${links.siteReferral}»\n\nПосле этого подписчики смогут открыть бота или сайт и отправить вам анонимное послание.`;
 }
 
 function languageKeyboard() {
   return { inline_keyboard: [[{ text: '🇷🇺 Русский', callback_data: 'lang:ru' }, { text: '🇬🇧 English', callback_data: 'lang:en' }]] };
 }
 
-function botMenuKeyboard(language) {
+function botMenuKeyboard(language, recipientSlug = null) {
+  const appUrl = recipientSlug ? `${WEB_APP_URL}?ref=${encodeURIComponent(recipientSlug)}` : WEB_APP_URL;
   return { inline_keyboard: [
-    [{ text: `💌 ${botText(language, 'openApp')}`, web_app: { url: WEB_APP_URL } }],
+    [{ text: `💌 ${botText(language, 'openApp')}`, web_app: { url: appUrl } }],
     [{ text: `🔗 ${botText(language, 'myLink')}`, callback_data: 'menu:link' }, { text: `✦ ${botText(language, 'daily')}`, callback_data: 'menu:daily' }],
     [{ text: `♛ ${botText(language, 'vip')}`, callback_data: 'pay:choose:vip' }, { text: `? ${botText(language, 'reveal')}`, callback_data: 'pay:choose:reveal' }],
     [{ text: `📌 ${botText(language, 'instructions')}`, callback_data: 'menu:instructions' }],
@@ -428,10 +448,10 @@ function telegramChatId(user) {
   return identityFor(user, 'telegram')?.providerUserId;
 }
 
-async function sendBotMenu(user, chatId, text = null, { withBanner = false } = {}) {
+async function sendBotMenu(user, chatId, text = null, { withBanner = false, recipientSlug = user.activeRecipientSlug || null } = {}) {
   const language = user.language || 'ru';
   const caption = text || `${botText(language, 'welcome')}\n\n${botText(language, 'menuHint')}`;
-  const options = { reply_markup: botMenuKeyboard(language) };
+  const options = { reply_markup: botMenuKeyboard(language, recipientSlug) };
   return withBanner ? sendTelegramPhoto(chatId, caption, options) : sendTelegramMessage(chatId, caption, options);
 }
 
@@ -481,7 +501,7 @@ async function handleTelegramCallback(callback) {
   if (data === 'menu:link') {
     const link = ensurePublicLink(user);
     await answerCallback(callback.id);
-    return sendTelegramMessage(chatId, `${botText(user.language, 'myLink')}:\n${new URL(WEB_APP_URL).origin}/${link.slug}\n\n${profileInstructions(user.language, user)}`, { reply_markup: { inline_keyboard: [[{ text: `💌 ${botText(user.language, 'openApp')}`, web_app: { url: WEB_APP_URL } }], [{ text: '← Меню', callback_data: 'menu:home' }]] } });
+    return sendTelegramMessage(chatId, `${botText(user.language, 'myLink')}:\n${new URL(WEB_APP_URL).origin}/?ref=${encodeURIComponent(link.slug)}\n\n${profileInstructions(user.language, user)}`,  { reply_markup: { inline_keyboard: [[{ text: `💌 ${botText(user.language, 'openApp')}`, web_app: { url: WEB_APP_URL } }], [{ text: '← Меню', callback_data: 'menu:home' }]] } });
   }
   if (data === 'menu:instructions') {
     await answerCallback(callback.id);
@@ -560,6 +580,13 @@ async function handleTelegramUpdate(update) {
       await sendTelegramMessage(chatId, 'Готово! Авторизация подтверждена. Вернитесь на сайт 💌');
     }
     return;
+  }
+  const referralMatch = text.match(/^\/start\s+ref[_-]([a-z0-9_-]+)$/i);
+  if (referralMatch) {
+    user.activeRecipientSlug = referralMatch[1].toLowerCase();
+    schedulePersist();
+    if (!user.language) return sendStartLanguage(chatId);
+    return sendBotMenu(user, chatId, user.language === 'en' ? 'You opened a personal message link. Send an anonymous message in the Web App 💌' : 'Вы открыли персональную ссылку. Отправьте анонимное послание в Web App 💌', { withBanner: true, recipientSlug: user.activeRecipientSlug });
   }
   if (isTelegramAdmin(chatId) && adminBroadcastMode.has(String(chatId)) && text !== '/cancel' && !text.startsWith('/')) {
     adminBroadcastMode.delete(String(chatId));
@@ -657,7 +684,7 @@ async function handleApi(req, res, url) {
     if (!user) return json(res, 401, { error: 'unauthorized' });
     const body = await readBody(req);
     const link = ensurePublicLink(user, body.slug);
-    return json(res, 200, { link: `${new URL(WEB_APP_URL).origin}/${link.slug}`, slug: link.slug });
+    return json(res, 200, { link: `${new URL(WEB_APP_URL).origin}/?ref=${encodeURIComponent(link.slug)}`, slug: link.slug });
   }
   const publicLinkMatch = url.pathname.match(/^\/api\/v1\/links\/([^/]+)$/);
   if (req.method === 'GET' && publicLinkMatch) {
@@ -831,4 +858,6 @@ async function bootstrap() {
   });
 }
 
+process.on('SIGTERM', () => { devStore?.close(); process.exit(0); });
+process.on('SIGINT', () => { devStore?.close(); process.exit(0); });
 bootstrap();

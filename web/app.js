@@ -20,6 +20,11 @@
   let activeMessageId = null;
   const telegramWebApp = window.Telegram?.WebApp || null;
   const isTelegramWebApp = Boolean(telegramWebApp?.initData);
+  const queryRef = new URLSearchParams(window.location.search).get('ref') || 'anya';
+  const recipientSlug = queryRef.replace(/^ref[_-]/i, '').trim() || 'anya';
+  const publicSiteOrigin = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? window.location.origin : 'https://app.gogoa.club';
+  let profileSlug = recipientSlug;
+  const personalLink = (slug = profileSlug) => `${publicSiteOrigin}/?ref=${encodeURIComponent(slug)}`;
 
   async function apiRequest(path, options = {}) {
     try {
@@ -121,6 +126,29 @@
     return result;
   }
 
+  async function loadRecipient() {
+    const result = await apiRequest(`/api/v1/links/${encodeURIComponent(recipientSlug)}`);
+    if (!result?.displayName) return;
+    const name = result.displayName;
+    if ($('#recipientName')) $('#recipientName').textContent = name;
+    if ($('#recipientNameLabel')) $('#recipientNameLabel').textContent = name;
+    const heroRecipient = $('.recipient-row .small-label');
+    if (heroRecipient) heroRecipient.textContent = 'послание для';
+  }
+
+  async function syncProfile() {
+    const result = await apiRequest('/api/v1/me');
+    if (!result?.link?.slug) return result;
+    profileSlug = result.link.slug;
+    const link = personalLink();
+    const shortLink = link.replace(/^https?:\/\//, '');
+    ['webappPersonalLink', 'dashboardPersonalLink'].forEach((id) => { if ($(`#${id}`)) $(`#${id}`).textContent = shortLink; });
+    ['webappReferralText', 'profileReferralText'].forEach((id) => { if ($(`#${id}`)) $(`#${id}`).innerHTML = `Напиши мне анонимно 💌<br />Оставь послание здесь: ${escapeHtml(shortLink)}`; });
+    if ($('#webappTelegramReferral')) $('#webappTelegramReferral').href = `https://t.me/poslaniya_robot?start=ref_${encodeURIComponent(profileSlug)}`;
+    if ($('#webappVkReferral')) $('#webappVkReferral').href = `https://vk.me/poslaniya_demo?ref=ref_${encodeURIComponent(profileSlug)}`;
+    return result;
+  }
+
   function escapeHtml(value) {
     return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#039;', '"': '&quot;' }[char]));
   }
@@ -131,7 +159,7 @@
       showToast('Напишите хотя бы несколько слов');
       return false;
     }
-    const result = await apiRequest('/api/v1/links/anya/messages', { method: 'POST', body: JSON.stringify({ text: cleanText, channel: 'web' }) });
+    const result = await apiRequest(`/api/v1/links/${encodeURIComponent(recipientSlug)}/messages`, { method: 'POST', body: JSON.stringify({ text: cleanText, channel: 'web' }) });
     if (result?.__error && result.status >= 500) {
       showToast('Не удалось отправить. Попробуйте ещё раз');
       return false;
@@ -157,7 +185,7 @@
     const isTelegram = provider === 'telegram';
     title.textContent = isTelegram ? 'Откройте Telegram-бота' : 'Откройте VK-бота';
     text.textContent = isTelegram ? 'Нажмите «Старт» в боте. После этого вернитесь сюда.' : 'Нажмите «Начать» в боте сообщества. После этого вернитесь сюда.';
-    botLink.href = isTelegram ? 'https://t.me/poslaniya_demo_bot?start=auth_demo' : 'https://vk.me/poslaniya_demo';
+    botLink.href = isTelegram ? 'https://t.me/poslaniya_robot?start=auth_demo' : 'https://vk.me/poslaniya_demo';
     botLink.innerHTML = isTelegram ? 'Открыть Telegram-бота <span>↗</span>' : 'Открыть VK-бота <span>↗</span>';
     $('.auth-options')?.setAttribute('hidden', '');
     pending.hidden = false;
@@ -187,7 +215,7 @@
       }
       $('.menu-toggle')?.setAttribute('aria-expanded', 'false');
       $('.desktop-nav')?.classList.remove('open');
-      if (targetId === 'dashboardDialog') requestAnimationFrame(syncInbox);
+      if (targetId === 'dashboardDialog') requestAnimationFrame(() => { syncProfile(); syncInbox(); });
       return;
     }
     const closeTrigger = event.target.closest('[data-close-dialog]');
@@ -248,6 +276,7 @@
       return;
     }
     localStorage.setItem(authKey, JSON.stringify({ provider, loggedInAt: Date.now(), ...result }));
+    await syncProfile();
     $('#authPendingTitle').textContent = 'Авторизация подтверждена';
     $('#authPendingText').textContent = `Теперь послания будут приходить в ${provider === 'telegram' ? 'Telegram' : 'ВКонтакте'}.`;
     $('#authCompleteButton').hidden = true;
@@ -290,8 +319,8 @@
   });
 
   $('#copyLinkButton')?.addEventListener('click', () => copyText($('#createdLinkText').textContent));
-  $('#dashboardCopyButton')?.addEventListener('click', () => copyText('https://poslaniya.app/anya'));
-  $('#dashboardLinkCopy')?.addEventListener('click', () => copyText('https://poslaniya.app/anya'));
+  $('#dashboardCopyButton')?.addEventListener('click', () => copyText(personalLink()));
+  $('#dashboardLinkCopy')?.addEventListener('click', () => copyText(personalLink()));
 
   const heroMessage = $('#heroMessage');
   const counter = $('#heroCharCount');
@@ -359,6 +388,7 @@
       localStorage.setItem(authKey, JSON.stringify({ provider: 'telegram', loggedInAt: Date.now(), ...result }));
       if ($('#webappUserLine') && result.user) $('#webappUserLine').textContent = `${result.user.displayName || 'Ваш ящик'} · Telegram подключён`;
     }
+    await syncProfile();
     await syncInbox();
   }
 
@@ -366,14 +396,14 @@
     if (telegramWebApp) telegramWebApp.close();
     else document.body.classList.remove('telegram-webapp');
   });
-  $('#webappShareButton')?.addEventListener('click', () => copyText('https://poslaniya.app/anya', 'Ссылка скопирована'));
+  $('#webappShareButton')?.addEventListener('click', () => copyText(personalLink(), 'Ссылка скопирована'));
   $('#webappRefreshButton')?.addEventListener('click', () => syncInbox().then(() => showToast('Ящик обновлён')));
   $('#webappVipButton')?.addEventListener('click', () => openDialog('paymentDialog'));
   $('#webappSettingsButton')?.addEventListener('click', () => openDialog('integrationDialog'));
   $('#webappRetentionButton')?.addEventListener('click', () => openDialog('integrationDialog'));
   $('#webappDailySetting')?.addEventListener('click', () => openDialog('integrationDialog'));
   $('#webappIntegrationsSetting')?.addEventListener('click', () => openDialog('integrationDialog'));
-  $('#webappSiteLink')?.addEventListener('click', () => copyText('https://poslaniya.app/anya', 'Ссылка скопирована'));
+  $('#webappSiteLink')?.addEventListener('click', () => copyText(personalLink(), 'Ссылка скопирована'));
   $$('[data-webapp-tab]').forEach((tab) => tab.addEventListener('click', () => {
     const name = tab.dataset.webappTab;
     if (name === 'vip') {
@@ -386,10 +416,14 @@
       if (element) element.hidden = view !== name;
     });
   }));
-  $('#profileCopyButton')?.addEventListener('click', () => copyText('https://poslaniya.app/anya', 'Ссылка скопирована'));
+  $('#profileCopyButton')?.addEventListener('click', () => copyText(personalLink(), 'Ссылка скопирована'));
+  const copyReferralText = () => copyText(`Напиши мне анонимно 💌\nОставь послание здесь: ${personalLink()}`, 'Текст для профиля скопирован');
+  $('#webappCopyReferral')?.addEventListener('click', copyReferralText);
+  $('#profileCopyReferral')?.addEventListener('click', copyReferralText);
 
   // Keep the demo dashboard counters in sync after a sent message.
   renderInbox();
   renderWebAppInbox();
+  loadRecipient();
   initializeTelegramWebApp();
 })();
