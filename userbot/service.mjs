@@ -15,6 +15,18 @@ export function createTelegramUserbot({ enabled, apiId, apiHash, session, appUrl
   let self = null;
   let giftsCache = { expiresAt: 0, gifts: [] };
 
+  async function withTimeout(promise, milliseconds, label) {
+    let timer;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${label} timed out`)), milliseconds); })
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async function start() {
     if (!enabled) {
       console.log('[userbot] disabled by TELEGRAM_USERBOT_ENABLED=false');
@@ -68,7 +80,7 @@ export function createTelegramUserbot({ enabled, apiId, apiHash, session, appUrl
   async function getStarGifts({ refresh = false } = {}) {
     if (!ready || !client) throw new Error('Telegram userbot is not ready');
     if (!refresh && giftsCache.expiresAt > Date.now()) return giftsCache.gifts;
-    const result = await client.invoke(new Api.payments.GetStarGifts({ hash: 0 }));
+    const result = await withTimeout(client.invoke(new Api.payments.GetStarGifts({ hash: 0 })), 10000, 'Telegram gift catalog');
     const rawGifts = Array.isArray(result?.gifts) ? result.gifts : [];
     const gifts = rawGifts.map(normalizeGift).filter((gift) => gift.id && gift.stars > 0 && !gift.soldOut);
     giftsCache = { expiresAt: Date.now() + 5 * 60 * 1000, gifts };
@@ -77,7 +89,7 @@ export function createTelegramUserbot({ enabled, apiId, apiHash, session, appUrl
 
   async function getStarsBalance() {
     if (!ready || !client) throw new Error('Telegram userbot is not ready');
-    const status = await client.invoke(new Api.payments.GetStarsStatus({ peer: new Api.InputPeerSelf() }));
+    const status = await withTimeout(client.invoke(new Api.payments.GetStarsStatus({ peer: new Api.InputPeerSelf() })), 10000, 'Telegram Stars balance');
     return Number(status?.balance?.amount || 0);
   }
 
@@ -104,12 +116,12 @@ export function createTelegramUserbot({ enabled, apiId, apiHash, session, appUrl
     }
     const { user } = await inputUserFor(gift.username);
     if (gift.type === 'stars') {
-      const options = await client.invoke(new Api.payments.GetStarsGiftOptions({ userId: user }));
+      const options = await withTimeout(client.invoke(new Api.payments.GetStarsGiftOptions({ userId: user })), 10000, 'Telegram Stars gift options');
       const option = (options || []).find((candidate) => Number(candidate.stars) === Number(gift.quantity));
       if (!option) throw new Error('This Stars gift option is not available for the recipient');
       return { type: gift.type, title: `${gift.quantity} Telegram Stars`, stars: Number(option.amount || option.stars), option };
     }
-    const options = await client.invoke(new Api.payments.GetPremiumGiftCodeOptions({}));
+    const options = await withTimeout(client.invoke(new Api.payments.GetPremiumGiftCodeOptions({})), 10000, 'Telegram Premium options');
     const option = (options || []).find((candidate) => Number(candidate.months) === Number(gift.months));
     if (!option) throw new Error('This Premium gift option is not available');
     return { type: gift.type, title: `Telegram Premium на ${gift.months} мес.`, stars: Number(option.amount), option };

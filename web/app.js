@@ -49,17 +49,43 @@
   const personalLink = (slug = profileSlug) => `${publicSiteOrigin()}/?ref=${encodeURIComponent(slug)}`;
 
 
-  async function apiRequest(path, options = {}) {
+  async function refreshTelegramSession() {
+    if (!telegramWebApp?.initData) return false;
+    try {
+      const response = await fetch('/api/v1/auth/telegram/webapp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Telegram-Init-Data': telegramWebApp.initData },
+        body: JSON.stringify({ initData: telegramWebApp.initData })
+      });
+      if (!response.ok) return false;
+      const result = await response.json();
+      if (!result?.token) return false;
+      localStorage.setItem(authKey, JSON.stringify({ provider: 'telegram', loggedInAt: Date.now(), ...result }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function apiRequest(path, options = {}, retryAuth = true) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), Number(options.timeoutMs || 15000));
     try {
       const storedAuth = JSON.parse(localStorage.getItem(authKey) || 'null');
       const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
       if (storedAuth?.token) headers.Authorization = `Bearer ${storedAuth.token}`;
       if (telegramWebApp?.initData) headers['X-Telegram-Init-Data'] = telegramWebApp.initData;
-      const response = await fetch(path, { ...options, headers });
+      const { timeoutMs, signal: suppliedSignal, ...fetchOptions } = options;
+      const response = await fetch(path, { ...fetchOptions, headers, signal: suppliedSignal || controller.signal });
+      if (response.status === 401 && retryAuth && telegramWebApp?.initData && !path.includes('/auth/telegram/webapp')) {
+        if (await refreshTelegramSession()) return apiRequest(path, options, false);
+      }
       if (!response.ok) return { __error: true, status: response.status };
       return await response.json();
     } catch {
       return { __error: true, status: 0 };
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -508,9 +534,12 @@
   const giftType = $('#giftType');
   const giftCatalogFields = $('#giftCatalogFields');
   const giftCatalog = $('#giftCatalog');
+  const giftCatalogStatus = $('#giftCatalogStatus');
+  const giftCatalogRetry = $('#giftCatalogRetry');
   const giftStarsFields = $('#giftStarsFields');
   const giftPremiumFields = $('#giftPremiumFields');
   let giftCatalogLoaded = false;
+  let giftCatalogLoading = false;
   const updateGiftFields = () => {
     const starGift = giftType?.value === 'star_gift';
     const premium = giftType?.value === 'premium';
@@ -520,9 +549,18 @@
     if (giftPremiumFields) giftPremiumFields.hidden = starGift || !premium;
   };
   const loadGiftCatalog = async () => {
-    if (giftCatalogLoaded || !giftCatalog) return;
+    if (giftCatalogLoaded || giftCatalogLoading || !giftCatalog) return;
+    giftCatalogLoading = true;
     giftCatalog.disabled = true;
-    const result = await apiRequest('/api/v1/gifts/catalog');
+    if (giftCatalogStatus) giftCatalogStatus.textContent = '⏳ Загружаем каталог Telegram…';
+    if (giftCatalogRetry) giftCatalogRetry.hidden = true;
+    giftCatalog.replaceChildren();
+    const loadingOption = document.createElement('option');
+    loadingOption.value = '';
+    loadingOption.textContent = '⏳ Загрузка каталога Telegram…';
+    giftCatalog.appendChild(loadingOption);
+    const result = await apiRequest('/api/v1/gifts/catalog', { timeoutMs: 12000 });
+    giftCatalogLoading = false;
     giftCatalog.replaceChildren();
     if (Array.isArray(result?.gifts) && result.gifts.length) {
       for (const gift of result.gifts) {
@@ -533,14 +571,18 @@
       }
       giftCatalogLoaded = true;
       giftCatalog.disabled = false;
-    } else {
-      const option = document.createElement('option');
-      option.value = '';
-      option.textContent = 'Каталог временно недоступен';
-      giftCatalog.appendChild(option);
-      giftCatalog.disabled = true;
+      if (giftCatalogStatus) giftCatalogStatus.textContent = `✓ Каталог загружен: ${result.gifts.length} подарков`;
+      return;
     }
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = result?.status === 0 ? '⏱ Каталог не ответил вовремя' : '⚠ Каталог временно недоступен';
+    giftCatalog.appendChild(option);
+    giftCatalog.disabled = true;
+    if (giftCatalogStatus) giftCatalogStatus.textContent = '⚠ Не удалось загрузить каталог. Можно повторить попытку.';
+    if (giftCatalogRetry) giftCatalogRetry.hidden = false;
   };
+  giftCatalogRetry?.addEventListener('click', loadGiftCatalog);
   giftType?.addEventListener('change', () => { updateGiftFields(); if (giftType.value === 'star_gift') loadGiftCatalog(); });
   updateGiftFields();
   const giftPayload = () => ({
@@ -646,7 +688,7 @@
     if (requestedPayment === 'reveal') openDialog('revealDialog');
     if (requestedPayment === 'vip') openDialog('paymentDialog');
     if (requestedPayment === 'balance') openDialog('topupDialog');
-    if (requestedPayment === 'gift') openDialog('giftDialog');
+    if (requestedPayment === 'gift') { openDialog('giftDialog'); loadGiftCatalog(); }
     if (requestedReply) {
       $('#replyText').value = '';
       openDialog('replyDialog');
