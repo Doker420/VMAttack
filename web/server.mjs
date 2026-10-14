@@ -145,6 +145,7 @@ const blockedSenders = new Map();
 const publicLinks = new Map();
 const messages = new Map();
 const mystarsOrders = new Map();
+const paymentNotificationInFlight = new Set();
 let persistenceTimer = null;
 
 function currentSnapshot() {
@@ -1191,6 +1192,55 @@ async function createPaymentCheckout(user, { provider, purpose, plan = null, amo
   }
 }
 
+function paidPaymentNotificationText(payment, user) {
+  const language = user?.language || 'ru';
+  const amount = Number(payment.amount || 0);
+  if (payment.purpose === 'balance') {
+    return language === 'en'
+      ? `✅ <b>Balance topped up</b>\n\nCredited: <b>${amount} RUB</b>\nCurrent balance: <b>${Number(user.balanceRub || 0)} RUB</b>.`
+      : `✅ <b>Баланс пополнен</b>\n\nЗачислено: <b>${amount} ₽</b>\nТекущий баланс: <b>${Number(user.balanceRub || 0)} ₽</b>.`;
+  }
+  if (payment.plan === 'vip') {
+    return language === 'en'
+      ? '✅ <b>Payment confirmed</b>\n\nVIP access has been activated for 7 days.'
+      : '✅ <b>Оплата подтверждена</b>\n\nVIP активирован на 7 дней.';
+  }
+  return language === 'en'
+    ? '✅ <b>Payment confirmed</b>\n\nThe sender reveal is now available for your selected message.'
+    : '✅ <b>Оплата подтверждена</b>\n\nИнформация об отправителе доступна для выбранного послания.';
+}
+
+async function notifyPaidPayment(payment) {
+  if (!payment || payment.status !== 'paid' || payment.notificationStatus === 'sent') return false;
+  if (paymentNotificationInFlight.has(payment.id)) return false;
+  paymentNotificationInFlight.add(payment.id);
+  try {
+    const user = payment.userId && users.get(payment.userId);
+    const chatId = payment.telegramChatId || telegramChatId(user);
+    if (!user || !chatId) {
+      payment.notificationStatus = 'unavailable';
+      schedulePersist();
+      return false;
+    }
+    const result = await sendTelegramMessage(chatId, paidPaymentNotificationText(payment, user), { reply_markup: botMenuKeyboard(user.language || 'ru') });
+    if (result?.sent) {
+      payment.notificationStatus = 'sent';
+      payment.notificationSentAt = new Date().toISOString();
+      delete payment.notificationError;
+    } else if (result?.reason === 'TELEGRAM_BOT_TOKEN is not configured' || result?.reason === 'bot_cannot_message_itself') {
+      payment.notificationStatus = 'unavailable';
+      payment.notificationError = result.reason;
+    } else {
+      payment.notificationStatus = 'pending';
+      payment.notificationError = result?.error || 'Telegram notification failed';
+    }
+    schedulePersist();
+    return Boolean(result?.sent);
+  } finally {
+    paymentNotificationInFlight.delete(payment.id);
+  }
+}
+
 function applyPaidPayment(payment) {
   if (!payment || payment.status === 'paid') return false;
   payment.status = 'paid';
@@ -1208,6 +1258,11 @@ function applyPaidPayment(payment) {
         if (!message.revealedFor.includes(user.id)) message.revealedFor.push(user.id);
       }
     }
+    // Do not wait for Telegram while confirming the payment. The balance is
+    // credited synchronously, and the notification is retried independently
+    // if the Bot API is temporarily unavailable.
+    payment.notificationStatus = 'pending';
+    void notifyPaidPayment(payment);
   }
   schedulePersist();
   return true;
@@ -1307,8 +1362,12 @@ async function runPendingPaymentReconciliation() {
       await reconcileExternalPayment(payment);
       if (before !== 'paid' && payment.status === 'paid') paid += 1;
     }
+    const notifications = [...payments.values()]
+      .filter((payment) => payment.status === 'paid' && payment.notificationStatus === 'pending')
+      .slice(0, 100);
+    for (const payment of notifications) await notifyPaidPayment(payment);
     if (paid) console.log(`[payments] background reconciliation credited ${paid} payment(s)`);
-    return { checked: pending.length, paid };
+    return { checked: pending.length, paid, notifications: notifications.length };
   } finally {
     paymentReconciliationRunning = false;
   }
