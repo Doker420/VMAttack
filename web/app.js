@@ -472,6 +472,7 @@
       if ($('#createdLink')) $('#createdLink').hidden = false;
       if ($('#creatorName')?.closest('.slug-input')) $('#creatorName').closest('.slug-input').style.borderColor = '#aaca9f';
       await syncProfile();
+      await syncInbox();
       return result;
     }
     return result;
