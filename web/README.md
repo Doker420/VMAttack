@@ -24,11 +24,18 @@ VK_GROUP_ID=poslaniya_demo
 VK_API_VERSION=5.199
 DB_DRIVER=sqlite
 SQLITE_FILE=data/dev.sqlite
+ALLOW_JSON_FALLBACK=false
+PERSIST_DEBOUNCE_MS=250
+EXTERNAL_REQUEST_TIMEOUT_MS=15000
+TELEGRAM_MAX_CONCURRENT_UPDATES=32
+TELEGRAM_MAX_PENDING_UPDATES=2000
+TELEGRAM_API_CONCURRENCY=8
+TELEGRAM_API_MIN_INTERVAL_MS=35
 DAILY_RU_FILE=content/daily/ru.txt
 DAILY_EN_FILE=content/daily/en.txt
 ```
 
-SQLite-файл и JSON runtime-состояние создаются в корневой `data/`. Файлы ежедневных посланий находятся в `content/daily/ru.txt` и `content/daily/en.txt`; в каждом файле по 500 вариантов.
+SQLite-файл и JSON runtime-состояние создаются в корневой `data/`. В production используется SQLite WAL с `synchronous=NORMAL`, `busy_timeout` и отдельным worker-потоком для snapshot-записи: сериализация и запись базы не блокируют HTTP/Telegram event loop. `DB_DRIVER=json` и `ALLOW_JSON_FALLBACK=true` оставляйте только для локальной разработки; JSON сохраняет весь store целиком и не предназначен для нагрузки. Для нескольких реплик приложения нужен PostgreSQL/Redis, общий SQLite-файл между репликами не используйте. Файлы ежедневных посланий находятся в `content/daily/ru.txt` и `content/daily/en.txt`; в каждом файле по 500 вариантов.
 
 ## Referral-ссылки
 
@@ -65,7 +72,7 @@ Telegram-ссылка использует обычный bot deep link. Пос�
 - проверить нижнюю навигацию Web App и загрузку профиля через `/api/v1/me`;
 - проверить `GET /health`.
 
-Telegram polling запускается автоматически, если в `.env` задан `TELEGRAM_BOT_TOKEN`. При `/start` бот выдаёт одноразовый Web App auth-токен для первичной передачи авторизации. Он нужен только один раз: после обмена через `POST /api/v1/auth/telegram/token` сайт получает постоянную серверную сессию, сохраняемую вместе с пользователем. Повторно нажимать `/start` не требуется; при открытии настоящего Telegram Web App сервер также автоматически проверяет подписанный `initData`. Скопированная обычная реферальная ссылка авторизацию не выполняет — она сразу открывает форму отправки послания. Для production Web App URL должен быть HTTPS и реально открываться из интернета. Баннер `/start` загружается локальным файлом `TELEGRAM_START_BANNER_FILE`, поэтому Telegram не должен получать ошибку `failed to get HTTP URL content`; при любой ошибке отправка автоматически переключается на текст с кнопкой Web App. Токен и другие секреты нельзя хранить в исходниках или публиковать.
+Telegram polling запускается автоматически, если в `.env` задан `TELEGRAM_BOT_TOKEN`. Разные чаты обрабатываются параллельно с ограничением `TELEGRAM_MAX_CONCURRENT_UPDATES`, а обновления одного чата сохраняют порядок. Исходящие Bot API вызовы проходят через ограниченную очередь, чтобы не получить массовые 429 при рассылке. При `/start` бот выдаёт одноразовый Web App auth-токен для первичной передачи авторизации. Он нужен только один раз: после обмена через `POST /api/v1/auth/telegram/token` сайт получает постоянную серверную сессию, сохраняемую вместе с пользователем. Повторно нажимать `/start` не требуется; при открытии настоящего Telegram Web App сервер также автоматически проверяет подписанный `initData`. Скопированная обычная реферальная ссылка авторизацию не выполняет — она сразу открывает форму отправки послания. Для production Web App URL должен быть HTTPS и реально открываться из интернета. Баннер `/start` загружается локальным файлом `TELEGRAM_START_BANNER_FILE`, поэтому Telegram не должен получать ошибку `failed to get HTTP URL content`; при любой ошибке отправка автоматически переключается на текст с кнопкой Web App. Токен и другие секреты нельзя хранить в исходниках или публиковать.
 
 ## Анонимные подарки через MyStars и Telegram userbot
 

@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,18 +41,40 @@ function resolveProjectPath(value) {
   return value.startsWith('/') ? value : join(PROJECT_ROOT, value);
 }
 
+async function fetchWithTimeout(resource, options = {}, timeoutMs = EXTERNAL_REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(1000, timeoutMs));
+  try {
+    return await fetch(resource, { ...options, signal: options.signal || controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Values in .env always win. Defaults keep an older, partial .env file
 // bootable; secrets never have a source-code fallback.
 const PORT = Number(env('PORT', '4173'));
 const RETENTION_INTERVAL_MS = Number(env('RETENTION_INTERVAL_MS', '86400000'));
 const PAYMENT_RECONCILE_INTERVAL_MS = Number(env('PAYMENT_RECONCILE_INTERVAL_MS', '15000'));
+const PAYMENT_RECONCILE_CONCURRENCY = Number(env('PAYMENT_RECONCILE_CONCURRENCY', '8'));
+const PERSIST_DEBOUNCE_MS = Number(env('PERSIST_DEBOUNCE_MS', '250'));
+const EXTERNAL_REQUEST_TIMEOUT_MS = Number(env('EXTERNAL_REQUEST_TIMEOUT_MS', '15000'));
 const DEMO_MODE = env('DEMO_MODE', 'true') === 'true';
+const ALLOW_JSON_FALLBACK = env('ALLOW_JSON_FALLBACK', DEMO_MODE ? 'true' : 'false') === 'true';
 const TELEGRAM_MODE = env('TELEGRAM_MODE', 'polling');
+const TELEGRAM_MAX_CONCURRENT_UPDATES = Number(env('TELEGRAM_MAX_CONCURRENT_UPDATES', '32'));
+const TELEGRAM_MAX_PENDING_UPDATES = Number(env('TELEGRAM_MAX_PENDING_UPDATES', '2000'));
+const TELEGRAM_API_CONCURRENCY = Math.max(1, Number(env('TELEGRAM_API_CONCURRENCY', '8')) || 8);
+const TELEGRAM_API_MIN_INTERVAL_MS = Math.max(0, Number(env('TELEGRAM_API_MIN_INTERVAL_MS', '35')) || 35);
 let TELEGRAM_BOT_USERNAME = env('TELEGRAM_BOT_USERNAME', '');
 const LEGACY_TELEGRAM_BOT_USERNAMES = new Set(['poslaniya_robot']);
 const TELEGRAM_BOT_TOKEN = env('TELEGRAM_BOT_TOKEN');
 let telegramBotUserId = null;
 let telegramBotIdentityPromise = null;
+const telegramApiQueue = [];
+let telegramApiRunning = 0;
+let telegramApiNextStartAt = 0;
+let telegramApiDrainTimer = null;
 const TELEGRAM_ADMIN_IDS = env('TELEGRAM_ADMIN_IDS');
 const TELEGRAM_WEBHOOK_SECRET = env('TELEGRAM_WEBHOOK_SECRET');
 const TELEGRAM_GROUPS_ENABLED = env('TELEGRAM_GROUPS_ENABLED', 'true') === 'true';
@@ -131,6 +153,9 @@ const USE_START_BANNER = env('TELEGRAM_USE_START_BANNER', 'true') === 'true';
 const START_BANNER_FILE = resolveProjectPath(env('TELEGRAM_START_BANNER_FILE', 'web/assets/start-banner.png'));
 const CORS_ORIGIN = env('CORS_ORIGIN', WEB_APP_URL);
 const devStore = DB_DRIVER === 'json' ? null : await createSqliteStore(SQLITE_FILE);
+if (DB_DRIVER !== 'json' && !devStore && !ALLOW_JSON_FALLBACK) {
+  throw new Error('SQLite is required in production. Install node:sqlite or better-sqlite3, or explicitly set ALLOW_JSON_FALLBACK=true for a non-production environment.');
+}
 
 // In-memory stores keep this starter runnable without a database. Replace them with
 // PostgreSQL + Redis before production; the API shape is intentionally stable.
@@ -143,10 +168,123 @@ const payments = new Map();
 const retentionSettings = new Map();
 const blockedSenders = new Map();
 const publicLinks = new Map();
+const publicLinksById = new Map();
+const linkSlugsByUserId = new Map();
 const messages = new Map();
+const messageIdsByPublicLink = new Map();
 const mystarsOrders = new Map();
+const usersByTelegramId = new Map();
+const usersByTelegramUsername = new Map();
+const userIndexKeys = new Map();
 const paymentNotificationInFlight = new Set();
+const paymentReconciliationInFlight = new Map();
 let persistenceTimer = null;
+let persistenceInFlight = false;
+let persistenceAgain = false;
+
+function addIndexValue(index, key, value) {
+  if (key == null || key === '') return;
+  if (!index.has(String(key))) index.set(String(key), new Set());
+  index.get(String(key)).add(value);
+}
+
+function removeIndexValue(index, key, value) {
+  const values = index.get(String(key));
+  if (!values) return;
+  values.delete(value);
+  if (!values.size) index.delete(String(key));
+}
+
+function indexUser(user) {
+  if (!user?.id) return;
+  const telegramIds = new Set();
+  const usernames = new Set();
+  for (const identity of userIdentities(user)) {
+    if (identity.provider !== 'telegram') continue;
+    if (identity.providerUserId != null) {
+      const id = String(identity.providerUserId);
+      telegramIds.add(id);
+      addIndexValue(usersByTelegramId, id, user.id);
+    }
+    if (identity.username) {
+      const username = normalizeTelegramUsername(identity.username);
+      if (username) {
+        usernames.add(username);
+        addIndexValue(usersByTelegramUsername, username, user.id);
+      }
+    }
+  }
+  if (user.username) {
+    const username = normalizeTelegramUsername(user.username);
+    if (username) {
+      usernames.add(username);
+      addIndexValue(usersByTelegramUsername, username, user.id);
+    }
+  }
+  userIndexKeys.set(user.id, { telegramIds, usernames });
+}
+
+function unindexUser(userId) {
+  const keys = userIndexKeys.get(userId);
+  if (!keys) return;
+  for (const key of keys.telegramIds) removeIndexValue(usersByTelegramId, key, userId);
+  for (const key of keys.usernames) removeIndexValue(usersByTelegramUsername, key, userId);
+  userIndexKeys.delete(userId);
+}
+
+function putUser(user) {
+  if (!user?.id) return user;
+  unindexUser(user.id);
+  users.set(user.id, user);
+  indexUser(user);
+  return user;
+}
+
+function deleteUser(userId) {
+  unindexUser(userId);
+  users.delete(userId);
+}
+
+function putPublicLink(link) {
+  if (!link?.slug) return link;
+  publicLinks.set(link.slug, link);
+  if (link.id) publicLinksById.set(link.id, link);
+  addIndexValue(linkSlugsByUserId, link.userId, link.slug);
+  return link;
+}
+
+function putMessage(message) {
+  if (!message?.id) return message;
+  messages.set(message.id, message);
+  addIndexValue(messageIdsByPublicLink, message.publicLinkId, message.id);
+  return message;
+}
+
+function deleteMessage(messageId) {
+  const message = messages.get(messageId);
+  if (message) removeIndexValue(messageIdsByPublicLink, message.publicLinkId, messageId);
+  messages.delete(messageId);
+}
+
+function rebuildIndexes() {
+  usersByTelegramId.clear();
+  usersByTelegramUsername.clear();
+  userIndexKeys.clear();
+  publicLinksById.clear();
+  linkSlugsByUserId.clear();
+  messageIdsByPublicLink.clear();
+  for (const user of users.values()) indexUser(user);
+  for (const link of publicLinks.values()) {
+    if (link.id) publicLinksById.set(link.id, link);
+    addIndexValue(linkSlugsByUserId, link.userId, link.slug);
+  }
+  for (const message of messages.values()) addIndexValue(messageIdsByPublicLink, message.publicLinkId, message.id);
+}
+
+function indexedTelegramUsers(index, value) {
+  const ids = index.get(String(value)) || [];
+  return [...ids].map((id) => users.get(id)).filter(Boolean);
+}
 
 function currentSnapshot() {
   return {
@@ -161,21 +299,34 @@ function currentSnapshot() {
 }
 
 async function persistState() {
+  if (persistenceInFlight) {
+    persistenceAgain = true;
+    return;
+  }
+  persistenceInFlight = true;
   try {
     const snapshot = currentSnapshot();
     if (devStore) devStore.save(snapshot);
     else {
       await mkdir(join(PROJECT_ROOT, 'data'), { recursive: true });
-      await writeFile(DATA_FILE, JSON.stringify(snapshot, null, 2));
+      const temporaryFile = `${DATA_FILE}.${process.pid}.tmp`;
+      await writeFile(temporaryFile, JSON.stringify(snapshot));
+      await rename(temporaryFile, DATA_FILE);
     }
   } catch (error) {
     console.error('[store] persist failed:', error.message);
+  } finally {
+    persistenceInFlight = false;
+    if (persistenceAgain) {
+      persistenceAgain = false;
+      schedulePersist();
+    }
   }
 }
 
 function schedulePersist() {
   clearTimeout(persistenceTimer);
-  persistenceTimer = setTimeout(() => persistState(), 100);
+  persistenceTimer = setTimeout(() => { void persistState(); }, PERSIST_DEBOUNCE_MS);
 }
 
 async function loadState() {
@@ -193,6 +344,7 @@ async function loadState() {
     if (Array.isArray(snapshot.retentionSettings)) { retentionSettings.clear(); snapshot.retentionSettings.forEach(([id, settings]) => retentionSettings.set(id, settings)); }
     if (Array.isArray(snapshot.blockedSenders)) { blockedSenders.clear(); snapshot.blockedSenders.forEach(([id, fingerprints]) => blockedSenders.set(id, new Set(fingerprints || []))); }
     if (Array.isArray(snapshot.mystarsOrders)) { mystarsOrders.clear(); snapshot.mystarsOrders.forEach(([id, order]) => mystarsOrders.set(id, order)); }
+    rebuildIndexes();
     for (const user of users.values()) {
       ensurePublicLink(user);
       ensureWebSession(user);
@@ -213,9 +365,9 @@ function purgeDemoDataIfDisabled() {
   const demoLinkIds = new Set([...publicLinks.values()].filter((link) => demoUserIds.has(link.userId)).map((link) => link.id));
   const demoLinkSlugs = new Set([...publicLinks.values()].filter((link) => demoUserIds.has(link.userId)).map((link) => link.slug));
   for (const slug of demoLinkSlugs) publicLinks.delete(slug);
-  for (const [id, message] of messages) if (demoLinkIds.has(message.publicLinkId) || String(id).startsWith('demo-') || demoUserIds.has(message.userId)) messages.delete(id);
+  for (const [id, message] of messages) if (demoLinkIds.has(message.publicLinkId) || String(id).startsWith('demo-') || demoUserIds.has(message.userId)) deleteMessage(id);
   for (const userId of demoUserIds) {
-    users.delete(userId);
+    deleteUser(userId);
     retentionSettings.delete(userId);
   }
   schedulePersist();
@@ -265,6 +417,8 @@ const mimeTypes = {
   '.jpg': 'image/jpeg',
   '.ico': 'image/x-icon'
 };
+const staticFileCache = new Map();
+const STATIC_CACHE_MAX_BYTES = 20 * 1024 * 1024;
 
 function json(res, status, body) {
   res.writeHead(status, {
@@ -386,7 +540,9 @@ function demoSlug() {
 }
 
 function ensurePublicLink(user, requestedSlug = null) {
-  const existing = [...publicLinks.values()].find((link) => link.userId === user.id && !link.isAlias);
+  const existing = [...linkSlugsByUserId.get(user.id) || []]
+    .map((slug) => publicLinks.get(slug))
+    .find((link) => link && !link.isAlias);
   const identityUsername = userIdentities(user).find((identity) => identity.username && !isTelegramBotUsername(identity.username))?.username;
   const username = user.username && !isTelegramBotUsername(user.username) ? user.username : identityUsername;
   const fallback = `u-${user.id.replace(/[^a-z0-9]/gi, '').slice(0, 10).toLowerCase() || 'user'}`;
@@ -404,12 +560,12 @@ function ensurePublicLink(user, requestedSlug = null) {
   while (publicLinks.has(slug) && publicLinks.get(slug).userId !== user.id) slug = `${base}-${suffix++}`;
   const link = existing || { id: randomUUID(), userId: user.id, slug, createdAt: new Date().toISOString(), isActive: true };
   if (existing?.slug && existing.slug !== slug) {
-    publicLinks.set(existing.slug, { ...existing, isAlias: true, canonicalSlug: slug });
+    putPublicLink({ ...existing, isAlias: true, canonicalSlug: slug });
   }
   link.slug = slug;
   delete link.isAlias;
   delete link.canonicalSlug;
-  publicLinks.set(slug, link);
+  putPublicLink(link);
   schedulePersist();
   return link;
 }
@@ -419,7 +575,7 @@ function resolvePublicLink(slug) {
   if (!normalizedSlug) return null;
   // A verified Telegram identity wins over a same-named legacy link. This is
   // important for direct @username recipient selection after old migrations.
-  const owner = [...users.values()].find((candidate) => {
+  const owner = indexedTelegramUsers(usersByTelegramUsername, normalizedSlug).find((candidate) => {
     if (normalizeTelegramUsername(candidate.username) === normalizedSlug && !isTelegramBotUsername(candidate.username)) return true;
     return userIdentities(candidate).some((identity) => identity.provider === 'telegram'
       && normalizeTelegramUsername(identity.username) === normalizedSlug
@@ -447,7 +603,7 @@ function ensureTelegramRecipientLink(username) {
     telegramUserbotOnly: true,
     identities: [{ provider: 'telegram', providerUserId: null, username: normalizedUsername, userbotOnly: true }]
   };
-  users.set(user.id, user);
+  putUser(user);
   retentionSettings.set(user.id, { dailyEnabled: true });
   const link = ensurePublicLink(user, normalizedUsername);
   schedulePersist();
@@ -471,9 +627,15 @@ function completeAuth(provider, providerUserId, profile = {}) {
   const profileUsername = normalizeTelegramUsername(profile.username);
   // Match the raw provider ID before applying the bot-identity filter. This repairs
   // legacy records whose real user identity still carried the bot username.
-  const existingById = [...users.values()].find((candidate) => userIdentities(candidate).some((identity) => identity.provider === provider && String(identity.providerUserId) === providerId));
+  const idCandidates = provider === 'telegram'
+    ? indexedTelegramUsers(usersByTelegramId, providerId)
+    : [...users.values()];
+  const existingById = idCandidates.find((candidate) => userIdentities(candidate).some((identity) => identity.provider === provider && String(identity.providerUserId) === providerId));
+  const usernameCandidates = provider === 'telegram' && profileUsername
+    ? indexedTelegramUsers(usersByTelegramUsername, profileUsername)
+    : [];
   const existingByUsername = provider === 'telegram' && profileUsername
-    ? [...users.values()].find((candidate) => {
+    ? usernameCandidates.find((candidate) => {
       const identities = userIdentities(candidate).filter((identity) => identity.provider === 'telegram');
       const hasDifferentVerifiedIdentity = identities.some((identity) => !isTelegramBotIdentity(identity)
         && /^\d+$/.test(String(identity.providerUserId || ''))
@@ -504,7 +666,7 @@ function completeAuth(provider, providerUserId, profile = {}) {
   if (profile.language) user.language = profile.language;
   if (profile.photoUrl) user.photoUrl = profile.photoUrl;
   if (!Number.isFinite(Number(user.balanceRub))) user.balanceRub = 0;
-  users.set(user.id, user);
+  putUser(user);
   ensurePublicLink(user);
   if (!retentionSettings.has(user.id)) retentionSettings.set(user.id, { dailyEnabled: user.dailyEnabled !== false });
   const token = ensureWebSession(user);
@@ -544,7 +706,7 @@ function seedDemoData() {
     ['Спасибо, что однажды поддержала меня. Я этого не забыл.', 72, 'lilac']
   ]) {
     const id = `demo-${messages.size + 1}`;
-    messages.set(id, { id, publicLinkId: demoLink.id, body: text, text, source: 'telegram', senderAvailable: false, unread: hoursAgo < 24, saved: false, createdAt: new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString(), time: hoursAgo < 24 ? 'сегодня, 12:44' : hoursAgo < 48 ? 'вчера, 20:18' : '12 марта, 09:02', mood });
+    putMessage({ id, publicLinkId: demoLink.id, body: text, text, source: 'telegram', senderAvailable: false, unread: hoursAgo < 24, saved: false, createdAt: new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString(), time: hoursAgo < 24 ? 'сегодня, 12:44' : hoursAgo < 48 ? 'вчера, 20:18' : '12 марта, 09:02', mood });
   }
   schedulePersist();
 }
@@ -564,18 +726,47 @@ function vkAppKeyboard(appUrl = buildWebAppUrl(), label = 'Открыть мой
   return { inline: true, buttons: [[{ action: { type: 'open_link', label, link: appUrl } }]] };
 }
 
+function drainTelegramApiQueue() {
+  if (telegramApiDrainTimer || telegramApiRunning >= Math.max(1, TELEGRAM_API_CONCURRENCY) || !telegramApiQueue.length) return;
+  const wait = Math.max(0, telegramApiNextStartAt - Date.now());
+  if (wait) {
+    telegramApiDrainTimer = setTimeout(() => {
+      telegramApiDrainTimer = null;
+      drainTelegramApiQueue();
+    }, wait);
+    return;
+  }
+  const job = telegramApiQueue.shift();
+  telegramApiRunning += 1;
+  telegramApiNextStartAt = Date.now() + Math.max(0, TELEGRAM_API_MIN_INTERVAL_MS);
+  Promise.resolve().then(job.task).then(job.resolve, job.reject).finally(() => {
+    telegramApiRunning -= 1;
+    drainTelegramApiQueue();
+  }).catch(() => {});
+  drainTelegramApiQueue();
+}
+
+function queueTelegramApi(task) {
+  return new Promise((resolve, reject) => {
+    telegramApiQueue.push({ task, resolve, reject });
+    drainTelegramApiQueue();
+  });
+}
+
 async function telegramRequest(method, body = {}, timeoutMs = 15000) {
   if (!TELEGRAM_BOT_TOKEN) return null;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/${method}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
-    const result = await response.json();
-    if (!response.ok || !result.ok) throw new Error(result.description || `Telegram API ${response.status}`);
-    return result.result;
-  } finally {
-    clearTimeout(timeout);
-  }
+  return queueTelegramApi(async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/${method}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.description || `Telegram API ${response.status}`);
+      return result.result;
+    } finally {
+      clearTimeout(timeout);
+    }
+  });
 }
 
 async function resolveTelegramBotIdentity() {
@@ -649,24 +840,26 @@ async function sendTelegramPhoto(chatId, caption, options = true) {
   // the production site has a CDN, auth, redirect, or an unavailable /assets URL.
   if (!USE_START_BANNER || !TELEGRAM_BOT_TOKEN || !chatId) return sendTelegramMessage(chatId, caption, options);
   try {
-    const image = await readFile(START_BANNER_FILE);
-    const form = new FormData();
-    form.append('chat_id', String(chatId));
-    form.append('photo', new Blob([image], { type: 'image/png' }), 'start-banner.png');
-    form.append('caption', caption);
-    form.append('parse_mode', 'HTML');
-    const replyMarkup = options === true ? telegramAppKeyboard() : options?.reply_markup;
-    if (replyMarkup) form.append('reply_markup', JSON.stringify(replyMarkup));
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15_000);
-    try {
-      const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, { method: 'POST', body: form, signal: controller.signal });
-      const result = await response.json();
-      if (!response.ok || !result.ok) throw new Error(result.description || `Telegram API ${response.status}`);
-      return { sent: true };
-    } finally {
-      clearTimeout(timeout);
-    }
+    return await queueTelegramApi(async () => {
+      const image = await readFile(START_BANNER_FILE);
+      const form = new FormData();
+      form.append('chat_id', String(chatId));
+      form.append('photo', new Blob([image], { type: 'image/png' }), 'start-banner.png');
+      form.append('caption', caption);
+      form.append('parse_mode', 'HTML');
+      const replyMarkup = options === true ? telegramAppKeyboard() : options?.reply_markup;
+      if (replyMarkup) form.append('reply_markup', JSON.stringify(replyMarkup));
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15_000);
+      try {
+        const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, { method: 'POST', body: form, signal: controller.signal });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.description || `Telegram API ${response.status}`);
+        return { sent: true };
+      } finally {
+        clearTimeout(timeout);
+      }
+    });
   } catch (error) {
     console.error('[telegram] sendPhoto failed, falling back to text:', error.message);
     return sendTelegramMessage(chatId, caption, options);
@@ -678,7 +871,7 @@ async function sendVkMessage(userId, text, withApp = true, appUrl = buildWebAppU
   const payload = { user_id: String(userId), random_id: String(Date.now()), message: text, access_token: VK_GROUP_TOKEN, v: VK_API_VERSION };
   if (withApp) payload.keyboard = JSON.stringify(vkAppKeyboard(appUrl, appLabel));
   const params = new URLSearchParams(payload);
-  const response = await fetch(`https://api.vk.com/method/messages.send?${params}`);
+  const response = await fetchWithTimeout(`https://api.vk.com/method/messages.send?${params}`);
   return { sent: response.ok, status: response.status };
 }
 
@@ -1063,7 +1256,7 @@ function announceCryptoBotWebhook() {
 }
 
 async function createCryptoBotInvoice(payment) {
-  const response = await fetch(`${CRYPTOBOT_API_URL.replace(/\/$/, '')}/createInvoice`, {
+  const response = await fetchWithTimeout(`${CRYPTOBOT_API_URL.replace(/\/$/, '')}/createInvoice`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Crypto-Pay-API-Token': CRYPTOBOT_API_TOKEN },
     body: JSON.stringify({
@@ -1086,7 +1279,7 @@ async function getXRocketRate(baseCurrency, assetCurrency) {
   const url = new URL(`${XROCKET_API_URL.replace(/\/$/, '')}/api/v1/rates`);
   url.searchParams.set('base', baseCurrency);
   url.searchParams.set('assets', assetCurrency);
-  const response = await fetch(url, { headers: { Accept: 'application/json' } });
+  const response = await fetchWithTimeout(url, { headers: { Accept: 'application/json' } });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.detail || payload.message || `xRocket rates API ${response.status}`);
   const rates = Array.isArray(payload) ? payload : payload.rates || payload.data || payload.items || [];
@@ -1112,7 +1305,7 @@ async function resolveXRocketInvoicePrice(payment) {
 
 async function createXRocketPaymentLink(payment) {
   const invoicePrice = await resolveXRocketInvoicePrice(payment);
-  const response = await fetch(`${XROCKET_API_URL.replace(/\/$/, '')}/api/v1/invoices`, {
+  const response = await fetchWithTimeout(`${XROCKET_API_URL.replace(/\/$/, '')}/api/v1/invoices`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: xrocketAuthHeader() },
     body: JSON.stringify({
@@ -1252,7 +1445,7 @@ function applyPaidPayment(payment) {
     if (payment.plan === 'reveal') {
       user.revealCredits = (user.revealCredits || 0) + 1;
       const message = payment.messageId && messages.get(payment.messageId);
-      const ownerLink = message && [...publicLinks.values()].find((link) => link.id === message.publicLinkId && link.userId === user.id);
+      const ownerLink = ownedLinkForMessage(message, user);
       if (message && ownerLink && message.senderAvailable) {
         message.revealedFor = Array.isArray(message.revealedFor) ? message.revealedFor : [];
         if (!message.revealedFor.includes(user.id)) message.revealedFor.push(user.id);
@@ -1268,14 +1461,14 @@ function applyPaidPayment(payment) {
   return true;
 }
 
-async function reconcileExternalPayment(payment) {
+async function reconcileExternalPaymentUncoalesced(payment) {
   if (!payment || payment.status !== 'pending') return payment;
   if (payment.provider !== 'yoomoney' && !payment.externalId) return payment;
   try {
     if (payment.provider === 'yoomoney' && YUMONEY_TOKEN) {
       const url = new URL(`${YUMONEY_API_URL.replace(/\/$/, '')}/operation-history`);
       const form = new URLSearchParams({ records: '100', label: payment.id });
-      const response = await fetch(url, {
+      const response = await fetchWithTimeout(url, {
         method: 'POST',
         headers: {
           Accept: 'application/json',
@@ -1295,7 +1488,7 @@ async function reconcileExternalPayment(payment) {
       });
       if (operation) applyPaidPayment(payment);
     } else if (payment.provider === 'cryptobot' && CRYPTOBOT_API_TOKEN) {
-      const response = await fetch(`${CRYPTOBOT_API_URL.replace(/\/$/, '')}/getInvoices`, {
+      const response = await fetchWithTimeout(`${CRYPTOBOT_API_URL.replace(/\/$/, '')}/getInvoices`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Crypto-Pay-API-Token': CRYPTOBOT_API_TOKEN },
         // Crypto Pay expects invoice_ids as an array of numeric invoice IDs.
@@ -1325,7 +1518,7 @@ async function reconcileExternalPayment(payment) {
       // GET /api/v1/invoice?invoiceId=..., not /invoices/:id.
       const url = new URL(`${XROCKET_API_URL.replace(/\/$/, '')}/api/v1/invoice`);
       url.searchParams.set('invoiceId', String(payment.externalId));
-      const response = await fetch(url, {
+      const response = await fetchWithTimeout(url, {
         headers: { Accept: 'application/json', Authorization: xrocketAuthHeader() }
       });
       const payload = await response.json().catch(() => ({}));
@@ -1345,7 +1538,35 @@ async function reconcileExternalPayment(payment) {
   return payment;
 }
 
+async function reconcileExternalPayment(payment) {
+  if (!payment || payment.status !== 'pending') return payment;
+  const key = String(payment.id);
+  const active = paymentReconciliationInFlight.get(key);
+  if (active) return active;
+  const task = reconcileExternalPaymentUncoalesced(payment);
+  paymentReconciliationInFlight.set(key, task);
+  try {
+    return await task;
+  } finally {
+    if (paymentReconciliationInFlight.get(key) === task) paymentReconciliationInFlight.delete(key);
+  }
+}
+
 let paymentReconciliationRunning = false;
+
+async function runWithConcurrency(items, concurrency, handler) {
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) return;
+  const limit = Math.max(1, Math.min(Number(concurrency) || 1, list.length));
+  let cursor = 0;
+  async function worker() {
+    while (cursor < list.length) {
+      const index = cursor++;
+      await handler(list[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: limit }, () => worker()));
+}
 
 async function runPendingPaymentReconciliation() {
   if (paymentReconciliationRunning) return { checked: 0, paid: 0 };
@@ -1357,15 +1578,15 @@ async function runPendingPaymentReconciliation() {
       .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')))
       .slice(0, 100);
     let paid = 0;
-    for (const payment of pending) {
+    await runWithConcurrency(pending, PAYMENT_RECONCILE_CONCURRENCY, async (payment) => {
       const before = payment.status;
       await reconcileExternalPayment(payment);
       if (before !== 'paid' && payment.status === 'paid') paid += 1;
-    }
+    });
     const notifications = [...payments.values()]
       .filter((payment) => payment.status === 'paid' && payment.notificationStatus === 'pending')
       .slice(0, 100);
-    for (const payment of notifications) await notifyPaidPayment(payment);
+    await runWithConcurrency(notifications, PAYMENT_RECONCILE_CONCURRENCY, (payment) => notifyPaidPayment(payment));
     if (paid) console.log(`[payments] background reconciliation credited ${paid} payment(s)`);
     return { checked: pending.length, paid, notifications: notifications.length };
   } finally {
@@ -1415,7 +1636,7 @@ async function sendPaymentResult(chatId, payment, language = 'ru') {
 async function mystarsRequest(path, options = {}) {
   if (!MYSTARS_API_KEY) throw new Error('MYSTARS_API_KEY is not configured');
   const headers = { Accept: 'application/json', 'Content-Type': 'application/json', 'X-Api-Key': MYSTARS_API_KEY, ...(options.headers || {}) };
-  const response = await fetch(`${MYSTARS_API_URL.replace(/\/$/, '')}${path}`, { ...options, headers });
+  const response = await fetchWithTimeout(`${MYSTARS_API_URL.replace(/\/$/, '')}${path}`, { ...options, headers });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.detail || payload.message || payload.error || `MyStars API ${response.status}`);
   return payload;
@@ -1800,10 +2021,22 @@ async function createUserbotGiftOrder(user, gift) {
   return order;
 }
 
+function ownedLinkForMessage(message, user) {
+  const link = message?.publicLinkId && publicLinksById.get(message.publicLinkId);
+  return link?.userId === user?.id ? link : null;
+}
+
 function userInboxMessages(user) {
-  const linkIds = new Set([...publicLinks.values()].filter((link) => link.userId === user.id).map((link) => link.id));
-  return [...messages.values()]
-    .filter((message) => linkIds.has(message.publicLinkId))
+  const linkIds = new Set([...linkSlugsByUserId.get(user.id) || []]
+    .map((slug) => publicLinks.get(slug)?.id)
+    .filter(Boolean));
+  const messageIds = new Set();
+  for (const linkId of linkIds) {
+    for (const messageId of messageIdsByPublicLink.get(linkId) || []) messageIds.add(messageId);
+  }
+  return [...messageIds]
+    .map((messageId) => messages.get(messageId))
+    .filter(Boolean)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
@@ -2102,7 +2335,7 @@ async function handleTelegramCallback(callback) {
   if (data.startsWith('block:')) {
     const messageId = data.slice('block:'.length);
     const message = messages.get(messageId);
-    const ownerLink = message && [...publicLinks.values()].find((link) => link.id === message.publicLinkId && link.userId === user.id);
+    const ownerLink = ownedLinkForMessage(message, user);
     if (!ownerLink) return answerCallback(callback.id, 'Послание не найдено');
     if (!message.sender?.fingerprint) return answerCallback(callback.id, 'Для этого послания нет данных для блокировки');
     blockSender(user.id, message.sender.fingerprint);
@@ -2254,7 +2487,7 @@ async function deliverDirectTelegramMessage(user, recipientSlug, incomingMessage
     time: 'только что',
     mood: 'pink'
   };
-  messages.set(message.id, message);
+  putMessage(message);
   schedulePersist();
   const owner = users.get(link.userId);
   if (owner) await notifyNewMessage(owner, message);
@@ -2274,7 +2507,7 @@ async function handleTelegramUpdate(update) {
   if (revealStartMatch) {
     const messageId = revealStartMatch[1];
     const targetMessage = messages.get(messageId);
-    const ownerLink = targetMessage && [...publicLinks.values()].find((candidate) => candidate.id === targetMessage.publicLinkId && candidate.userId === user.id);
+    const ownerLink = ownedLinkForMessage(targetMessage, user);
     if (!targetMessage || !ownerLink || !targetMessage.senderAvailable) {
       return sendTelegramMessage(chatId, '🔎 Для этого послания отправителя нельзя определить.', { reply_markup: botMenuKeyboard(user.language || 'ru') });
     }
@@ -2413,7 +2646,7 @@ function addDailyAnonymousMessage(user, text) {
     time: 'сегодня',
     mood: 'lilac'
   };
-  messages.set(message.id, message);
+  putMessage(message);
   return message;
 }
 
@@ -2611,9 +2844,16 @@ async function handleApi(req, res, url) {
   if (req.method === 'GET' && /^\/api\/v1\/inbox$/.test(url.pathname)) {
     const user = getUserFromRequest(req);
     if (!user) return json(res, 401, { error: 'unauthorized' });
-    const linkIds = new Set([...publicLinks.values()].filter((link) => link.userId === user.id).map((link) => link.id));
-    const inbox = [...messages.values()]
-      .filter((message) => linkIds.has(message.publicLinkId))
+    const linkIds = new Set([...linkSlugsByUserId.get(user.id) || []]
+      .map((slug) => publicLinks.get(slug)?.id)
+      .filter(Boolean));
+    const messageIds = new Set();
+    for (const linkId of linkIds) {
+      for (const messageId of messageIdsByPublicLink.get(linkId) || []) messageIds.add(messageId);
+    }
+    const inbox = [...messageIds]
+      .map((messageId) => messages.get(messageId))
+      .filter(Boolean)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .map((message) => messageForOwner(message, user));
     return json(res, 200, { messages: inbox });
@@ -2655,7 +2895,7 @@ async function handleApi(req, res, url) {
       senderAvailable: Boolean(telegramUser?.id), sender, unread: true, saved: false,
       createdAt: new Date().toISOString(), time: 'только что', mood: 'pink'
     };
-    messages.set(message.id, message);
+    putMessage(message);
     schedulePersist();
     const owner = users.get(link.userId);
     if (owner) await notifyNewMessage(owner, message);
@@ -2666,7 +2906,7 @@ async function handleApi(req, res, url) {
     const messageId = url.pathname.split('/')[4];
     const action = url.pathname.split('/')[5];
     const message = messages.get(messageId);
-    const ownerLink = message && [...publicLinks.values()].find((link) => link.id === message.publicLinkId && link.userId === user?.id);
+    const ownerLink = ownedLinkForMessage(message, user);
     if (!ownerLink) return json(res, 404, { error: 'message_not_found' });
     if (action === 'read') message.unread = false;
     if (action === 'save') message.saved = true;
@@ -2678,7 +2918,7 @@ async function handleApi(req, res, url) {
     const messageId = url.pathname.split('/')[4];
     const action = url.pathname.split('/')[5];
     const message = messages.get(messageId);
-    const ownerLink = message && [...publicLinks.values()].find((link) => link.id === message.publicLinkId && link.userId === user?.id);
+    const ownerLink = ownedLinkForMessage(message, user);
     if (!ownerLink) return json(res, 404, { error: 'message_not_found' });
     if (action === 'block') {
       if (!message.sender?.fingerprint) return json(res, 422, { error: 'sender_fingerprint_unavailable' });
@@ -2704,7 +2944,7 @@ async function handleApi(req, res, url) {
     const user = getUserFromRequest(req);
     const messageId = url.pathname.split('/')[4];
     const message = messages.get(messageId);
-    const ownerLink = message && [...publicLinks.values()].find((link) => link.id === message.publicLinkId && link.userId === user?.id);
+    const ownerLink = ownedLinkForMessage(message, user);
     if (!ownerLink) return json(res, 404, { error: 'message_not_found' });
     const revealed = Array.isArray(message.revealedFor) && message.revealedFor.includes(user.id);
     return json(res, 200, {
@@ -2750,7 +2990,7 @@ async function handleApi(req, res, url) {
     if (provider === 'balance' && Number(user.balanceRub || 0) < amount) return json(res, 402, { error: 'insufficient_balance', balance: Number(user.balanceRub || 0), required: amount });
     if (purpose === 'plan' && body.messageId && user) {
       const message = messages.get(body.messageId);
-      const ownerLink = message && [...publicLinks.values()].find((link) => link.id === message.publicLinkId && link.userId === user.id);
+      const ownerLink = ownedLinkForMessage(message, user);
       if (!ownerLink) return json(res, 404, { error: 'message_not_found' });
     }
     try {
@@ -2915,9 +3155,18 @@ async function serveStatic(req, res, url) {
   const filePath = normalize(join(rootPath, requested));
   if (!(filePath === rootPath || filePath.startsWith(rootPath + sep))) return res.writeHead(403).end('Forbidden');
   try {
-    let content = await readFile(filePath);
-    if (requested === 'index.html') content = Buffer.from(renderIndexTemplate(content.toString('utf8')));
-    res.writeHead(200, { 'Content-Type': mimeTypes[extname(filePath)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    let content;
+    if (requested === 'index.html') {
+      content = Buffer.from(renderIndexTemplate((await readFile(filePath)).toString('utf8')));
+    } else {
+      content = staticFileCache.get(filePath);
+      if (!content) {
+        content = await readFile(filePath);
+        if (content.length <= STATIC_CACHE_MAX_BYTES) staticFileCache.set(filePath, content);
+      }
+    }
+    const cacheControl = requested === 'index.html' ? 'no-cache' : 'public, max-age=300, stale-while-revalidate=60';
+    res.writeHead(200, { 'Content-Type': mimeTypes[extname(filePath)] || 'application/octet-stream', 'Cache-Control': cacheControl });
     res.end(content);
   } catch {
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -2936,10 +3185,18 @@ const server = createServer(async (req, res) => {
     return json(res, 500, { error: 'internal_error' });
   }
 });
+// Do not allow slow clients to occupy sockets for minutes during a traffic
+// spike. Provider calls have their own timeout and never rely on this value.
+server.requestTimeout = 30_000;
+server.headersTimeout = 15_000;
+server.keepAliveTimeout = 5_000;
+server.maxRequestsPerSocket = 1000;
 
 const telegramBot = createTelegramBot({
   token: TELEGRAM_BOT_TOKEN,
   onUpdate: handleTelegramUpdate,
+  maxConcurrentUpdates: TELEGRAM_MAX_CONCURRENT_UPDATES,
+  maxPendingUpdates: TELEGRAM_MAX_PENDING_UPDATES,
   onError: (label, error) => console.error(label, error?.message || error)
 });
 
@@ -2977,8 +3234,10 @@ async function bootstrap() {
 
 async function shutdown(signal) {
   console.log(`[shutdown] ${signal}`);
+  clearTimeout(persistenceTimer);
   await telegramUserbot.stop();
-  devStore?.close();
+  await persistState();
+  await devStore?.close();
   process.exit(0);
 }
 

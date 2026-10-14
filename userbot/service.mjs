@@ -14,6 +14,9 @@ export function createTelegramUserbot({ enabled, apiId, apiHash, session, appUrl
   let startPromise = null;
   let self = null;
   let giftsCache = { expiresAt: 0, gifts: [] };
+  let giftsRequest = null;
+  let starsBalanceRequest = null;
+  let giftSendTail = Promise.resolve();
 
   async function withTimeout(promise, milliseconds, label) {
     let timer;
@@ -80,17 +83,33 @@ export function createTelegramUserbot({ enabled, apiId, apiHash, session, appUrl
   async function getStarGifts({ refresh = false } = {}) {
     if (!ready || !client) throw new Error('Telegram userbot is not ready');
     if (!refresh && giftsCache.expiresAt > Date.now()) return giftsCache.gifts;
-    const result = await withTimeout(client.invoke(new Api.payments.GetStarGifts({ hash: 0 })), 10000, 'Telegram gift catalog');
-    const rawGifts = Array.isArray(result?.gifts) ? result.gifts : [];
-    const gifts = rawGifts.map(normalizeGift).filter((gift) => gift.id && gift.stars > 0 && !gift.soldOut);
-    giftsCache = { expiresAt: Date.now() + 5 * 60 * 1000, gifts };
-    return gifts;
+    if (giftsRequest) return giftsRequest;
+    giftsRequest = (async () => {
+      const result = await withTimeout(client.invoke(new Api.payments.GetStarGifts({ hash: 0 })), 10000, 'Telegram gift catalog');
+      const rawGifts = Array.isArray(result?.gifts) ? result.gifts : [];
+      const gifts = rawGifts.map(normalizeGift).filter((gift) => gift.id && gift.stars > 0 && !gift.soldOut);
+      giftsCache = { expiresAt: Date.now() + 5 * 60 * 1000, gifts };
+      return gifts;
+    })();
+    try {
+      return await giftsRequest;
+    } finally {
+      giftsRequest = null;
+    }
   }
 
   async function getStarsBalance() {
     if (!ready || !client) throw new Error('Telegram userbot is not ready');
-    const status = await withTimeout(client.invoke(new Api.payments.GetStarsStatus({ peer: new Api.InputPeerSelf() })), 10000, 'Telegram Stars balance');
-    return Number(status?.balance?.amount || 0);
+    if (starsBalanceRequest) return starsBalanceRequest;
+    starsBalanceRequest = (async () => {
+      const status = await withTimeout(client.invoke(new Api.payments.GetStarsStatus({ peer: new Api.InputPeerSelf() })), 10000, 'Telegram Stars balance');
+      return Number(status?.balance?.amount || 0);
+    })();
+    try {
+      return await starsBalanceRequest;
+    } finally {
+      starsBalanceRequest = null;
+    }
   }
 
   async function getUsername() {
@@ -117,12 +136,13 @@ export function createTelegramUserbot({ enabled, apiId, apiHash, session, appUrl
     const fileResponse = await fetch(`https://api.telegram.org/bot${botToken}/getFile`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file_id: fileId })
+      body: JSON.stringify({ file_id: fileId }),
+      signal: AbortSignal.timeout(15000)
     });
     const filePayload = await fileResponse.json().catch(() => ({}));
     const filePath = filePayload.result?.file_path;
     if (!fileResponse.ok || !filePayload.ok || !filePath) throw new Error(filePayload.description || 'Telegram Bot API could not resolve the media file');
-    const mediaResponse = await fetch(`https://api.telegram.org/file/bot${botToken}/${filePath}`);
+    const mediaResponse = await fetch(`https://api.telegram.org/file/bot${botToken}/${filePath}`, { signal: AbortSignal.timeout(30000) });
     if (!mediaResponse.ok) throw new Error(`Telegram Bot API media download failed (${mediaResponse.status})`);
     const buffer = Buffer.from(await mediaResponse.arrayBuffer());
     return { buffer, fileName: filePath.split('/').pop() || 'telegram-media.bin' };
@@ -199,7 +219,7 @@ export function createTelegramUserbot({ enabled, apiId, apiHash, session, appUrl
     );
   }
 
-  async function sendStarGift({ username, giftId, message, hideName = true }) {
+  async function sendStarGiftNow({ username, giftId, message, hideName = true }) {
     if (!ready || !client) throw new Error('Telegram userbot is not ready');
     const peer = await client.getInputEntity(String(username).replace(/^@+/, ''));
     const invoice = new Api.InputInvoiceStarGift({
@@ -209,6 +229,21 @@ export function createTelegramUserbot({ enabled, apiId, apiHash, session, appUrl
       message: new Api.TextWithEntities({ text: String(message || ''), entities: [] })
     });
     return sendStarsForm(invoice);
+  }
+
+  async function sendStarGift(args) {
+    // Telegram Stars are spent from one userbot wallet. Serialize payment
+    // forms so simultaneous orders cannot race on the same balance or MTProto
+    // payment session.
+    const previous = giftSendTail;
+    let release;
+    giftSendTail = new Promise((resolve) => { release = resolve; });
+    await previous;
+    try {
+      return await sendStarGiftNow(args);
+    } finally {
+      release();
+    }
   }
 
   async function sendGift({ gift, message }) {
@@ -236,6 +271,9 @@ export function createTelegramUserbot({ enabled, apiId, apiHash, session, appUrl
     startPromise = null;
     self = null;
     giftsCache = { expiresAt: 0, gifts: [] };
+    giftsRequest = null;
+    starsBalanceRequest = null;
+    giftSendTail = Promise.resolve();
     if (client) {
       try { await client.disconnect(); } catch (error) { console.error('[userbot] stop failed:', error.message); }
     }
