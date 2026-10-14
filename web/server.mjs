@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import { createServer } from 'node:http';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHmac, randomUUID } from 'node:crypto';
@@ -9,6 +9,7 @@ import { createSqliteStore } from './sqlite-store.mjs';
 
 const WEB_ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = resolve(WEB_ROOT, '..');
+dotenv.config({ path: join(PROJECT_ROOT, '.env') });
 
 function env(name, fallback = '') {
   return process.env[name]?.trim() || fallback;
