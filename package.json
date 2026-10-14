@@ -1,0 +1,16 @@
+{
+  "name": "poslaniya-dev",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "start:dev": "node --watch server.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "dotenv": "^16.4.7",
+    "input": "^1.0.1",
+    "telegram": "^2.26.22"
+  }
+}

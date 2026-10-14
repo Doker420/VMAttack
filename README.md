@@ -61,5 +61,17 @@ $ dotnet build
 - [AsmResolver](https://github.com/Washi1337/AsmResolver)
 - [Echo Framework](https://github.com/Washi1337/Echo)
 
+## Послания Web App
+
+Готовый Web App и Telegram/VK API находятся в `web/` и запускаются из корня репозитория:
+
+```bash
+cp .env.example .env
+npm install
+npm start
+```
+
+Конфигурация, ссылки, storage-пути и токены берутся из корневого `.env`. Подробности — в [`web/README.md`](web/README.md).
+
 ## License
 [![GPLv3 License](https://img.shields.io/badge/License-GPL%20v3-yellow.svg)](https://opensource.org/licenses/)
