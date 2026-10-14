@@ -44,8 +44,11 @@ const TELEGRAM_STICKER_ID = env('TELEGRAM_STICKER_ID');
 const TELEGRAM_RECEIVED_STICKER_ID = env('TELEGRAM_RECEIVED_STICKER_ID', TELEGRAM_STICKER_ID);
 const TELEGRAM_SENT_STICKER_ID = env('TELEGRAM_SENT_STICKER_ID', TELEGRAM_STICKER_ID);
 const TELEGRAM_SBP_ADMIN_TEXT = env('TELEGRAM_SBP_ADMIN_TEXT', 'Реквизиты СБП не настроены. Обратитесь к администратору.');
+const YUMONEY_RECEIVER = env('YUMONEY_RECEIVER');
 const YUMONEY_PAYMENT_URL = env('YUMONEY_PAYMENT_URL');
-const YUMONEY_WEBHOOK_SECRET = env('YUMONEY_WEBHOOK_SECRET');
+const YUMONEY_NOTIFICATION_SECRET = env('YUMONEY_NOTIFICATION_SECRET');
+const YUMONEY_TOKEN = env('YUMONEY_TOKEN');
+const YUMONEY_WEBHOOK_SECRET = env('YUMONEY_WEBHOOK_SECRET', YUMONEY_NOTIFICATION_SECRET);
 const CRYPTOBOT_API_TOKEN = env('CRYPTOBOT_API_TOKEN');
 const CRYPTOBOT_API_URL = env('CRYPTOBOT_API_URL', 'https://pay.crypt.bot/api');
 const CRYPTOBOT_WEBHOOK_SECRET = env('CRYPTOBOT_WEBHOOK_SECRET');
@@ -667,7 +670,7 @@ function paymentKeyboard(language, plan, messageId = null, user = null) {
 }
 
 function paymentMethodIsConfigured(provider) {
-  if (provider === 'yoomoney') return Boolean(YUMONEY_PAYMENT_URL);
+  if (provider === 'yoomoney') return Boolean(YUMONEY_PAYMENT_URL || YUMONEY_RECEIVER);
   if (provider === 'xrocket') return Boolean(XROCKET_API_TOKEN && XROCKET_CREATE_INVOICE_URL);
   if (provider === 'cryptobot') return Boolean(CRYPTOBOT_API_TOKEN);
   return provider === 'sbp';
@@ -701,9 +704,14 @@ function createPaymentRecord(user, { provider, purpose, plan = null, amount, mes
   return payment;
 }
 
-function appendPaymentUrlParams(baseUrl, payment) {
+function yoomoneyPaymentUrl(payment) {
+  const baseUrl = YUMONEY_PAYMENT_URL || (YUMONEY_RECEIVER ? 'https://yoomoney.ru/quickpay/confirm.xml' : '');
+  if (!baseUrl) return '';
   try {
     const url = new URL(baseUrl);
+    if (YUMONEY_RECEIVER) url.searchParams.set('receiver', YUMONEY_RECEIVER);
+    url.searchParams.set('quickpay-form', url.searchParams.get('quickpay-form') || 'shop');
+    url.searchParams.set('targets', paymentDescription(payment));
     url.searchParams.set('label', payment.id);
     url.searchParams.set('sum', String(payment.amount));
     url.searchParams.set('currency', payment.currency || 'RUB');
@@ -756,8 +764,8 @@ async function createPaymentCheckout(user, { provider, purpose, plan = null, amo
   const payment = createPaymentRecord(user, { provider, purpose, plan, amount, messageId });
   try {
     if (provider === 'yoomoney') {
-      if (!YUMONEY_PAYMENT_URL) throw new Error('YUMONEY_PAYMENT_URL is not configured');
-      payment.paymentUrl = appendPaymentUrlParams(YUMONEY_PAYMENT_URL, payment);
+      if (!YUMONEY_PAYMENT_URL && !YUMONEY_RECEIVER) throw new Error('YUMONEY_RECEIVER or YUMONEY_PAYMENT_URL is not configured');
+      payment.paymentUrl = yoomoneyPaymentUrl(payment);
     } else if (provider === 'cryptobot') {
       if (!CRYPTOBOT_API_TOKEN) throw new Error('CRYPTOBOT_API_TOKEN is not configured');
       const invoice = await createCryptoBotInvoice(payment);
