@@ -116,7 +116,8 @@ XROCKET_API_URL=https://pay.api.xrocket.exchange
 XROCKET_WEBHOOK_SECRET=
 XROCKET_PRICE_CURRENCY=RUB
 XROCKET_PAYOUT_CURRENCY=
-SBP_PAYMENT_DETAILS=Перевод по СБП на ...
+# Заполните реальными реквизитами; при пустом значении кнопка СБП скрывается.
+SBP_PAYMENT_DETAILS=
 TELEGRAM_ADMIN_IDS=123456789
 ```
 

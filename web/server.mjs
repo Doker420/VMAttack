@@ -36,8 +36,10 @@ const RETENTION_INTERVAL_MS = Number(env('RETENTION_INTERVAL_MS', '86400000'));
 const DEMO_MODE = env('DEMO_MODE', 'true') === 'true';
 const TELEGRAM_MODE = env('TELEGRAM_MODE', 'polling');
 let TELEGRAM_BOT_USERNAME = env('TELEGRAM_BOT_USERNAME', '');
+const LEGACY_TELEGRAM_BOT_USERNAMES = new Set(['poslaniya_robot']);
 const TELEGRAM_BOT_TOKEN = env('TELEGRAM_BOT_TOKEN');
 let telegramBotUserId = null;
+let telegramBotIdentityPromise = null;
 const TELEGRAM_ADMIN_IDS = env('TELEGRAM_ADMIN_IDS');
 const TELEGRAM_WEBHOOK_SECRET = env('TELEGRAM_WEBHOOK_SECRET');
 const TELEGRAM_GROUPS_ENABLED = env('TELEGRAM_GROUPS_ENABLED', 'true') === 'true';
@@ -45,7 +47,7 @@ const TELEGRAM_GROUP_CHAT_IDS = env('TELEGRAM_GROUP_CHAT_IDS').split(',').map((i
 const TELEGRAM_STICKER_ID = env('TELEGRAM_STICKER_ID');
 const TELEGRAM_RECEIVED_STICKER_ID = env('TELEGRAM_RECEIVED_STICKER_ID', TELEGRAM_STICKER_ID);
 const TELEGRAM_SENT_STICKER_ID = env('TELEGRAM_SENT_STICKER_ID', TELEGRAM_STICKER_ID);
-const TELEGRAM_SBP_ADMIN_TEXT = env('TELEGRAM_SBP_ADMIN_TEXT', 'Реквизиты СБП не настроены. Обратитесь к администратору.');
+const TELEGRAM_SBP_ADMIN_TEXT = env('TELEGRAM_SBP_ADMIN_TEXT');
 const TELEGRAM_USERBOT_ENABLED = env('TELEGRAM_USERBOT_ENABLED', 'false') === 'true';
 const TELEGRAM_USERBOT_API_ID = Number(env('TELEGRAM_USERBOT_API_ID', '0'));
 const TELEGRAM_USERBOT_API_HASH = env('TELEGRAM_USERBOT_API_HASH');
@@ -74,6 +76,21 @@ const XROCKET_WEBHOOK_SECRET = env('XROCKET_WEBHOOK_SECRET');
 const XROCKET_PRICE_CURRENCY = env('XROCKET_PRICE_CURRENCY', 'RUB');
 const XROCKET_PAYOUT_CURRENCY = env('XROCKET_PAYOUT_CURRENCY');
 const SBP_PAYMENT_DETAILS = env('SBP_PAYMENT_DETAILS', TELEGRAM_SBP_ADMIN_TEXT);
+
+function sbpDetailsConfigured() {
+  return Boolean(SBP_PAYMENT_DETAILS && !/нет\s+реквизитов|не\s+настроен/i.test(SBP_PAYMENT_DETAILS));
+}
+
+function sbpInstructions(payment = null) {
+  const stored = payment?.instructions || '';
+  return SBP_PAYMENT_DETAILS || (stored && !/нет\s+реквизитов|не\s+настроен/i.test(stored) ? stored : '') || 'Реквизиты СБП временно не настроены. Выберите другой способ оплаты.';
+}
+
+function sbpBotUrl(payment) {
+  return TELEGRAM_BOT_USERNAME && payment?.id
+    ? `https://t.me/${TELEGRAM_BOT_USERNAME}?start=sbp_${encodeURIComponent(payment.id)}`
+    : '';
+}
 const VK_GROUP_ID = env('VK_GROUP_ID', 'poslaniya_demo');
 const VK_GROUP_TOKEN = env('VK_GROUP_TOKEN');
 const VK_API_VERSION = env('VK_API_VERSION', '5.199');
@@ -343,18 +360,20 @@ function compactReferralSlug(value, fallback) {
 function demoSlug() {
   const fallback = `demo-${DEMO_RECIPIENT_ID.replace(/[^a-z0-9]/gi, '').slice(0, 8).toLowerCase() || 'user'}`;
   const configured = compactReferralSlug(DEFAULT_RECIPIENT_SLUG, fallback);
-  return configured === TELEGRAM_BOT_USERNAME ? fallback : configured;
+  return isTelegramBotUsername(configured) ? fallback : configured;
 }
 
 function ensurePublicLink(user, requestedSlug = null) {
   const existing = [...publicLinks.values()].find((link) => link.userId === user.id && !link.isAlias);
-  const identityUsername = userIdentities(user).find((identity) => identity.username && identity.username !== TELEGRAM_BOT_USERNAME)?.username;
-  const username = user.username && user.username !== TELEGRAM_BOT_USERNAME ? user.username : identityUsername;
+  const identityUsername = userIdentities(user).find((identity) => identity.username && !isTelegramBotUsername(identity.username))?.username;
+  const username = user.username && !isTelegramBotUsername(user.username) ? user.username : identityUsername;
   const fallback = `u-${user.id.replace(/[^a-z0-9]/gi, '').slice(0, 10).toLowerCase() || 'user'}`;
   const preferred = user.id === DEMO_RECIPIENT_ID ? demoSlug() : compactReferralSlug(username, fallback);
   const requested = requestedSlug ? compactReferralSlug(requestedSlug, preferred) : null;
-  const reservedOrLong = existing && (!isShortReferralSlug(existing.slug) || existing.slug === TELEGRAM_BOT_USERNAME || existing.slug === DEFAULT_RECIPIENT_SLUG);
-  const needsRepair = existing && !requestedSlug && reservedOrLong && existing.slug !== preferred;
+  const hasRealUsername = Boolean(username && !isTelegramBotUsername(username));
+  const reservedOrLong = existing && (!isShortReferralSlug(existing.slug) || isTelegramBotUsername(existing.slug) || existing.slug === DEFAULT_RECIPIENT_SLUG);
+  const fallbackSlugNeedsRepair = existing && hasRealUsername && /^u-[a-z0-9]+$/i.test(existing.slug) && existing.slug !== preferred;
+  const needsRepair = existing && !requestedSlug && (reservedOrLong || fallbackSlugNeedsRepair) && existing.slug !== preferred;
   if (existing && !requestedSlug && !needsRepair) return existing;
 
   const base = requested || (needsRepair ? preferred : existing?.slug || preferred);
@@ -373,6 +392,20 @@ function ensurePublicLink(user, requestedSlug = null) {
   return link;
 }
 
+function resolvePublicLink(slug) {
+  const normalizedSlug = String(slug || '').trim().toLowerCase();
+  if (!normalizedSlug) return null;
+  const exact = publicLinks.get(normalizedSlug);
+  if (exact) return exact;
+  const owner = [...users.values()].find((candidate) => {
+    if (normalizeTelegramUsername(candidate.username) === normalizedSlug && !isTelegramBotUsername(candidate.username)) return true;
+    return userIdentities(candidate).some((identity) => identity.provider === 'telegram'
+      && normalizeTelegramUsername(identity.username) === normalizedSlug
+      && !isTelegramBotIdentity(identity));
+  });
+  return owner ? ensurePublicLink(owner, normalizedSlug) : null;
+}
+
 function ensureWebSession(user) {
   if (!user.webSessionToken) user.webSessionToken = randomUUID();
   sessions.set(user.webSessionToken, user.id);
@@ -387,7 +420,22 @@ function userForClient(user) {
 
 function completeAuth(provider, providerUserId, profile = {}) {
   const providerId = String(providerUserId);
-  const existing = [...users.values()].find((candidate) => identityFor(candidate, provider)?.providerUserId === providerId);
+  const profileUsername = normalizeTelegramUsername(profile.username);
+  // Match the raw provider ID before applying the bot-identity filter. This repairs
+  // legacy records whose real user identity still carried the bot username.
+  const existingById = [...users.values()].find((candidate) => userIdentities(candidate).some((identity) => identity.provider === provider && String(identity.providerUserId) === providerId));
+  const existingByUsername = provider === 'telegram' && profileUsername
+    ? [...users.values()].find((candidate) => {
+      const identities = userIdentities(candidate).filter((identity) => identity.provider === 'telegram');
+      const hasDifferentVerifiedIdentity = identities.some((identity) => !isTelegramBotIdentity(identity)
+        && /^\d+$/.test(String(identity.providerUserId || ''))
+        && String(identity.providerUserId) !== providerId);
+      if (hasDifferentVerifiedIdentity) return false;
+      return normalizeTelegramUsername(candidate.username) === profileUsername
+        || identities.some((identity) => normalizeTelegramUsername(identity.username) === profileUsername);
+    })
+    : null;
+  const existing = existingById || existingByUsername;
   const user = existing || {
     id: randomUUID(),
     displayName: profile.displayName || 'Новый пользователь',
@@ -400,7 +448,7 @@ function completeAuth(provider, providerUserId, profile = {}) {
     dailyEnabled: true,
     identities: []
   };
-  const identity = identityFor(user, provider);
+  const identity = userIdentities(user).find((candidate) => candidate.provider === provider && String(candidate.providerUserId) === providerId) || identityFor(user, provider);
   if (identity) Object.assign(identity, { providerUserId: providerId, username: profile.username || identity.username || null });
   else userIdentities(user).push({ provider, providerUserId: providerId, username: profile.username || null });
   if (profile.displayName) user.displayName = profile.displayName;
@@ -482,8 +530,23 @@ async function telegramRequest(method, body = {}, timeoutMs = 15000) {
   }
 }
 
+async function resolveTelegramBotIdentity() {
+  if (!TELEGRAM_BOT_TOKEN || telegramBotUserId) return telegramBotUserId;
+  if (!telegramBotIdentityPromise) {
+    telegramBotIdentityPromise = telegramRequest('getMe').then((me) => {
+      telegramBotUserId = me?.id ? String(me.id) : null;
+      if (me?.username) TELEGRAM_BOT_USERNAME = String(me.username).replace(/^@+/, '');
+      return telegramBotUserId;
+    }).catch((error) => {
+      telegramBotIdentityPromise = null;
+      console.error('[telegram] getMe failed:', error.message);
+      return null;
+    });
+  }
+  return telegramBotIdentityPromise;
+}
+
 async function sendTelegramMessage(chatId, text, options = true) {
-  if (TELEGRAM_BOT_TOKEN && !telegramBotUserId) return { skipped: true, reason: 'telegram_bot_identity_not_verified' };
   if (telegramBotUserId && String(chatId) === String(telegramBotUserId)) return { skipped: true, reason: 'bot_cannot_message_itself' };
   if (!TELEGRAM_BOT_TOKEN || !chatId) return { skipped: true, reason: 'TELEGRAM_BOT_TOKEN is not configured' };
   const payload = { chat_id: chatId, text, parse_mode: 'HTML' };
@@ -499,7 +562,6 @@ async function sendTelegramMessage(chatId, text, options = true) {
 }
 
 async function sendTelegramSticker(chatId, stickerId = TELEGRAM_STICKER_ID, options = false) {
-  if (TELEGRAM_BOT_TOKEN && !telegramBotUserId) return { skipped: true, reason: 'telegram_bot_identity_not_verified' };
   if (telegramBotUserId && String(chatId) === String(telegramBotUserId)) return { skipped: true, reason: 'bot_cannot_message_itself' };
   if (!TELEGRAM_BOT_TOKEN || !chatId || !stickerId) return { skipped: true, reason: 'sticker is not configured' };
   const payload = { chat_id: chatId, sticker: stickerId };
@@ -514,7 +576,6 @@ async function sendTelegramSticker(chatId, stickerId = TELEGRAM_STICKER_ID, opti
 }
 
 async function sendTelegramPhoto(chatId, caption, options = true) {
-  if (TELEGRAM_BOT_TOKEN && !telegramBotUserId) return { skipped: true, reason: 'telegram_bot_identity_not_verified' };
   if (telegramBotUserId && String(chatId) === String(telegramBotUserId)) return { skipped: true, reason: 'bot_cannot_message_itself' };
   // Upload the local file instead of giving Telegram a URL. This works even when
   // the production site has a CDN, auth, redirect, or an unavailable /assets URL.
@@ -553,23 +614,36 @@ async function sendVkMessage(userId, text, withApp = true, appUrl = buildWebAppU
   return { sent: response.ok, status: response.status };
 }
 
+function isTelegramBotUsername(value) {
+  const username = normalizeTelegramUsername(value);
+  return Boolean(username && (username === normalizeTelegramUsername(TELEGRAM_BOT_USERNAME) || LEGACY_TELEGRAM_BOT_USERNAMES.has(username)));
+}
+
 function isTelegramBotIdentity(identity) {
   if (identity?.provider !== 'telegram') return false;
   const sameId = telegramBotUserId && identity.providerUserId != null
     && String(identity.providerUserId) === String(telegramBotUserId);
-  const identityUsername = normalizeTelegramUsername(identity.username);
-  const botUsername = normalizeTelegramUsername(TELEGRAM_BOT_USERNAME);
-  const sameUsername = Boolean(identityUsername && botUsername && identityUsername === botUsername);
-  return Boolean(sameId || sameUsername);
+  return Boolean(sameId || isTelegramBotUsername(identity.username));
+}
+
+function telegramUsernameForDisplay(user) {
+  if (!user) return '';
+  const identity = userIdentities(user).find((candidate) => candidate.provider === 'telegram' && !isTelegramBotIdentity(candidate));
+  const username = identity?.username || user?.username || '';
+  return username && !isTelegramBotUsername(username) ? normalizeTelegramUsername(username) : '';
+}
+
+async function sendTelegramIdentity(identity, text, options = true) {
+  await resolveTelegramBotIdentity();
+  if (isTelegramBotIdentity(identity)) return { skipped: true, reason: 'bot_identity_ignored' };
+  return sendTelegramMessage(identity.providerUserId, text, options);
 }
 
 async function notifyUser(user, text) {
   const deliveries = [];
   for (const identity of userIdentities(user)) {
-    if (isTelegramBotIdentity(identity)) continue;
-    deliveries.push(identity.provider === 'telegram'
-      ? sendTelegramMessage(identity.providerUserId, text)
-      : sendVkMessage(identity.providerUserId, text));
+    if (identity.provider === 'telegram') deliveries.push(sendTelegramIdentity(identity, text));
+    else deliveries.push(sendVkMessage(identity.providerUserId, text));
   }
   return Promise.allSettled(deliveries);
 }
@@ -622,6 +696,8 @@ async function notifyNewMessage(user, message) {
     if (isTelegramBotIdentity(identity)) continue;
     if (identity.provider === 'telegram') {
       deliveries.push((async () => {
+        await resolveTelegramBotIdentity();
+        if (isTelegramBotIdentity(identity)) return { skipped: true, reason: 'bot_identity_ignored' };
         await sendTelegramSticker(identity.providerUserId, TELEGRAM_RECEIVED_STICKER_ID);
         return sendTelegramMessage(identity.providerUserId, text, { reply_markup: newMessageKeyboard(message.id) });
       })());
@@ -629,7 +705,12 @@ async function notifyNewMessage(user, message) {
       deliveries.push(sendVkMessage(identity.providerUserId, text, true, buildWebAppUrl({ payment: 'reveal', messageId: message.id }), '🔎 Узнать отправителя · 7 ₽'));
     }
   }
-  return Promise.allSettled(deliveries);
+  const results = await Promise.allSettled(deliveries);
+  if (!deliveries.length) console.warn(`[telegram] no delivery identity for owner ${user?.id || 'unknown'}; message=${message?.id || 'unknown'}`);
+  if (results.some((result) => result.status === 'rejected' || result.value?.sent === false)) {
+    console.warn(`[telegram] owner notification had delivery failures; owner=${user?.id || 'unknown'} message=${message?.id || 'unknown'}`);
+  }
+  return results;
 }
 
 function revealRewardText(language = 'ru') {
@@ -647,14 +728,8 @@ async function giftVipAfterReveal(user) {
 
 async function configureTelegramBot() {
   if (!TELEGRAM_BOT_TOKEN) return;
-  try {
-    const me = await telegramRequest('getMe');
-    telegramBotUserId = me?.id ? String(me.id) : null;
-    if (me?.username) TELEGRAM_BOT_USERNAME = String(me.username).replace(/^@+/, '');
-    if (!TELEGRAM_BOT_USERNAME) console.warn('[telegram] bot has no username; direct Telegram links will be unavailable');
-  } catch (error) {
-    console.error('[telegram] getMe failed:', error.message);
-  }
+  await resolveTelegramBotIdentity();
+  if (!TELEGRAM_BOT_USERNAME) console.warn('[telegram] bot has no username; direct Telegram links will be unavailable');
   if (!WEB_APP_URL.startsWith('https://')) return;
   const headers = { 'Content-Type': 'application/json' };
   const menuPayload = { menu_button: { type: 'web_app', text: 'Мой ящик 💌', web_app: { url: buildWebAppUrl() } } };
@@ -785,13 +860,16 @@ const paymentProviderLabels = {
 };
 
 function paymentKeyboard(language, plan, messageId = null, user = null) {
-  const rows = [
-    [{ text: `💳 ${paymentProviderLabels.yoomoney}`, callback_data: `pay:method:yoomoney:${plan}:${messageId || '-'}` }],
-    [{ text: `🚀 ${paymentProviderLabels.xrocket}`, callback_data: `pay:method:xrocket:${plan}:${messageId || '-'}` }, { text: `₿ ${paymentProviderLabels.cryptobot}`, callback_data: `pay:method:cryptobot:${plan}:${messageId || '-'}` }],
-    [{ text: `🏦 ${paymentProviderLabels.sbp}`, callback_data: `pay:method:sbp:${plan}:${messageId || '-'}` }]
-  ];
+  const suffix = `${plan}:${messageId || '-'}`;
+  const rows = [];
+  if (paymentMethodIsConfigured('yoomoney')) rows.push([{ text: `💳 ${paymentProviderLabels.yoomoney}`, callback_data: `pay:method:yoomoney:${suffix}` }]);
+  const cryptoRows = [];
+  if (paymentMethodIsConfigured('xrocket')) cryptoRows.push({ text: `🚀 ${paymentProviderLabels.xrocket}`, callback_data: `pay:method:xrocket:${suffix}` });
+  if (paymentMethodIsConfigured('cryptobot')) cryptoRows.push({ text: `₿ ${paymentProviderLabels.cryptobot}`, callback_data: `pay:method:cryptobot:${suffix}` });
+  if (cryptoRows.length) rows.push(cryptoRows);
+  if (paymentMethodIsConfigured('sbp')) rows.push([{ text: `🏦 ${paymentProviderLabels.sbp}`, callback_data: `pay:method:sbp:${suffix}` }]);
   const amount = plan === 'reveal' ? 7 : 20;
-  if (user && Number(user.balanceRub || 0) >= amount) rows.push([{ text: `💰 Заплатить с баланса (${user.balanceRub} ₽)`, callback_data: `pay:method:balance:${plan}:${messageId || '-'}` }]);
+  if (user && Number(user.balanceRub || 0) >= amount) rows.push([{ text: `💰 Заплатить с баланса (${user.balanceRub} ₽)`, callback_data: `pay:method:balance:${suffix}` }]);
   rows.push([{ text: `💌 ${botText(language, 'openApp')}`, web_app: { url: buildWebAppUrl({ payment: plan, ...(messageId ? { messageId } : {}) }) } }]);
   return { inline_keyboard: rows };
 }
@@ -800,7 +878,7 @@ function paymentMethodIsConfigured(provider) {
   if (provider === 'yoomoney') return Boolean(YUMONEY_PAYMENT_URL || YUMONEY_RECEIVER);
   if (provider === 'xrocket') return Boolean(XROCKET_API_TOKEN);
   if (provider === 'cryptobot') return Boolean(CRYPTOBOT_API_TOKEN);
-  return provider === 'sbp';
+  return provider === 'sbp' && sbpDetailsConfigured();
 }
 
 function paymentProviderList() {
@@ -822,6 +900,7 @@ function createPaymentRecord(user, { provider, purpose, plan = null, amount, mes
     amount,
     currency: 'RUB',
     userId: user?.id || null,
+    telegramChatId: user ? (identityFor(user, 'telegram')?.providerUserId || null) : null,
     messageId: messageId || null,
     status: provider === 'sbp' ? 'manual_pending' : 'pending',
     createdAt: new Date().toISOString()
@@ -919,8 +998,9 @@ async function createPaymentCheckout(user, { provider, purpose, plan = null, amo
       payment.paymentUrl = paymentLink.url;
       payment.externalId = paymentLink.externalId || null;
     } else if (provider === 'sbp') {
+      if (!sbpDetailsConfigured()) throw new Error('SBP_PAYMENT_DETAILS is not configured');
       payment.instructions = SBP_PAYMENT_DETAILS;
-      payment.botUrl = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=sbp_${encodeURIComponent(payment.id)}`;
+      payment.botUrl = sbpBotUrl(payment);
     } else {
       throw new Error('Unsupported payment provider');
     }
@@ -965,11 +1045,15 @@ function topupAmountKeyboard() {
 }
 
 function topupMethodKeyboard(amount) {
-  return { inline_keyboard: [
-    [{ text: `💳 ${paymentProviderLabels.yoomoney}`, callback_data: `topup:method:yoomoney:${amount}` }],
-    [{ text: `🚀 ${paymentProviderLabels.xrocket}`, callback_data: `topup:method:xrocket:${amount}` }, { text: `₿ ${paymentProviderLabels.cryptobot}`, callback_data: `topup:method:cryptobot:${amount}` }],
-    [{ text: `🏦 ${paymentProviderLabels.sbp}`, callback_data: `topup:method:sbp:${amount}` }]
-  ] };
+  const rows = [];
+  if (paymentMethodIsConfigured('yoomoney')) rows.push([{ text: `💳 ${paymentProviderLabels.yoomoney}`, callback_data: `topup:method:yoomoney:${amount}` }]);
+  const cryptoRows = [];
+  if (paymentMethodIsConfigured('xrocket')) cryptoRows.push({ text: `🚀 ${paymentProviderLabels.xrocket}`, callback_data: `topup:method:xrocket:${amount}` });
+  if (paymentMethodIsConfigured('cryptobot')) cryptoRows.push({ text: `₿ ${paymentProviderLabels.cryptobot}`, callback_data: `topup:method:cryptobot:${amount}` });
+  if (cryptoRows.length) rows.push(cryptoRows);
+  if (paymentMethodIsConfigured('sbp')) rows.push([{ text: `🏦 ${paymentProviderLabels.sbp}`, callback_data: `topup:method:sbp:${amount}` }]);
+  if (!rows.length) rows.push([{ text: 'Открыть Web App и выбрать способ оплаты', web_app: { url: buildWebAppUrl({ payment: 'balance' }) } }]);
+  return { inline_keyboard: rows };
 }
 
 async function sendPaymentResult(chatId, payment, language = 'ru') {
@@ -980,7 +1064,14 @@ async function sendPaymentResult(chatId, payment, language = 'ru') {
     return sendTelegramMessage(chatId, `💳 <b>${escapeTelegramHtml(paymentDescription(payment))}</b>\n\nОткройте ссылку для оплаты. После подтверждения платёж будет зачислен автоматически.`, { reply_markup: { inline_keyboard: [[{ text: `Оплатить через ${paymentProviderLabels[payment.provider]}`, url: payment.paymentUrl }], [{ text: '← Меню', callback_data: 'menu:home' }]] } });
   }
   if (payment.provider === 'sbp') {
-    return sendTelegramMessage(chatId, `🏦 <b>Оплата через СБП</b>\n\n${escapeTelegramHtml(payment.instructions || SBP_PAYMENT_DETAILS)}\n\nПосле оплаты нажмите «Открыть бота и отправить чек», затем отправьте фото или документ чека. Заявку проверит администратор.`, { reply_markup: { inline_keyboard: [[{ text: 'Открыть бота и отправить чек', url: payment.botUrl }], [{ text: '← Меню', callback_data: 'menu:home' }]] } });
+    const botUrl = sbpBotUrl(payment) || payment.botUrl;
+    const details = sbpInstructions(payment);
+    const keyboard = [{ text: '← Меню', callback_data: 'menu:home' }];
+    if (botUrl && sbpDetailsConfigured()) keyboard.unshift({ text: 'Открыть бота и отправить чек', url: botUrl });
+    const nextStep = sbpDetailsConfigured()
+      ? 'После оплаты нажмите «Открыть бота и отправить чек», затем отправьте фото или документ чека. Заявку проверит администратор.'
+      : 'СБП временно недоступна: администратор ещё не указал реквизиты.';
+    return sendTelegramMessage(chatId, `🏦 <b>Оплата через СБП</b>\n\n${escapeTelegramHtml(details)}\n\n${nextStep}`, { reply_markup: { inline_keyboard: [keyboard] } });
   }
   return sendTelegramMessage(chatId, 'Платёж создан, но ссылка оплаты пока не настроена.', { reply_markup: botMenuKeyboard(language) });
 }
@@ -1335,12 +1426,14 @@ function isTelegramAdmin(chatId) {
   return admins.has(String(chatId));
 }
 
-function getTelegramUser(message) {
-  const chatId = message.chat?.id || message.from?.id;
-  const providerId = String(message.from?.id || chatId);
-  const existing = [...users.values()].find((candidate) => identityFor(candidate, 'telegram')?.providerUserId === providerId);
-  if (existing) return existing;
-  return completeAuth('telegram', providerId, { displayName: [message.from?.first_name, message.from?.last_name].filter(Boolean).join(' ') || 'Telegram user', username: message.from?.username || null, language: null }).user;
+function getTelegramUser(message, telegramUser = message.from) {
+  const chatId = message.chat?.id || telegramUser?.id;
+  const providerId = String(telegramUser?.id || chatId);
+  return completeAuth('telegram', providerId, {
+    displayName: [telegramUser?.first_name, telegramUser?.last_name].filter(Boolean).join(' ') || 'Telegram user',
+    username: telegramUser?.username || null,
+    language: null
+  }).user;
 }
 
 function telegramChatId(user) {
@@ -1387,8 +1480,10 @@ async function sendAdminTopups(chatId) {
   }
   const lines = topups.map((payment, index) => {
     const user = payment.userId ? users.get(payment.userId) : null;
-    const owner = user?.username ? `@${user.username}` : String(payment.userId || 'без пользователя').slice(-12);
-    return `${index + 1}. <code>${escapeTelegramHtml(payment.id.slice(-8))}</code> — <b>${escapeTelegramHtml(String(payment.amount))} ₽</b>\n   ${escapeTelegramHtml(paymentProviderLabels[payment.provider] || payment.provider)} · ${escapeTelegramHtml(paymentStatusLabel(payment.status))} · ${escapeTelegramHtml(owner)}`;
+    const username = telegramUsernameForDisplay(user);
+    const owner = username ? `@${username}` : String(payment.userId || 'без пользователя').slice(-12);
+    const errorLine = payment.error ? `\n   Ошибка: ${escapeTelegramHtml(payment.error)}` : '';
+    return `${index + 1}. <code>${escapeTelegramHtml(payment.id.slice(-8))}</code> — <b>${escapeTelegramHtml(String(payment.amount))} ₽</b>\n   ${escapeTelegramHtml(paymentProviderLabels[payment.provider] || payment.provider)} · ${escapeTelegramHtml(paymentStatusLabel(payment.status))} · ${escapeTelegramHtml(owner)}${errorLine}`;
   }).join('\n');
   const keyboard = [];
   for (const payment of topups) {
@@ -1416,9 +1511,40 @@ async function sendAdminBroadcast(chatId, message) {
 
 const adminBroadcastMode = new Set();
 
-function pendingSbpPaymentForUser(user) {
+function isBotOnlyTelegramUser(user) {
+  if (!user) return false;
+  const identities = userIdentities(user).filter((identity) => identity.provider === 'telegram');
+  return identities.length > 0 && identities.every((identity) => isTelegramBotIdentity(identity));
+}
+
+function telegramIdentityMatches(user, providerId, username = '') {
+  const normalizedUsername = normalizeTelegramUsername(username);
+  return userIdentities(user).some((identity) => {
+    if (identity.provider !== 'telegram') return false;
+    const sameId = providerId && String(identity.providerUserId) === String(providerId)
+      && (!telegramBotUserId || String(providerId) !== String(telegramBotUserId));
+    const sameUsername = normalizedUsername && normalizeTelegramUsername(identity.username) === normalizedUsername;
+    return Boolean(sameId || (sameUsername && !isTelegramBotIdentity(identity)));
+  });
+}
+
+function sbpPaymentBelongsToUser(payment, user, message) {
+  if (!payment || !user) return false;
+  const chatId = message?.chat?.id || message?.from?.id;
+  if (payment.sbpChatId && chatId && String(payment.sbpChatId) === String(chatId)) return true;
+  if (payment.telegramChatId && chatId && String(payment.telegramChatId) === String(chatId)) return true;
+  if (payment.userId === user.id) return true;
+  const paymentUser = users.get(payment.userId);
+  if (isBotOnlyTelegramUser(paymentUser)) return Boolean(chatId && (!telegramBotUserId || String(chatId) !== String(telegramBotUserId)));
+  return telegramIdentityMatches(paymentUser, message?.from?.id || chatId, message?.from?.username || user.username);
+}
+
+function pendingSbpPaymentForUser(user, chatId = null) {
   return [...payments.values()]
-    .filter((payment) => payment.provider === 'sbp' && payment.status === 'manual_pending' && payment.userId === user.id)
+    .filter((payment) => payment.provider === 'sbp'
+      && payment.status === 'manual_pending'
+      && payment.userId === user.id
+      && (!payment.sbpChatId || !chatId || String(payment.sbpChatId) === String(chatId)))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] || null;
 }
 
@@ -1437,7 +1563,7 @@ async function notifySbpAdmins(payment, message) {
 async function handleTelegramCallback(callback) {
   const chatId = callback.message?.chat?.id;
   const data = callback.data || '';
-  const user = callback.message ? getTelegramUser(callback.message) : null;
+  const user = callback.message && callback.from?.id ? getTelegramUser(callback.message, callback.from) : null;
   if (!user || !chatId) return answerCallback(callback.id);
   if (data.startsWith('mystars:')) {
     if (!isTelegramAdmin(chatId)) return answerCallback(callback.id, botText(user.language, 'noAccess'));
@@ -1655,7 +1781,7 @@ async function handleTelegramGroupMessage(message) {
 }
 
 async function deliverDirectTelegramMessage(user, recipientSlug, text) {
-  const link = publicLinks.get(String(recipientSlug || '').toLowerCase());
+  const link = resolvePublicLink(recipientSlug);
   const cleanText = String(text || '').trim();
   if (!link || !link.isActive) return { ok: false, reason: 'link_not_found' };
   if (cleanText.length < 3 || cleanText.length > 500) return { ok: false, reason: 'message_length' };
@@ -1699,17 +1825,22 @@ async function handleTelegramUpdate(update) {
     await notifyGiftRecipient(order, user);
     return sendTelegramMessage(chatId, '💌 Добро пожаловать в «Послания»! Здесь можно получать анонимные послания и узнать отправителя за 7 ₽.', { reply_markup: botMenuKeyboard(user.language || 'ru') });
   }
-  const sbpStartMatch = text.match(/^\/start\s+sbp_(pay-[a-f0-9-]+)$/i);
+  const sbpStartMatch = text.match(/^\/start(?:@[a-z0-9_]+)?\s+sbp_(pay-[a-f0-9-]+)$/i);
   if (sbpStartMatch) {
     const payment = payments.get(sbpStartMatch[1]);
-    if (!payment || payment.userId !== user.id || payment.provider !== 'sbp' || payment.status !== 'manual_pending') return sendTelegramMessage(chatId, 'Заявка на СБП не найдена или уже обработана.');
+    if (!payment || payment.provider !== 'sbp' || payment.status !== 'manual_pending' || !sbpPaymentBelongsToUser(payment, user, message)) {
+      return sendTelegramMessage(chatId, 'Заявка на СБП не найдена или уже обработана.');
+    }
+    // Repair legacy records where the Web App and bot created two user rows for
+    // the same Telegram account, without allowing another Telegram account to claim it.
+    if (payment.userId !== user.id) payment.userId = user.id;
     payment.sbpChatId = String(chatId);
     schedulePersist();
     return sendTelegramMessage(chatId, `Заявка ${escapeTelegramHtml(payment.id)} найдена. Отправьте сюда фото или документ чека после оплаты.`, { reply_markup: { inline_keyboard: [[{ text: '← Меню', callback_data: 'menu:home' }]] } });
   }
   const receipt = message.photo?.at(-1) || message.document;
   if (receipt) {
-    const payment = pendingSbpPaymentForUser(user);
+    const payment = pendingSbpPaymentForUser(user, chatId);
     if (!payment) return sendTelegramMessage(chatId, 'Сначала создайте заявку на оплату через СБП в меню «Пополнить баланс».');
     if (payment.receipt) return sendTelegramMessage(chatId, 'Чек по этой заявке уже отправлен администратору. Ожидайте проверки.');
     payment.sbpChatId = String(chatId);
@@ -1812,6 +1943,7 @@ async function runDailyRetentionBroadcast() {
     let userDelivered = false;
     for (const identity of userIdentities(user)) {
       try {
+        if (identity.provider === 'telegram' && isTelegramBotIdentity(identity)) continue;
         const result = identity.provider === 'telegram'
           ? await sendTelegramMessage(identity.providerUserId, notification, { reply_markup: dailyKeyboard(language) })
           : await sendVkMessage(identity.providerUserId, notification.replace(/<[^>]+>/g, ''));
@@ -1970,14 +2102,14 @@ async function handleApi(req, res, url) {
   }
   const publicLinkMatch = url.pathname.match(/^\/api\/v1\/links\/([^/]+)$/);
   if (req.method === 'GET' && publicLinkMatch) {
-    const link = publicLinks.get(decodeURIComponent(publicLinkMatch[1]));
+    const link = resolvePublicLink(decodeURIComponent(publicLinkMatch[1]));
     if (!link || !link.isActive) return json(res, 404, { error: 'link_not_found' });
     const owner = users.get(link.userId);
     return json(res, 200, { slug: link.slug, displayName: owner?.displayName || 'Получатель', welcomeText: 'Оставьте анонимное послание' });
   }
   const publicMessageMatch = url.pathname.match(/^\/api\/v1\/links\/([^/]+)\/messages$/);
   if (req.method === 'POST' && publicMessageMatch) {
-    const link = publicLinks.get(decodeURIComponent(publicMessageMatch[1]));
+    const link = resolvePublicLink(decodeURIComponent(publicMessageMatch[1]));
     const body = await readBody(req);
     const cleanText = String(body.text || '').trim();
     if (!link || !link.isActive) return json(res, 404, { error: 'link_not_found' });

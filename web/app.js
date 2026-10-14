@@ -104,10 +104,22 @@
     return result;
   }
 
+  function applyPaymentMethods() {
+    if (!Array.isArray(appConfig.paymentMethods)) return;
+    const methods = new Map(appConfig.paymentMethods.map((method) => [method.id, method]));
+    $$('[data-checkout-provider]').forEach((button) => {
+      const provider = button.dataset.checkoutProvider;
+      const configured = provider === 'balance' || methods.get(provider)?.configured === true;
+      button.hidden = !configured;
+      button.disabled = !configured;
+    });
+  }
+
   async function loadAppConfig() {
     const result = await apiRequest('/api/v1/config');
     if (!result?.__error) {
       Object.assign(appConfig, result);
+      applyPaymentMethods();
       const hasDemoMessages = messages.some((message) => !message.id || String(message.id).startsWith('demo-'));
       if (appConfig.demoMode && !localStorage.getItem(demoKey) && !messages.length) {
         messages = defaultMessages;
