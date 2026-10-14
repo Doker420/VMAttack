@@ -35,8 +35,9 @@ const PORT = Number(env('PORT', '4173'));
 const RETENTION_INTERVAL_MS = Number(env('RETENTION_INTERVAL_MS', '86400000'));
 const DEMO_MODE = env('DEMO_MODE', 'true') === 'true';
 const TELEGRAM_MODE = env('TELEGRAM_MODE', 'polling');
-const TELEGRAM_BOT_USERNAME = env('TELEGRAM_BOT_USERNAME', 'poslaniya_robot');
+let TELEGRAM_BOT_USERNAME = env('TELEGRAM_BOT_USERNAME', '');
 const TELEGRAM_BOT_TOKEN = env('TELEGRAM_BOT_TOKEN');
+let telegramBotUserId = null;
 const TELEGRAM_ADMIN_IDS = env('TELEGRAM_ADMIN_IDS');
 const TELEGRAM_WEBHOOK_SECRET = env('TELEGRAM_WEBHOOK_SECRET');
 const TELEGRAM_GROUPS_ENABLED = env('TELEGRAM_GROUPS_ENABLED', 'true') === 'true';
@@ -49,7 +50,11 @@ const TELEGRAM_USERBOT_ENABLED = env('TELEGRAM_USERBOT_ENABLED', 'false') === 't
 const TELEGRAM_USERBOT_API_ID = Number(env('TELEGRAM_USERBOT_API_ID', '0'));
 const TELEGRAM_USERBOT_API_HASH = env('TELEGRAM_USERBOT_API_HASH');
 const TELEGRAM_USERBOT_SESSION = env('TELEGRAM_USERBOT_SESSION');
-const TELEGRAM_USERBOT_GIFT_PROMO = env('TELEGRAM_USERBOT_GIFT_PROMO', `Подарок отправлен через «Послания» 💌 https://t.me/${TELEGRAM_BOT_USERNAME}`);
+const TELEGRAM_USERBOT_GIFT_PROMO = env('TELEGRAM_USERBOT_GIFT_PROMO');
+
+function telegramUserbotGiftPromo() {
+  return TELEGRAM_USERBOT_GIFT_PROMO || `Подарок отправлен через «Послания» 💌 https://t.me/${TELEGRAM_BOT_USERNAME}`;
+}
 const MYSTARS_API_KEY = env('MYSTARS_API_KEY');
 const MYSTARS_API_URL = env('MYSTARS_API_URL', 'https://api.mystars.tg');
 const MYSTARS_PAYMENT_CURRENCY = env('MYSTARS_PAYMENT_CURRENCY', 'ton');
@@ -318,7 +323,8 @@ function userIdentities(user) {
 }
 
 function identityFor(user, provider) {
-  return userIdentities(user).find((identity) => identity.provider === provider);
+  const identities = userIdentities(user);
+  return identities.find((identity) => identity.provider === provider && !isTelegramBotIdentity(identity));
 }
 
 function slugify(value, fallback) {
@@ -477,6 +483,8 @@ async function telegramRequest(method, body = {}, timeoutMs = 15000) {
 }
 
 async function sendTelegramMessage(chatId, text, options = true) {
+  if (TELEGRAM_BOT_TOKEN && !telegramBotUserId) return { skipped: true, reason: 'telegram_bot_identity_not_verified' };
+  if (telegramBotUserId && String(chatId) === String(telegramBotUserId)) return { skipped: true, reason: 'bot_cannot_message_itself' };
   if (!TELEGRAM_BOT_TOKEN || !chatId) return { skipped: true, reason: 'TELEGRAM_BOT_TOKEN is not configured' };
   const payload = { chat_id: chatId, text, parse_mode: 'HTML' };
   if (options === true) payload.reply_markup = telegramAppKeyboard();
@@ -491,6 +499,8 @@ async function sendTelegramMessage(chatId, text, options = true) {
 }
 
 async function sendTelegramSticker(chatId, stickerId = TELEGRAM_STICKER_ID, options = false) {
+  if (TELEGRAM_BOT_TOKEN && !telegramBotUserId) return { skipped: true, reason: 'telegram_bot_identity_not_verified' };
+  if (telegramBotUserId && String(chatId) === String(telegramBotUserId)) return { skipped: true, reason: 'bot_cannot_message_itself' };
   if (!TELEGRAM_BOT_TOKEN || !chatId || !stickerId) return { skipped: true, reason: 'sticker is not configured' };
   const payload = { chat_id: chatId, sticker: stickerId };
   if (options?.reply_markup) payload.reply_markup = options.reply_markup;
@@ -504,6 +514,8 @@ async function sendTelegramSticker(chatId, stickerId = TELEGRAM_STICKER_ID, opti
 }
 
 async function sendTelegramPhoto(chatId, caption, options = true) {
+  if (TELEGRAM_BOT_TOKEN && !telegramBotUserId) return { skipped: true, reason: 'telegram_bot_identity_not_verified' };
+  if (telegramBotUserId && String(chatId) === String(telegramBotUserId)) return { skipped: true, reason: 'bot_cannot_message_itself' };
   // Upload the local file instead of giving Telegram a URL. This works even when
   // the production site has a CDN, auth, redirect, or an unavailable /assets URL.
   if (!USE_START_BANNER || !TELEGRAM_BOT_TOKEN || !chatId) return sendTelegramMessage(chatId, caption, options);
@@ -541,9 +553,20 @@ async function sendVkMessage(userId, text, withApp = true, appUrl = buildWebAppU
   return { sent: response.ok, status: response.status };
 }
 
+function isTelegramBotIdentity(identity) {
+  if (identity?.provider !== 'telegram') return false;
+  const sameId = telegramBotUserId && identity.providerUserId != null
+    && String(identity.providerUserId) === String(telegramBotUserId);
+  const identityUsername = normalizeTelegramUsername(identity.username);
+  const botUsername = normalizeTelegramUsername(TELEGRAM_BOT_USERNAME);
+  const sameUsername = Boolean(identityUsername && botUsername && identityUsername === botUsername);
+  return Boolean(sameId || sameUsername);
+}
+
 async function notifyUser(user, text) {
   const deliveries = [];
   for (const identity of userIdentities(user)) {
+    if (isTelegramBotIdentity(identity)) continue;
     deliveries.push(identity.provider === 'telegram'
       ? sendTelegramMessage(identity.providerUserId, text)
       : sendVkMessage(identity.providerUserId, text));
@@ -596,6 +619,7 @@ async function notifyNewMessage(user, message) {
   const text = `💌 <b>Новое анонимное послание</b>\n\nТекст послания:\n«${escapeTelegramHtml(message.text)}»`;
   const deliveries = [];
   for (const identity of userIdentities(user)) {
+    if (isTelegramBotIdentity(identity)) continue;
     if (identity.provider === 'telegram') {
       deliveries.push((async () => {
         await sendTelegramSticker(identity.providerUserId, TELEGRAM_RECEIVED_STICKER_ID);
@@ -622,7 +646,16 @@ async function giftVipAfterReveal(user) {
 }
 
 async function configureTelegramBot() {
-  if (!TELEGRAM_BOT_TOKEN || !WEB_APP_URL.startsWith('https://')) return;
+  if (!TELEGRAM_BOT_TOKEN) return;
+  try {
+    const me = await telegramRequest('getMe');
+    telegramBotUserId = me?.id ? String(me.id) : null;
+    if (me?.username) TELEGRAM_BOT_USERNAME = String(me.username).replace(/^@+/, '');
+    if (!TELEGRAM_BOT_USERNAME) console.warn('[telegram] bot has no username; direct Telegram links will be unavailable');
+  } catch (error) {
+    console.error('[telegram] getMe failed:', error.message);
+  }
+  if (!WEB_APP_URL.startsWith('https://')) return;
   const headers = { 'Content-Type': 'application/json' };
   const menuPayload = { menu_button: { type: 'web_app', text: 'Мой ящик 💌', web_app: { url: buildWebAppUrl() } } };
   const commandsPayload = { commands: [{ command: 'start', description: 'Открыть Послания' }, { command: 'app', description: 'Открыть мой ящик' }, { command: 'link', description: 'Моя персональная ссылка' }, { command: 'daily', description: 'Послание дня' }, { command: 'help', description: 'Помощь' }, { command: 'settings', description: 'Настройки уведомлений' }] };
@@ -1014,6 +1047,16 @@ function mystarsBalancePrice(gift) {
   return { basePrice, markupPercent: markup, amount: Math.ceil(basePrice * (1 + markup / 100)) };
 }
 
+function userbotGiftBalancePrice(offer) {
+  const currency = String(offer?.priceCurrency || '').toUpperCase();
+  const nativeRub = currency === 'RUB' && Number(offer?.priceAmount) > 0 ? Number(offer.priceAmount) / 100 : 0;
+  if (nativeRub > 0) {
+    const markup = Number.isFinite(MYSTARS_BALANCE_MARKUP_PERCENT) ? MYSTARS_BALANCE_MARKUP_PERCENT : 10;
+    return { basePrice: nativeRub, markupPercent: markup, amount: Math.ceil(nativeRub * (1 + markup / 100)) };
+  }
+  return mystarsBalancePrice({ type: 'stars', quantity: offer?.costStars });
+}
+
 async function notifyMystarsAdmins(order) {
   const payment = order.payment || {};
   const adminIds = TELEGRAM_ADMIN_IDS.split(',').map((id) => id.trim()).filter(Boolean);
@@ -1094,7 +1137,7 @@ async function deliverUserbotGift(order) {
       quantity: order.quantity,
       months: order.months
     },
-    message: order.giftMessage || TELEGRAM_USERBOT_GIFT_PROMO
+    message: order.giftMessage || telegramUserbotGiftPromo()
   });
   order.giftDeliveryStatus = 'delivered';
   order.deliveredAt = new Date().toISOString();
@@ -1147,7 +1190,7 @@ function mystarsOrderForUser(order, user) {
 async function createUserbotGiftOrder(user, gift) {
   if (!telegramUserbot.isReady) throw new Error('Telegram userbot is not configured for gifts');
   const offer = await telegramUserbot.getGiftOffer(gift);
-  const balancePrice = mystarsBalancePrice({ type: 'stars', quantity: offer.stars });
+  const balancePrice = userbotGiftBalancePrice(offer);
   if (!balancePrice) throw new Error('Gift prices are not configured');
   if (Number(user.balanceRub || 0) < balancePrice.amount) throw new Error(`Недостаточно средств на балансе: нужно ${balancePrice.amount} ₽`);
 
@@ -1159,20 +1202,20 @@ async function createUserbotGiftOrder(user, gift) {
     type: gift.type,
     giftId: gift.giftId || null,
     giftTitle: offer.title,
-    quantity: gift.type === 'stars' ? gift.quantity : (gift.type === 'star_gift' ? offer.stars : null),
+    quantity: gift.type === 'stars' ? gift.quantity : (gift.type === 'star_gift' ? offer.giftStars : null),
     months: gift.months || null,
-    giftStarsCost: offer.stars,
+    giftStarsCost: offer.costStars,
     paymentMethod: 'balance',
     balancePriceRub: balancePrice.amount,
     balanceMarkupPercent: balancePrice.markupPercent,
-    giftMessage: TELEGRAM_USERBOT_GIFT_PROMO,
+    giftMessage: telegramUserbotGiftPromo(),
     deliveryMode: 'userbot_gift',
     createdAt: new Date().toISOString(),
     notificationStatus: 'processing'
   };
 
   const availableStars = await telegramUserbot.getStarsBalance();
-  if (availableStars >= offer.stars) {
+  if (availableStars >= offer.costStars) {
     user.balanceRub = Number(user.balanceRub || 0) - balancePrice.amount;
     mystarsOrders.set(order.id, order);
     schedulePersist();
@@ -1188,7 +1231,7 @@ async function createUserbotGiftOrder(user, gift) {
   }
 
   const userbotUsername = await telegramUserbot.getUsername();
-  const topupQuantity = Math.max(50, Math.ceil((offer.stars - availableStars) / 50) * 50);
+  const topupQuantity = Math.max(50, Math.ceil((offer.costStars - availableStars) / 50) * 50);
   const topupGift = { type: 'stars', username: userbotUsername, quantity: topupQuantity, payment_currency: MYSTARS_PAYMENT_CURRENCY };
   const [quote, recipient] = await Promise.all([getMyStarsQuote(topupGift), checkMyStarsRecipient(topupGift)]);
   if (!recipient.eligible) throw new Error('The Telegram userbot account cannot receive Stars');
@@ -1831,8 +1874,8 @@ async function handleApi(req, res, url) {
     try {
       const gift = validateGiftRequest(await readBody(req));
       const offer = await telegramUserbot.getGiftOffer(gift);
-      const balancePrice = mystarsBalancePrice({ type: 'stars', quantity: offer.stars });
-      return json(res, 200, { gift: { ...gift, title: offer.title, stars: offer.stars }, quote: { stars: offer.stars }, recipient: { eligible: true }, balancePayment: balancePrice ? { amount: balancePrice.amount } : null });
+      const balancePrice = userbotGiftBalancePrice(offer);
+      return json(res, 200, { gift: { ...gift, title: offer.title, stars: offer.giftStars || offer.costStars }, quote: { stars: offer.giftStars || offer.costStars }, recipient: { eligible: true }, balancePayment: balancePrice ? { amount: balancePrice.amount } : null });
     } catch (error) {
       return json(res, error.message.includes('required') || error.message.includes('between') || error.message.includes('must be') ? 422 : 503, { error: 'mystars_quote_failed', message: error.message });
     }
@@ -2234,11 +2277,11 @@ async function bootstrap() {
   await loadState();
   seedDemoData();
   setInterval(runDailyRetentionBroadcast, RETENTION_INTERVAL_MS).unref();
-  server.listen(PORT, '0.0.0.0', () => {
+  server.listen(PORT, '0.0.0.0', async () => {
     console.log(`Послания listening on http://0.0.0.0:${PORT}`);
     console.log(`Telegram Web App: ${WEB_APP_URL}`);
     console.log(`Daily anonymous messages: every ${Math.round(RETENTION_INTERVAL_MS / 1000)}s, all active users unless disabled`);
-    configureTelegramBot();
+    await configureTelegramBot();
     if (TELEGRAM_MODE === 'polling') telegramBot.start();
     else console.log(`[telegram] mode=${TELEGRAM_MODE}; polling is disabled`);
   });

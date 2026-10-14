@@ -18,7 +18,8 @@ node server.mjs
 
 ```dotenv
 WEB_APP_URL=https://app.goago.club
-TELEGRAM_BOT_USERNAME=poslaniya_robot
+# Optional: getMe resolves the production username automatically; set this only to override it.
+TELEGRAM_BOT_USERNAME=
 VK_GROUP_ID=poslaniya_demo
 VK_API_VERSION=5.199
 DB_DRIVER=sqlite
@@ -69,7 +70,8 @@ MYSTARS_API_KEY=
 MYSTARS_API_URL=https://api.mystars.tg
 MYSTARS_PAYMENT_CURRENCY=ton
 
-# Цена одного Star в рублях для списания с внутреннего баланса.
+# Цена одного Telegram Star в рублях для списания с внутреннего баланса.
+# Не указывайте сюда Telegram option.amount: для native currency это минимальные единицы.
 MYSTARS_BALANCE_MARKUP_PERCENT=10
 MYSTARS_BALANCE_STARS_RUB_PER_UNIT=
 MYSTARS_BALANCE_PREMIUM_3_RUB=
@@ -84,7 +86,8 @@ TELEGRAM_USERBOT_ENABLED=false
 TELEGRAM_USERBOT_API_ID=
 TELEGRAM_USERBOT_API_HASH=
 TELEGRAM_USERBOT_SESSION=
-TELEGRAM_USERBOT_GIFT_PROMO=Подарок отправлен через «Послания» 💌 https://t.me/poslaniya_robot
+# Leave blank to build the promo link from the verified username returned by getMe.
+TELEGRAM_USERBOT_GIFT_PROMO=
 ```
 
 Одноразовая настройка:
