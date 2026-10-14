@@ -43,8 +43,8 @@ const DB_DRIVER = env('DB_DRIVER', 'sqlite');
 const SQLITE_FILE = resolveProjectPath(env('SQLITE_FILE', 'data/dev.sqlite'));
 const DAILY_RU_FILE = resolveProjectPath(env('DAILY_RU_FILE', 'content/daily/ru.txt'));
 const DAILY_EN_FILE = resolveProjectPath(env('DAILY_EN_FILE', 'content/daily/en.txt'));
-const START_BANNER_URL = env('TELEGRAM_START_BANNER_URL');
-const USE_START_BANNER = env('TELEGRAM_USE_START_BANNER', 'false') === 'true';
+const USE_START_BANNER = env('TELEGRAM_USE_START_BANNER', 'true') === 'true';
+const START_BANNER_FILE = resolveProjectPath(env('TELEGRAM_START_BANNER_FILE', 'web/assets/start-banner.png'));
 const CORS_ORIGIN = env('CORS_ORIGIN', WEB_APP_URL);
 const devStore = DB_DRIVER === 'json' ? null : await createSqliteStore(SQLITE_FILE);
 
@@ -222,14 +222,27 @@ function identityFor(user, provider) {
   return userIdentities(user).find((identity) => identity.provider === provider);
 }
 
+function slugify(value, fallback) {
+  return String(value || '').toLowerCase().replace(/[^a-zа-яё0-9_-]+/gi, '-').replace(/^-|-$/g, '') || fallback;
+}
+
 function ensurePublicLink(user, requestedSlug = null) {
   const existing = [...publicLinks.values()].find((link) => link.userId === user.id);
-  if (existing && !requestedSlug) return existing;
-  const base = (requestedSlug || user.username || user.displayName || `user-${user.id.slice(0, 6)}`).toLowerCase().replace(/[^a-zа-яё0-9_-]+/gi, '-').replace(/^-|-$/g, '') || `user-${user.id.slice(0, 6)}`;
+  const identityUsername = userIdentities(user).find((identity) => identity.username)?.username;
+  const username = user.username || identityUsername || null;
+  // Repair links created by an old demo/default configuration. A real Telegram
+  // username must never turn into the bot username or a global demo slug.
+  const needsRepair = existing && !requestedSlug && username &&
+    (existing.slug === TELEGRAM_BOT_USERNAME || existing.slug === DEFAULT_RECIPIENT_SLUG) &&
+    slugify(username, '') !== existing.slug;
+  if (existing && !requestedSlug && !needsRepair) return existing;
+
+  const base = slugify(requestedSlug || (needsRepair ? username : null) || existing?.slug || username || user.displayName, `user-${user.id.slice(0, 6)}`);
   let slug = base;
   let suffix = 2;
   while (publicLinks.has(slug) && publicLinks.get(slug).userId !== user.id) slug = `${base}-${suffix++}`;
   const link = existing || { id: randomUUID(), userId: user.id, slug, createdAt: new Date().toISOString(), isActive: true };
+  if (existing?.slug && existing.slug !== slug) publicLinks.delete(existing.slug);
   link.slug = slug;
   publicLinks.set(slug, link);
   schedulePersist();
@@ -253,7 +266,10 @@ function completeAuth(provider, providerUserId, profile = {}) {
   const identity = identityFor(user, provider);
   if (identity) Object.assign(identity, { providerUserId: providerId, username: profile.username || identity.username || null });
   else userIdentities(user).push({ provider, providerUserId: providerId, username: profile.username || null });
-  Object.assign(user, profile);
+  if (profile.displayName) user.displayName = profile.displayName;
+  if (profile.username) user.username = profile.username;
+  if (profile.language) user.language = profile.language;
+  if (profile.photoUrl) user.photoUrl = profile.photoUrl;
   users.set(user.id, user);
   ensurePublicLink(user);
   if (!retentionSettings.has(user.id)) retentionSettings.set(user.id, { dailyEnabled: user.dailyEnabled !== false });
@@ -320,15 +336,27 @@ async function sendTelegramMessage(chatId, text, options = true) {
 }
 
 async function sendTelegramPhoto(chatId, caption, options = true) {
-  // A remote image must be publicly reachable by Telegram. Keep text delivery as
-  // the reliable default so /start and referral flows never fail on a bad banner URL.
-  if (!USE_START_BANNER || !START_BANNER_URL || !TELEGRAM_BOT_TOKEN || !chatId) return sendTelegramMessage(chatId, caption, options);
-  const payload = { chat_id: chatId, photo: START_BANNER_URL, caption };
-  if (options === true) payload.reply_markup = telegramAppKeyboard();
-  if (options?.reply_markup) payload.reply_markup = options.reply_markup;
+  // Upload the local file instead of giving Telegram a URL. This works even when
+  // the production site has a CDN, auth, redirect, or an unavailable /assets URL.
+  if (!USE_START_BANNER || !TELEGRAM_BOT_TOKEN || !chatId) return sendTelegramMessage(chatId, caption, options);
   try {
-    await telegramRequest('sendPhoto', payload);
-    return { sent: true };
+    const image = await readFile(START_BANNER_FILE);
+    const form = new FormData();
+    form.append('chat_id', String(chatId));
+    form.append('photo', new Blob([image], { type: 'image/png' }), 'start-banner.png');
+    form.append('caption', caption);
+    const replyMarkup = options === true ? telegramAppKeyboard() : options?.reply_markup;
+    if (replyMarkup) form.append('reply_markup', JSON.stringify(replyMarkup));
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, { method: 'POST', body: form, signal: controller.signal });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.description || `Telegram API ${response.status}`);
+      return { sent: true };
+    } finally {
+      clearTimeout(timeout);
+    }
   } catch (error) {
     console.error('[telegram] sendPhoto failed, falling back to text:', error.message);
     return sendTelegramMessage(chatId, caption, options);
@@ -696,7 +724,7 @@ function publicConfig() {
   const site = new URL(WEB_APP_URL).origin;
   return {
     siteUrl: site,
-    webAppUrl: WEB_APP_URL,
+    webAppUrl: buildWebAppUrl(),
     telegramUsername: TELEGRAM_BOT_USERNAME,
     telegramUrl: `https://t.me/${TELEGRAM_BOT_USERNAME}`,
     vkGroupId: VK_GROUP_ID,
