@@ -6,6 +6,7 @@ import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTelegramBot } from './telegram-bot.mjs';
+import { createTelegramUserbot } from '../userbot/service.mjs';
 import { createSqliteStore } from './sqlite-store.mjs';
 
 const WEB_ROOT = fileURLToPath(new URL('.', import.meta.url));
@@ -44,8 +45,10 @@ const TELEGRAM_STICKER_ID = env('TELEGRAM_STICKER_ID');
 const TELEGRAM_RECEIVED_STICKER_ID = env('TELEGRAM_RECEIVED_STICKER_ID', TELEGRAM_STICKER_ID);
 const TELEGRAM_SENT_STICKER_ID = env('TELEGRAM_SENT_STICKER_ID', TELEGRAM_STICKER_ID);
 const TELEGRAM_SBP_ADMIN_TEXT = env('TELEGRAM_SBP_ADMIN_TEXT', 'Реквизиты СБП не настроены. Обратитесь к администратору.');
-const TELEGRAM_USERBOT_NOTIFY_URL = env('TELEGRAM_USERBOT_NOTIFY_URL');
-const TELEGRAM_USERBOT_API_TOKEN = env('TELEGRAM_USERBOT_API_TOKEN');
+const TELEGRAM_USERBOT_ENABLED = env('TELEGRAM_USERBOT_ENABLED', 'false') === 'true';
+const TELEGRAM_USERBOT_API_ID = Number(env('TELEGRAM_USERBOT_API_ID', '0'));
+const TELEGRAM_USERBOT_API_HASH = env('TELEGRAM_USERBOT_API_HASH');
+const TELEGRAM_USERBOT_SESSION = env('TELEGRAM_USERBOT_SESSION');
 const MYSTARS_API_KEY = env('MYSTARS_API_KEY');
 const MYSTARS_API_URL = env('MYSTARS_API_URL', 'https://api.mystars.tg');
 const MYSTARS_PAYMENT_CURRENCY = env('MYSTARS_PAYMENT_CURRENCY', 'ton');
@@ -924,29 +927,35 @@ async function notifyGiftRecipient(order, knownUser = null) {
   const botLink = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=gift_${encodeURIComponent(order.id)}`;
   const text = `🎁 <b>Вам анонимно подарили подарок!</b>\n\nВам отправили: <b>${escapeTelegramHtml(giftDescription(order))}</b>\n\nОтправитель скрыт. Откройте «Послания», чтобы получать анонимные сообщения и узнать, кто отправляет подарки.`;
   const markup = { inline_keyboard: [[{ text: '💌 Открыть «Послания»', url: botLink }], [{ text: '🔎 Узнать кто · 7 ₽', callback_data: 'pay:choose:reveal' }, { text: '♛ Тарифы', callback_data: 'pay:choose:vip' }]] };
+  const userbotResult = await telegramUserbot.notify({
+    username: order.username,
+    text,
+    botUrl: botLink,
+    orderId: order.id,
+    gift: giftDescription(order)
+  });
+  if (userbotResult.sent) {
+    order.notificationSentAt = new Date().toISOString();
+    order.notificationChannel = 'userbot';
+    order.notificationStatus = 'sent';
+    schedulePersist();
+    return { sent: true, channel: 'userbot' };
+  }
+
+  // If the user has already opened the bot, retain the direct bot fallback.
+  // This keeps delivery useful while the optional userbot is disabled or not authorized.
   const recipient = knownUser || [...users.values()].find((candidate) => identityFor(candidate, 'telegram')?.username?.toLowerCase() === order.username);
   if (recipient && telegramChatId(recipient)) {
     const result = await sendTelegramMessage(telegramChatId(recipient), text, { reply_markup: markup });
     if (result.sent) {
       order.notificationSentAt = new Date().toISOString();
       order.notificationChannel = 'telegram-bot';
+      order.notificationStatus = 'sent';
       schedulePersist();
       return { sent: true, channel: 'telegram-bot' };
     }
   }
-  if (TELEGRAM_USERBOT_NOTIFY_URL) {
-    try {
-      const response = await fetch(TELEGRAM_USERBOT_NOTIFY_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(TELEGRAM_USERBOT_API_TOKEN ? { Authorization: `Bearer ${TELEGRAM_USERBOT_API_TOKEN}` } : {}) }, body: JSON.stringify({ username: order.username, text, botUrl: botLink, orderId: order.id, gift: giftDescription(order) }) });
-      if (response.ok) {
-        order.notificationSentAt = new Date().toISOString();
-        order.notificationChannel = 'userbot';
-        schedulePersist();
-        return { sent: true, channel: 'userbot' };
-      }
-    } catch (error) {
-      console.error('[mystars] userbot notification failed:', error.message);
-    }
-  }
+
   order.notificationStatus = 'pending_userbot';
   schedulePersist();
   return { sent: false, channel: null };
@@ -1791,8 +1800,18 @@ const telegramBot = createTelegramBot({
   onError: (label, error) => console.error(label, error?.message || error)
 });
 
+const telegramUserbot = createTelegramUserbot({
+  enabled: TELEGRAM_USERBOT_ENABLED,
+  apiId: TELEGRAM_USERBOT_API_ID,
+  apiHash: TELEGRAM_USERBOT_API_HASH,
+  session: TELEGRAM_USERBOT_SESSION,
+  appUrl: new URL(WEB_APP_URL).origin,
+  botUsername: TELEGRAM_BOT_USERNAME
+});
+
 async function bootstrap() {
   await loadDailyMessages();
+  await telegramUserbot.start();
   await loadState();
   setInterval(runDailyRetentionBroadcast, RETENTION_INTERVAL_MS).unref();
   server.listen(PORT, '0.0.0.0', () => {
@@ -1805,6 +1824,13 @@ async function bootstrap() {
   });
 }
 
-process.on('SIGTERM', () => { devStore?.close(); process.exit(0); });
-process.on('SIGINT', () => { devStore?.close(); process.exit(0); });
+async function shutdown(signal) {
+  console.log(`[shutdown] ${signal}`);
+  await telegramUserbot.stop();
+  devStore?.close();
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
+process.on('SIGINT', () => { void shutdown('SIGINT'); });
 bootstrap();

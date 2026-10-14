@@ -66,14 +66,27 @@ MYSTARS_API_URL=https://api.mystars.tg
 MYSTARS_PAYMENT_CURRENCY=ton
 ```
 
-MyStars возвращает on-chain payment instructions. В текущем режиме выбранная схема — ручная оплата администратором: администратор получает в Telegram адрес, сумму и memo, оплачивает заказ и нажимает «Проверить оплату». После статуса `delivered` backend уведомляет получателя через `poslaniya_robot`; если получатель ещё не известен боту, используется опциональный существующий userbot adapter:
+MyStars возвращает on-chain payment instructions. В текущем режиме выбранная схема — ручная оплата администратором: администратор получает в Telegram адрес, сумму и memo, оплачивает заказ и нажимает «Проверить оплату». После статуса `delivered` backend сначала пытается отправить уведомление через встроенный Telegram userbot по `@username`, а затем использует уже известный чат `poslaniya_robot` как безопасный fallback.
+
+Userbot запускается из того же production entrypoint — `node server.mjs`; второй постоянный процесс не нужен. Настройки находятся в корневом `.env`:
 
 ```dotenv
-TELEGRAM_USERBOT_NOTIFY_URL=
-TELEGRAM_USERBOT_API_TOKEN=
+TELEGRAM_USERBOT_ENABLED=false
+TELEGRAM_USERBOT_API_ID=
+TELEGRAM_USERBOT_API_HASH=
+TELEGRAM_USERBOT_SESSION=
 ```
 
-Адаптер принимает `POST` JSON с `username`, `text`, `botUrl`, `orderId` и `gift`. После уведомления получатель получает ссылку на бота, кнопку «Узнать кто · 7 ₽» и кнопку тарифов. Callback MyStars принимается на `/webhooks/mystars` и сверяется через `GET /v1/orders/:id`; отдельный секрет в приложении не требуется. Получатель выбирается по Telegram `@username`, без раскрытия отправителя.
+Одноразовая настройка:
+
+1. Получите собственные API ID и API hash на `https://my.telegram.org`.
+2. Запишите их в root `.env` и оставьте `TELEGRAM_USERBOT_ENABLED=false`.
+3. Запустите `node userbot/setup.mjs` из корня. Скрипт запросит номер телефона, код Telegram и пароль 2FA, если он включён.
+4. Скопируйте напечатанный `StringSession` в `TELEGRAM_USERBOT_SESSION`, затем включите `TELEGRAM_USERBOT_ENABLED=true` и перезапустите `node server.mjs`.
+
+Номер телефона, код, пароль 2FA, API ID/API hash и session не зашиты в код и не генерируются приложением — их добавляет владелец аккаунта. Если userbot выключен, поля неполные или session больше не авторизована, backend продолжает работать, пишет причину в лог и сохраняет статус уведомления `pending_userbot` при отсутствии bot fallback.
+
+Уведомление содержит анонимный подарок, ссылку на `poslaniya_robot`, ссылку на раскрытие отправителя и ссылку на тарифы. Отправитель подарка не передаётся userbot и не раскрывается. Callback MyStars принимается на `/webhooks/mystars` и сверяется через `GET /v1/orders/:id`; отдельный секрет в приложении не требуется. Получатель выбирается только по Telegram `@username`.
 
 ## Оплата и пополнение баланса
 
