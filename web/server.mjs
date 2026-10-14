@@ -764,8 +764,11 @@ async function notifyNewMessage(user, message) {
     : `💌 <b>Новое анонимное послание</b>\n\nТекст послания:\n«${escapeTelegramHtml(message.text)}»${messageSignature}`;
   const deliveries = [];
   const recipientUsername = telegramUsernameForDisplay(user);
+  const recipientHasBot = await telegramBotChatAvailable(user);
   let telegramDeliveredByUserbot = false;
-  if (recipientUsername && telegramUserbot.isReady) {
+  // Users who already opened the bot must stay on the Bot API path. The
+  // userbot is reserved for recipients who are not registered in the bot.
+  if (!recipientHasBot && recipientUsername && telegramUserbot.isReady) {
     const userbotResult = await telegramUserbot.sendAnonymousMessage({
       username: recipientUsername,
       text: message.caption || (message.media ? '' : message.text),
@@ -1400,24 +1403,28 @@ async function notifyGiftRecipient(order, knownUser = null) {
   const botLink = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=gift_${encodeURIComponent(order.id)}`;
   const text = `🎁 <b>Вам анонимно подарили подарок!</b>\n\nВам отправили: <b>${escapeTelegramHtml(giftDescription(order))}</b>\n\nОтправитель скрыт. Откройте «Послания», чтобы получать анонимные сообщения и узнать, кто отправляет подарки.`;
   const markup = { inline_keyboard: [[{ text: '💌 Открыть «Послания»', url: botLink }], [{ text: '🔎 Узнать кто · 7 ₽', callback_data: 'pay:choose:reveal' }, { text: '♛ Тарифы', callback_data: 'pay:choose:vip' }]] };
-  const userbotResult = await telegramUserbot.notify({
-    username: order.username,
-    text,
-    botUrl: botLink,
-    orderId: order.id,
-    gift: giftDescription(order)
-  });
-  if (userbotResult.sent) {
-    order.notificationSentAt = new Date().toISOString();
-    order.notificationChannel = 'userbot';
-    order.notificationStatus = 'sent';
-    schedulePersist();
-    return { sent: true, channel: 'userbot' };
+  // Do not wake or load the userbot for recipients who already started the
+  // bot. Bot API delivery is sufficient and avoids unnecessary MTProto work.
+  const recipient = knownUser || [...users.values()].find((candidate) => identityFor(candidate, 'telegram')?.username?.toLowerCase() === order.username);
+  if (!(await telegramBotChatAvailable(recipient))) {
+    const userbotResult = await telegramUserbot.notify({
+      username: order.username,
+      text,
+      botUrl: botLink,
+      orderId: order.id,
+      gift: giftDescription(order)
+    });
+    if (userbotResult.sent) {
+      order.notificationSentAt = new Date().toISOString();
+      order.notificationChannel = 'userbot';
+      order.notificationStatus = 'sent';
+      schedulePersist();
+      return { sent: true, channel: 'userbot' };
+    }
   }
 
-  // If the user has already opened the bot, retain the direct bot fallback.
-  // This keeps delivery useful while the optional userbot is disabled or not authorized.
-  const recipient = knownUser || [...users.values()].find((candidate) => identityFor(candidate, 'telegram')?.username?.toLowerCase() === order.username);
+  // If the user has already opened the bot, or the userbot is unavailable,
+  // retain the direct Bot API fallback.
   if (recipient && telegramChatId(recipient)) {
     const result = await sendTelegramMessage(telegramChatId(recipient), text, { reply_markup: markup });
     if (result.sent) {
@@ -1703,15 +1710,46 @@ function isTelegramAdmin(chatId) {
 function getTelegramUser(message, telegramUser = message.from) {
   const chatId = message.chat?.id || telegramUser?.id;
   const providerId = String(telegramUser?.id || chatId);
-  return completeAuth('telegram', providerId, {
+  const user = completeAuth('telegram', providerId, {
     displayName: [telegramUser?.first_name, telegramUser?.last_name].filter(Boolean).join(' ') || 'Telegram user',
     username: telegramUser?.username || null,
     language: null
   }).user;
+  const identity = userIdentities(user).find((candidate) => candidate.provider === 'telegram' && String(candidate.providerUserId) === providerId);
+  if (identity) identity.botStartedAt = identity.botStartedAt || new Date().toISOString();
+  schedulePersist();
+  return user;
 }
 
 function telegramChatId(user) {
   return identityFor(user, 'telegram')?.providerUserId;
+}
+
+function telegramBotIdentityFor(user) {
+  if (!user) return null;
+  return userIdentities(user).find((identity) => identity.provider === 'telegram'
+    && !isTelegramBotIdentity(identity)
+    && identity.botStartedAt);
+}
+
+function recipientHasStartedTelegramBot(user) {
+  return Boolean(telegramBotIdentityFor(user));
+}
+
+async function telegramBotChatAvailable(user) {
+  if (!user || !TELEGRAM_BOT_TOKEN) return false;
+  if (recipientHasStartedTelegramBot(user)) return true;
+  const chatId = telegramChatId(user);
+  if (!chatId) return false;
+  try {
+    await telegramRequest('getChat', { chat_id: chatId });
+    const identity = identityFor(user, 'telegram');
+    if (identity) identity.botStartedAt = identity.botStartedAt || new Date().toISOString();
+    schedulePersist();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function sendBotMenu(user, chatId, text = null, { withBanner = false, recipientSlug = user.activeRecipientSlug || null } = {}) {
