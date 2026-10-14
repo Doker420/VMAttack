@@ -214,7 +214,7 @@
     if ($('#webappPersonalLink')) $('#webappPersonalLink').textContent = shortLink;
     if ($('#dashboardPersonalLink')) $('#dashboardPersonalLink').textContent = shortLink;
     ['webappReferralText', 'profileReferralText'].forEach((id) => { if ($(`#${id}`)) $(`#${id}`).innerHTML = `Напиши мне анонимно 💌<br />Оставь послание здесь: ${escapeHtml(shortLink)}`; });
-    if ($('#webappTelegramReferral')) $('#webappTelegramReferral').href = `${appConfig.telegramUrl}?start=ref_${encodeURIComponent(profileSlug)}`;
+    if ($('#webappTelegramReferral')) $('#webappTelegramReferral').href = personalLink(profileSlug);
     if ($('#webappVkReferral')) $('#webappVkReferral').href = `${appConfig.vkUrl}?ref=ref_${encodeURIComponent(profileSlug)}`;
     return result;
   }

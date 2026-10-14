@@ -690,7 +690,9 @@ function platformLinks(user = null) {
   const slug = user ? ensurePublicLink(user).slug : (DEMO_MODE ? demoSlug() : '');
   return {
     telegram: `https://t.me/${TELEGRAM_BOT_USERNAME}`,
-    telegramReferral: `https://t.me/${TELEGRAM_BOT_USERNAME}?start=ref_${encodeURIComponent(slug)}`,
+    // Public profile links must open the anonymous message form directly.
+    // A t.me deep link would require pressing Start before Telegram delivers /start.
+    telegramReferral: `${site}/?ref=${encodeURIComponent(slug)}`,
     vk: `https://vk.me/${VK_GROUP_ID}`,
     vkReferral: `https://vk.me/${VK_GROUP_ID}?ref=ref_${encodeURIComponent(slug)}`,
     site,
