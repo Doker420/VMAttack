@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHmac, randomUUID } from 'node:crypto';
@@ -9,7 +10,15 @@ import { createSqliteStore } from './sqlite-store.mjs';
 
 const WEB_ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = resolve(WEB_ROOT, '..');
-dotenv.config({ path: join(PROJECT_ROOT, '.env') });
+const configuredEnvFile = process.env.ENV_FILE?.trim();
+const envCandidates = configuredEnvFile
+  ? [resolveProjectPath(configuredEnvFile)]
+  : [join(PROJECT_ROOT, '.env'), join(WEB_ROOT, '.env')];
+const envFile = envCandidates.find((candidate) => existsSync(candidate));
+const dotenvResult = envFile ? dotenv.config({ path: envFile, override: true }) : null;
+if (envFile && dotenvResult?.error) console.warn(`[config] failed to load ${envFile}: ${dotenvResult.error.message}`);
+else if (envFile) console.log(`[config] loaded ${envFile}`);
+else console.warn(`[config] .env not found; using process environment and safe defaults`);
 
 function env(name, fallback = '') {
   return process.env[name]?.trim() || fallback;
