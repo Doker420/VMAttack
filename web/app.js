@@ -136,12 +136,28 @@
     return appConfig;
   }
 
+  function restoreToastHost() {
+    const toast = $('#toast');
+    if (!toast) return;
+    if (!document.querySelector('dialog[open]') && toast.parentElement !== document.body) document.body.appendChild(toast);
+    toast.classList.remove('toast-in-dialog');
+  }
+
   function showToast(text) {
     const toast = $('#toast');
+    if (!toast) return;
+    const openDialog = document.querySelector('dialog[open]');
+    if (openDialog) {
+      if (!openDialog.contains(toast)) (openDialog.querySelector('.dialog-inner') || openDialog).appendChild(toast);
+      toast.classList.add('toast-in-dialog');
+    }
     $('#toastText').textContent = text;
     toast.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
+    toastTimer = setTimeout(() => {
+      toast.classList.remove('show');
+      restoreToastHost();
+    }, 2600);
   }
 
   function openDialog(id) {
@@ -400,9 +416,12 @@
   });
 
   // Let a click on a dialog backdrop close it, but not a click inside the card.
-  $$('dialog').forEach((dialog) => dialog.addEventListener('click', (event) => {
-    if (event.target === dialog) closeDialog(dialog);
-  }));
+  $$('dialog').forEach((dialog) => {
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) closeDialog(dialog);
+    });
+    dialog.addEventListener('close', restoreToastHost);
+  });
 
   $$('[data-auth-provider]').forEach((button) => button.addEventListener('click', () => openAuthFlow(button.dataset.authProvider)));
 

@@ -1354,7 +1354,7 @@ async function syncMyStarsOrder(order) {
   }
   if (['failed', 'reversed', 'expired', 'cancelled'].includes(remote.status)) {
     order.failedAt = order.failedAt || new Date().toISOString();
-    if (order.deliveryMode === 'userbot_gift') await refundGiftBalance(order);
+    if (order.paymentMethod === 'balance') await refundGiftBalance(order);
   }
   schedulePersist();
   return order;
@@ -1374,6 +1374,77 @@ function mystarsOrderForUser(order, user) {
     notificationStatus: order.notificationStatus || null,
     createdAt: order.createdAt
   };
+}
+
+function mystarsQuoteKey(gift, quote) {
+  const snapshot = {
+    type: gift.type,
+    username: gift.username,
+    quantity: gift.quantity || null,
+    months: gift.months || null,
+    payment_currency: gift.payment_currency || null,
+    quote
+  };
+  return createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
+}
+
+async function createMystarsGiftOrder(user, gift) {
+  const balancePrice = mystarsBalancePrice(gift);
+  if (!balancePrice) throw new Error('Gift prices are not configured');
+  if (Number(user.balanceRub || 0) < balancePrice.amount) {
+    throw new Error(`Недостаточно средств на балансе: нужно ${balancePrice.amount} ₽`);
+  }
+
+  const quote = await getMyStarsQuote(gift);
+  const recipient = await checkMyStarsRecipient(gift);
+  if (!recipient?.eligible) {
+    throw new Error(recipient?.telegram_message || recipient?.reason || 'Получатель не может принять этот подарок');
+  }
+  if (gift.offerKey && gift.offerKey !== mystarsQuoteKey(gift, quote)) {
+    throw new Error('Цена или параметры подарка изменились. Повторите проверку.');
+  }
+
+  const localId = `gift-${randomUUID()}`;
+  const body = {
+    type: gift.type,
+    recipient: { username: gift.username },
+    payment_currency: gift.payment_currency,
+    callback_url: `${new URL(WEB_APP_URL).origin}/webhooks/mystars`
+  };
+  if (gift.type === 'stars') body.quantity = gift.quantity;
+  else body.months = gift.months;
+  const remote = await mystarsRequest('/v1/orders', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': localId },
+    body: JSON.stringify(body)
+  });
+
+  user.balanceRub = Number(user.balanceRub || 0) - balancePrice.amount;
+  const order = {
+    id: localId,
+    userId: user.id,
+    username: gift.username,
+    type: gift.type,
+    quantity: gift.quantity || null,
+    months: gift.months || null,
+    payment_currency: gift.payment_currency,
+    paymentMethod: 'balance',
+    balancePriceRub: balancePrice.amount,
+    balanceMarkupPercent: balancePrice.markupPercent,
+    quote,
+    remoteOrderId: remote.order_id || remote.id,
+    remoteStatus: remote.status || 'awaiting_delivery',
+    remoteOrder: remote,
+    payment: remote.payment || null,
+    createdAt: new Date().toISOString(),
+    notificationStatus: 'waiting_delivery',
+    deliveryMode: 'mystars_direct'
+  };
+  mystarsOrders.set(order.id, order);
+  schedulePersist();
+  await notifyMystarsAdmins(order);
+  if (order.remoteStatus === 'delivered') await syncMyStarsOrder(order);
+  return order;
 }
 
 async function createUserbotGiftOrder(user, gift) {
@@ -2061,6 +2132,28 @@ async function handleApi(req, res, url) {
   if (req.method === 'POST' && url.pathname === '/api/v1/gifts/quote') {
     try {
       const gift = validateGiftRequest(await readBody(req));
+      if (gift.type !== 'star_gift') {
+        const quote = await getMyStarsQuote(gift);
+        const recipient = await checkMyStarsRecipient(gift);
+        if (!recipient?.eligible) throw new Error(recipient?.telegram_message || recipient?.reason || 'Получатель не может принять этот подарок');
+        const balancePrice = mystarsBalancePrice(gift);
+        const title = gift.type === 'stars' ? `${gift.quantity} Telegram Stars` : `Telegram Premium на ${gift.months} мес.`;
+        const stars = gift.type === 'stars' ? gift.quantity : 0;
+        return json(res, 200, {
+          gift: { ...gift, title, stars },
+          quote: {
+            title,
+            stars,
+            currency: gift.type === 'stars' ? 'XTR' : null,
+            amount: balancePrice?.amount || null,
+            option: null
+          },
+          offerKey: mystarsQuoteKey(gift, quote),
+          recipient: { eligible: true, username: gift.username },
+          balancePayment: balancePrice ? { amount: balancePrice.amount } : null
+        });
+      }
+
       const offer = await telegramUserbot.getGiftOffer(gift);
       const balancePrice = userbotGiftBalancePrice(offer, gift);
       const stars = Number(offer.costStars || offer.giftStars || 0);
@@ -2079,7 +2172,9 @@ async function handleApi(req, res, url) {
       });
     } catch (error) {
       const validation = error.message.includes('required') || error.message.includes('between') || error.message.includes('must be');
-      return json(res, validation ? 422 : 503, { error: 'mystars_quote_failed', message: error.message });
+      const internalPaymentError = /mystars|my\s*stars|api key|payment api/i.test(error.message);
+      const message = internalPaymentError ? 'Не удалось проверить цену и получателя. Попробуйте ещё раз позже.' : error.message;
+      return json(res, validation ? 422 : 503, { error: 'gift_quote_failed', message });
     }
   }
   if (req.method === 'POST' && url.pathname === '/api/v1/gifts/orders') {
@@ -2089,12 +2184,14 @@ async function handleApi(req, res, url) {
     try {
       const body = await readBody(req);
       gift = validateGiftRequest(body);
-      const order = await createUserbotGiftOrder(user, gift);
+      const order = gift.type === 'star_gift'
+        ? await createUserbotGiftOrder(user, gift)
+        : await createMystarsGiftOrder(user, gift);
       return json(res, 201, mystarsOrderForUser(order, user));
     } catch (error) {
       const insufficient = error.message.startsWith('Недостаточно средств');
       const balancePrice = gift ? mystarsBalancePrice(gift) : null;
-      const changed = error.message.includes('изменилась');
+      const changed = error.message.includes('изменилась') || error.message.includes('изменились');
       const status = insufficient ? 402 : changed ? 409 : error.message.includes('required') || error.message.includes('between') || error.message.includes('must be') || error.message.includes('cannot receive') || error.message.includes('not configured') ? 422 : 503;
       const internalPaymentError = /mystars|my\s*stars|pay_to_address|memo|payment api/i.test(error.message);
       const message = internalPaymentError ? 'Не удалось подготовить подарок. Попробуйте ещё раз позже.' : error.message;

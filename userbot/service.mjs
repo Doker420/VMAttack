@@ -1,32 +1,6 @@
 import { Api, TelegramClient } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 
-// GramJS 2.26 does not expose the newer inputInvoicePremiumGiftStars
-// constructor yet. Keep the wire format local so Premium is paid with XTR
-// (Telegram Stars), not with the native-currency gift-code option.
-class InputInvoicePremiumGiftStars {
-  constructor({ userId, months, message = null }) {
-    this.CONSTRUCTOR_ID = 0xdabab2ef;
-    this.className = 'InputInvoicePremiumGiftStars';
-    this.classType = 'constructor';
-    this.userId = userId;
-    this.months = Number(months);
-    this.message = message;
-  }
-
-  getBytes() {
-    const constructor = Buffer.alloc(4);
-    constructor.writeUInt32LE(this.CONSTRUCTOR_ID, 0);
-    const flags = Buffer.alloc(4);
-    if (this.message) flags.writeUInt32LE(1, 0);
-    const months = Buffer.alloc(4);
-    months.writeInt32LE(this.months, 0);
-    const parts = [constructor, flags, this.userId.getBytes(), months];
-    if (this.message) parts.push(this.message.getBytes());
-    return Buffer.concat(parts);
-  }
-}
-
 /**
  * Optional Telegram userbot transport.
  *
@@ -140,36 +114,11 @@ export function createTelegramUserbot({ enabled, apiId, apiHash, session, appUrl
 
   async function getGiftOffer(gift) {
     if (!ready || !client) throw new Error('Telegram userbot is not ready');
+    if (gift.type !== 'star_gift') throw new Error('Premium and direct Stars are delivered through MyStars');
     const recipient = await inputUserFor(gift.username);
-    if (gift.type === 'star_gift') {
-      const selected = (await getStarGifts()).find((candidate) => candidate.id === String(gift.giftId));
-      if (!selected) throw new Error('Selected Telegram gift is no longer available');
-      return { type: gift.type, title: selected.title, giftId: selected.id, giftStars: selected.stars, costStars: selected.stars, stars: selected.stars, recipient: { username: recipient.username } };
-    }
-    const { user } = recipient;
-    if (gift.type === 'stars') {
-      const options = await withTimeout(client.invoke(new Api.payments.GetStarsGiftOptions({ userId: user })), 10000, 'Telegram Stars gift options');
-      const matching = (options || []).filter((candidate) => Number(candidate.stars) === Number(gift.quantity));
-      // StarsGiftOption.amount is a fiat smallest-unit value for native options.
-      // Only XTR amount is already a Stars cost; never turn RUB kopecks into Stars.
-      const option = matching.find((candidate) => String(candidate.currency).toUpperCase() === 'XTR') || matching[0];
-      if (!option) throw new Error('Telegram Stars gift option is not available for this recipient');
-      const isXtr = String(option.currency).toUpperCase() === 'XTR';
-      const costStars = isXtr ? Number(option.amount) : Number(option.stars);
-      return { type: gift.type, title: `${gift.quantity} Telegram Stars`, giftStars: Number(option.stars), costStars, priceCurrency: option.currency, priceAmount: Number(option.amount), option, recipient: { username: recipient.username } };
-    }
-    const options = await withTimeout(client.invoke(new Api.payments.GetPremiumGiftCodeOptions({})), 10000, 'Telegram Premium options');
-    const matching = (options || []).filter((candidate) => Number(candidate.months) === Number(gift.months));
-    const option = matching.find((candidate) => String(candidate.currency).toUpperCase() === 'XTR');
-    if (!option) throw new Error('Telegram Stars payment option is not available for this Premium period');
-    const costStars = Number(option.amount);
-    return { type: gift.type, title: `Telegram Premium на ${gift.months} мес.`, giftStars: null, costStars, priceCurrency: option.currency, priceAmount: Number(option.amount), option, recipient: { username: recipient.username } };
-  }
-
-  async function sendStarsForm(invoice) {
-    const form = await client.invoke(new Api.payments.GetPaymentForm({ invoice }));
-    if (form?.formId == null) throw new Error('Telegram did not return a Stars payment form');
-    return client.invoke(new Api.payments.SendStarsForm({ formId: form.formId, invoice }));
+    const selected = (await getStarGifts()).find((candidate) => candidate.id === String(gift.giftId));
+    if (!selected) throw new Error('Selected Telegram gift is no longer available');
+    return { type: gift.type, title: selected.title, giftId: selected.id, giftStars: selected.stars, costStars: selected.stars, stars: selected.stars, recipient: { username: recipient.username } };
   }
 
   async function sendStarGift({ username, giftId, message, hideName = true }) {
@@ -184,33 +133,10 @@ export function createTelegramUserbot({ enabled, apiId, apiHash, session, appUrl
     return sendStarsForm(invoice);
   }
 
-  async function sendGift({ gift, message, offer: selectedOffer = null }) {
+  async function sendGift({ gift, message }) {
     if (!ready || !client) throw new Error('Telegram userbot is not ready');
-    if (gift.type === 'star_gift') return sendStarGift({ username: gift.username, giftId: gift.giftId, message, hideName: true });
-    const { peer, user } = await inputUserFor(gift.username);
-    const offer = selectedOffer || await getGiftOffer(gift);
-    let invoice;
-    if (gift.type === 'stars') {
-      const purpose = new Api.InputStorePaymentStarsGift({ userId: user, stars: String(gift.quantity), currency: offer.option.currency, amount: offer.option.amount });
-      invoice = new Api.InputInvoiceStars({ purpose });
-    } else {
-      invoice = new InputInvoicePremiumGiftStars({
-        userId: user,
-        months: Number(gift.months),
-        message: new Api.TextWithEntities({ text: String(message || ''), entities: [] })
-      });
-    }
-    const result = await sendStarsForm(invoice);
-    if (gift.type === 'stars' && message) {
-      try {
-        await client.sendMessage(peer, { message: String(message) });
-      } catch (error) {
-        // The Stars gift is already paid at this point. Do not turn a delivery
-        // success into an order failure just because the optional text message failed.
-        console.warn('[userbot] Stars gift promo message failed:', error.message);
-      }
-    }
-    return result;
+    if (gift.type !== 'star_gift') throw new Error('Premium and direct Stars are delivered through MyStars');
+    return sendStarGift({ username: gift.username, giftId: gift.giftId, message, hideName: true });
   }
 
   async function notify({ username, text, botUrl, orderId, gift }) {
