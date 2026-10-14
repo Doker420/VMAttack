@@ -44,6 +44,11 @@ const TELEGRAM_STICKER_ID = env('TELEGRAM_STICKER_ID');
 const TELEGRAM_RECEIVED_STICKER_ID = env('TELEGRAM_RECEIVED_STICKER_ID', TELEGRAM_STICKER_ID);
 const TELEGRAM_SENT_STICKER_ID = env('TELEGRAM_SENT_STICKER_ID', TELEGRAM_STICKER_ID);
 const TELEGRAM_SBP_ADMIN_TEXT = env('TELEGRAM_SBP_ADMIN_TEXT', 'Реквизиты СБП не настроены. Обратитесь к администратору.');
+const TELEGRAM_USERBOT_NOTIFY_URL = env('TELEGRAM_USERBOT_NOTIFY_URL');
+const TELEGRAM_USERBOT_API_TOKEN = env('TELEGRAM_USERBOT_API_TOKEN');
+const MYSTARS_API_KEY = env('MYSTARS_API_KEY');
+const MYSTARS_API_URL = env('MYSTARS_API_URL', 'https://api.mystars.tg');
+const MYSTARS_PAYMENT_CURRENCY = env('MYSTARS_PAYMENT_CURRENCY', 'ton');
 const YUMONEY_RECEIVER = env('YUMONEY_RECEIVER');
 const YUMONEY_PAYMENT_URL = env('YUMONEY_PAYMENT_URL');
 const YUMONEY_TOKEN = env('YUMONEY_TOKEN');
@@ -85,6 +90,7 @@ const retentionSettings = new Map();
 const blockedSenders = new Map();
 const publicLinks = new Map();
 const messages = new Map();
+const mystarsOrders = new Map();
 let persistenceTimer = null;
 
 function currentSnapshot() {
@@ -94,7 +100,8 @@ function currentSnapshot() {
     messages: [...messages.values()],
     payments: [...payments.entries()],
     retentionSettings: [...retentionSettings.entries()],
-    blockedSenders: [...blockedSenders.entries()].map(([userId, fingerprints]) => [userId, [...fingerprints]])
+    blockedSenders: [...blockedSenders.entries()].map(([userId, fingerprints]) => [userId, [...fingerprints]]),
+    mystarsOrders: [...mystarsOrders.entries()]
   };
 }
 
@@ -130,6 +137,7 @@ async function loadState() {
     if (Array.isArray(snapshot.payments)) { payments.clear(); snapshot.payments.forEach(([id, payment]) => payments.set(id, payment)); }
     if (Array.isArray(snapshot.retentionSettings)) { retentionSettings.clear(); snapshot.retentionSettings.forEach(([id, settings]) => retentionSettings.set(id, settings)); }
     if (Array.isArray(snapshot.blockedSenders)) { blockedSenders.clear(); snapshot.blockedSenders.forEach(([id, fingerprints]) => blockedSenders.set(id, new Set(fingerprints || []))); }
+    if (Array.isArray(snapshot.mystarsOrders)) { mystarsOrders.clear(); snapshot.mystarsOrders.forEach(([id, order]) => mystarsOrders.set(id, order)); }
     for (const user of users.values()) ensurePublicLink(user);
     console.log(`[store] loaded ${users.size} users, ${messages.size} messages via ${devStore ? 'SQLite' : 'JSON'}`);
   } catch (error) {
@@ -556,6 +564,7 @@ const botCopy = {
     vip: 'VIP — 20 ₽ / 7 дней',
     reveal: 'Открыть за 7 ₽',
     topup: 'Пополнить баланс',
+    gift: 'Анонимный подарок',
     settings: 'Настройки',
     help: 'Помощь',
     language: 'Язык',
@@ -579,6 +588,7 @@ const botCopy = {
     vip: 'VIP — 20 RUB / 7 days',
     reveal: 'Unlock for 7 RUB',
     topup: 'Top up balance',
+    gift: 'Anonymous gift',
     settings: 'Settings',
     help: 'Help',
     language: 'Language',
@@ -643,6 +653,7 @@ function botMenuKeyboard(language, recipientSlug = null) {
     [{ text: `🔗 ${botText(language, 'myLink')}`, callback_data: 'menu:link' }, { text: `✦ ${botText(language, 'daily')}`, callback_data: 'menu:daily' }],
     [{ text: `♛ ${botText(language, 'vip')}`, callback_data: 'pay:choose:vip' }, { text: `? ${botText(language, 'reveal')}`, callback_data: 'pay:choose:reveal' }],
     [{ text: `💳 ${botText(language, 'topup')}`, callback_data: 'topup:menu' }],
+    [{ text: `🎁 ${botText(language, 'gift')}`, callback_data: 'gift:menu' }],
     [{ text: `📌 ${botText(language, 'instructions')}`, callback_data: 'menu:instructions' }],
     [{ text: `⚙ ${botText(language, 'settings')}`, callback_data: 'menu:settings' }, { text: `? ${botText(language, 'help')}`, callback_data: 'menu:help' }]
   ] };
@@ -855,6 +866,125 @@ async function sendPaymentResult(chatId, payment, language = 'ru') {
   return sendTelegramMessage(chatId, 'Платёж создан, но ссылка оплаты пока не настроена.', { reply_markup: botMenuKeyboard(language) });
 }
 
+async function mystarsRequest(path, options = {}) {
+  if (!MYSTARS_API_KEY) throw new Error('MYSTARS_API_KEY is not configured');
+  const headers = { Accept: 'application/json', 'Content-Type': 'application/json', 'X-Api-Key': MYSTARS_API_KEY, ...(options.headers || {}) };
+  const response = await fetch(`${MYSTARS_API_URL.replace(/\/$/, '')}${path}`, { ...options, headers });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.detail || payload.message || payload.error || `MyStars API ${response.status}`);
+  return payload;
+}
+
+function normalizeTelegramUsername(value) {
+  return String(value || '').trim().replace(/^@+/, '').toLowerCase();
+}
+
+function validateGiftRequest(body) {
+  const type = body.type === 'premium' ? 'premium' : body.type === 'stars' ? 'stars' : null;
+  const username = normalizeTelegramUsername(body.username || body.recipient?.username);
+  if (!type) throw new Error('type must be stars or premium');
+  if (!/^[a-z0-9_]{5,32}$/i.test(username)) throw new Error('valid Telegram username is required');
+  if (type === 'stars') {
+    const quantity = Number(body.quantity);
+    if (!Number.isInteger(quantity) || quantity < 50 || quantity > 1_000_000) throw new Error('Stars quantity must be between 50 and 1000000');
+    return { type, username, quantity, payment_currency: body.payment_currency === 'usdt_ton' ? 'usdt_ton' : MYSTARS_PAYMENT_CURRENCY };
+  }
+  const months = Number(body.months);
+  if (![3, 6, 12].includes(months)) throw new Error('Premium months must be 3, 6 or 12');
+  return { type, username, months, payment_currency: body.payment_currency === 'usdt_ton' ? 'usdt_ton' : MYSTARS_PAYMENT_CURRENCY };
+}
+
+async function getMyStarsQuote(gift) {
+  const params = new URLSearchParams({ type: gift.type, payment_currency: gift.payment_currency });
+  if (gift.type === 'stars') params.set('quantity', String(gift.quantity));
+  else params.set('months', String(gift.months));
+  return mystarsRequest(`/v1/pricing?${params}`);
+}
+
+async function checkMyStarsRecipient(gift) {
+  return mystarsRequest('/v1/recipients/check', { method: 'POST', body: JSON.stringify({ type: gift.type, recipient: { username: gift.username } }) });
+}
+
+function giftDescription(order) {
+  return order.type === 'stars' ? `${order.quantity} Telegram Stars` : `Telegram Premium на ${order.months} мес.`;
+}
+
+async function notifyMystarsAdmins(order) {
+  const payment = order.payment || {};
+  const adminIds = TELEGRAM_ADMIN_IDS.split(',').map((id) => id.trim()).filter(Boolean);
+  if (!adminIds.length) return;
+  const details = `🎁 <b>Новый анонимный подарок</b>\n\nПолучатель: <code>@${escapeTelegramHtml(order.username)}</code>\nТовар: <b>${escapeTelegramHtml(giftDescription(order))}</b>\nMyStars order: <code>${escapeTelegramHtml(String(order.remoteOrderId || order.id))}</code>\n\nОплатить MyStars вручную:\nСумма: <code>${escapeTelegramHtml(String(payment.amount || '—'))} ${escapeTelegramHtml(String(payment.currency || ''))}</code>\nАдрес: <code>${escapeTelegramHtml(String(payment.pay_to_address || '—'))}</code>\nMemo: <code>${escapeTelegramHtml(String(payment.memo || '—'))}</code>`;
+  for (const adminId of adminIds) {
+    await sendTelegramMessage(adminId, details, { reply_markup: { inline_keyboard: [[{ text: '🔄 Проверить оплату', callback_data: `mystars:check:${order.id}` }], [{ text: '❌ Отменить заказ', callback_data: `mystars:cancel:${order.id}` }]] } });
+  }
+}
+
+async function notifyGiftRecipient(order, knownUser = null) {
+  if (order.notificationSentAt) return { sent: true, channel: order.notificationChannel };
+  const botLink = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=gift_${encodeURIComponent(order.id)}`;
+  const text = `🎁 <b>Вам анонимно подарили подарок!</b>\n\nВам отправили: <b>${escapeTelegramHtml(giftDescription(order))}</b>\n\nОтправитель скрыт. Откройте «Послания», чтобы получать анонимные сообщения и узнать, кто отправляет подарки.`;
+  const markup = { inline_keyboard: [[{ text: '💌 Открыть «Послания»', url: botLink }], [{ text: '🔎 Узнать кто · 7 ₽', callback_data: 'pay:choose:reveal' }, { text: '♛ Тарифы', callback_data: 'pay:choose:vip' }]] };
+  const recipient = knownUser || [...users.values()].find((candidate) => identityFor(candidate, 'telegram')?.username?.toLowerCase() === order.username);
+  if (recipient && telegramChatId(recipient)) {
+    const result = await sendTelegramMessage(telegramChatId(recipient), text, { reply_markup: markup });
+    if (result.sent) {
+      order.notificationSentAt = new Date().toISOString();
+      order.notificationChannel = 'telegram-bot';
+      schedulePersist();
+      return { sent: true, channel: 'telegram-bot' };
+    }
+  }
+  if (TELEGRAM_USERBOT_NOTIFY_URL) {
+    try {
+      const response = await fetch(TELEGRAM_USERBOT_NOTIFY_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(TELEGRAM_USERBOT_API_TOKEN ? { Authorization: `Bearer ${TELEGRAM_USERBOT_API_TOKEN}` } : {}) }, body: JSON.stringify({ username: order.username, text, botUrl: botLink, orderId: order.id, gift: giftDescription(order) }) });
+      if (response.ok) {
+        order.notificationSentAt = new Date().toISOString();
+        order.notificationChannel = 'userbot';
+        schedulePersist();
+        return { sent: true, channel: 'userbot' };
+      }
+    } catch (error) {
+      console.error('[mystars] userbot notification failed:', error.message);
+    }
+  }
+  order.notificationStatus = 'pending_userbot';
+  schedulePersist();
+  return { sent: false, channel: null };
+}
+
+async function syncMyStarsOrder(order) {
+  const remote = await mystarsRequest(`/v1/orders/${encodeURIComponent(order.remoteOrderId)}`);
+  order.remoteStatus = remote.status;
+  order.remoteOrder = remote;
+  if (remote.status === 'delivered' && !order.deliveredAt) {
+    order.deliveredAt = new Date().toISOString();
+    await notifyGiftRecipient(order);
+  }
+  if (['failed', 'reversed', 'expired', 'cancelled'].includes(remote.status)) order.failedAt = order.failedAt || new Date().toISOString();
+  schedulePersist();
+  return order;
+}
+
+function mystarsOrderForUser(order, user) {
+  return { id: order.id, username: order.username, type: order.type, quantity: order.quantity, months: order.months, payment_currency: order.payment_currency, quote: order.quote, remoteOrderId: order.remoteOrderId, status: order.remoteStatus, deliveredAt: order.deliveredAt || null, notificationStatus: order.notificationStatus || null, createdAt: order.createdAt };
+}
+
+async function createMystarsOrder(user, gift) {
+  const localId = `gift-${randomUUID()}`;
+  const quote = await getMyStarsQuote(gift);
+  const recipient = await checkMyStarsRecipient(gift);
+  if (!recipient.eligible) throw new Error(recipient.telegram_message || recipient.reason || 'Recipient cannot receive this gift');
+  const body = { type: gift.type, recipient: { username: gift.username }, payment_currency: gift.payment_currency, callback_url: `${new URL(WEB_APP_URL).origin}/webhooks/mystars` };
+  if (gift.type === 'stars') body.quantity = gift.quantity;
+  else body.months = gift.months;
+  const remote = await mystarsRequest('/v1/orders', { method: 'POST', headers: { 'Idempotency-Key': localId }, body: JSON.stringify(body) });
+  const order = { id: localId, userId: user.id, username: gift.username, type: gift.type, quantity: gift.quantity || null, months: gift.months || null, payment_currency: gift.payment_currency, quote, remoteOrderId: remote.order_id || remote.id, remoteStatus: remote.status || 'awaiting_payment', remoteOrder: remote, payment: remote.payment || null, createdAt: new Date().toISOString(), notificationStatus: 'waiting_delivery' };
+  mystarsOrders.set(order.id, order);
+  schedulePersist();
+  await notifyMystarsAdmins(order);
+  return order;
+}
+
 function userInboxMessages(user) {
   const linkIds = new Set([...publicLinks.values()].filter((link) => link.userId === user.id).map((link) => link.id));
   return [...messages.values()]
@@ -959,6 +1089,28 @@ async function handleTelegramCallback(callback) {
   const data = callback.data || '';
   const user = callback.message ? getTelegramUser(callback.message) : null;
   if (!user || !chatId) return answerCallback(callback.id);
+  if (data.startsWith('mystars:')) {
+    if (!isTelegramAdmin(chatId)) return answerCallback(callback.id, botText(user.language, 'noAccess'));
+    const [, action, orderId] = data.split(':');
+    const order = mystarsOrders.get(orderId);
+    if (!order) return answerCallback(callback.id, 'Заказ не найден');
+    try {
+      if (action === 'cancel') {
+        const remote = await mystarsRequest(`/v1/orders/${encodeURIComponent(order.remoteOrderId)}/cancel`, { method: 'POST' });
+        order.remoteStatus = remote.status || 'cancelled';
+        order.remoteOrder = remote;
+        schedulePersist();
+        await answerCallback(callback.id, 'Заказ отменён');
+        return sendTelegramMessage(chatId, `❌ Заказ ${escapeTelegramHtml(order.id)} отменён.`);
+      }
+      const synced = await syncMyStarsOrder(order);
+      await answerCallback(callback.id, `Статус: ${synced.remoteStatus}`);
+      return sendTelegramMessage(chatId, `🔄 ${escapeTelegramHtml(giftDescription(order))} для @${escapeTelegramHtml(order.username)}\nСтатус MyStars: <b>${escapeTelegramHtml(synced.remoteStatus || 'unknown')}</b>${synced.notificationStatus === 'pending_userbot' ? '\n\nПолучатель ещё не уведомлён: не настроен userbot или пользователь не найден.' : ''}`);
+    } catch (error) {
+      await answerCallback(callback.id, 'Не удалось обновить статус');
+      return sendTelegramMessage(chatId, `MyStars: ${escapeTelegramHtml(error.message)}`);
+    }
+  }
   if (data.startsWith('sbp:')) {
     if (!isTelegramAdmin(chatId)) return answerCallback(callback.id, botText(user.language, 'noAccess'));
     const [, action, paymentId] = data.split(':');
@@ -1033,6 +1185,10 @@ async function handleTelegramCallback(callback) {
     blockSender(user.id, message.sender.fingerprint);
     await answerCallback(callback.id, 'Отправитель заблокирован');
     return sendTelegramMessage(chatId, '🚫 Отправитель заблокирован. Новые послания с этого устройства больше не будут приниматься.', { reply_markup: botMenuKeyboard(user.language) });
+  }
+  if (data === 'gift:menu') {
+    await answerCallback(callback.id);
+    return sendTelegramMessage(chatId, `🎁 <b>${botText(user.language, 'gift')}</b>\n\nВыберите получателя по @username и отправьте ему анонимно Telegram Stars или Premium.`, { reply_markup: { inline_keyboard: [[{ text: 'Открыть форму подарка', web_app: { url: buildWebAppUrl({ payment: 'gift' }) } }]] } });
   }
   if (data === 'topup:menu') {
     await answerCallback(callback.id);
@@ -1148,6 +1304,15 @@ async function handleTelegramUpdate(update) {
   const chatId = message.chat.id;
   const text = message.text || '';
   const user = getTelegramUser(message);
+  const giftStartMatch = text.match(/^\/start\s+gift_(gift-[a-f0-9-]+)$/i);
+  if (giftStartMatch) {
+    const order = mystarsOrders.get(giftStartMatch[1]);
+    const username = normalizeTelegramUsername(message.from?.username || user.username);
+    if (!order || (username && username !== order.username)) return sendTelegramMessage(chatId, 'Подарок не найден или ссылка предназначена другому пользователю.');
+    try { if (MYSTARS_API_KEY && order.remoteStatus !== 'delivered') await syncMyStarsOrder(order); } catch (error) { console.error('[mystars] gift start sync failed:', error.message); }
+    await notifyGiftRecipient(order, user);
+    return sendTelegramMessage(chatId, '💌 Добро пожаловать в «Послания»! Здесь можно получать анонимные послания и узнать отправителя за 7 ₽.', { reply_markup: botMenuKeyboard(user.language || 'ru') });
+  }
   const sbpStartMatch = text.match(/^\/start\s+sbp_(pay-[a-f0-9-]+)$/i);
   if (sbpStartMatch) {
     const payment = payments.get(sbpStartMatch[1]);
@@ -1256,6 +1421,44 @@ async function handleApi(req, res, url) {
   }
   if (req.method === 'GET' && url.pathname === '/api/v1/payments/methods') {
     return json(res, 200, { currency: 'RUB', methods: paymentProviderList() });
+  }
+  if (req.method === 'GET' && url.pathname === '/api/v1/gifts/products') {
+    try { return json(res, 200, await mystarsRequest('/v1/products')); }
+    catch (error) { return json(res, 503, { error: 'mystars_unavailable', message: error.message }); }
+  }
+  if (req.method === 'POST' && url.pathname === '/api/v1/gifts/quote') {
+    try {
+      const gift = validateGiftRequest(await readBody(req));
+      const [quote, recipient] = await Promise.all([getMyStarsQuote(gift), checkMyStarsRecipient(gift)]);
+      return json(res, 200, { gift, quote, recipient });
+    } catch (error) {
+      return json(res, error.message.includes('required') || error.message.includes('between') || error.message.includes('must be') ? 422 : 503, { error: 'mystars_quote_failed', message: error.message });
+    }
+  }
+  if (req.method === 'POST' && url.pathname === '/api/v1/gifts/orders') {
+    const user = getUserFromRequest(req);
+    if (!user) return json(res, 401, { error: 'unauthorized' });
+    try {
+      const gift = validateGiftRequest(await readBody(req));
+      const order = await createMystarsOrder(user, gift);
+      return json(res, 201, mystarsOrderForUser(order, user));
+    } catch (error) {
+      const status = error.message.includes('required') || error.message.includes('between') || error.message.includes('must be') || error.message.includes('cannot receive') ? 422 : 503;
+      return json(res, status, { error: 'mystars_order_failed', message: error.message });
+    }
+  }
+  if (req.method === 'GET' && url.pathname === '/api/v1/gifts/orders') {
+    const user = getUserFromRequest(req);
+    if (!user) return json(res, 401, { error: 'unauthorized' });
+    return json(res, 200, { orders: [...mystarsOrders.values()].filter((order) => order.userId === user.id).map((order) => mystarsOrderForUser(order, user)) });
+  }
+  const giftOrderMatch = url.pathname.match(/^\/api\/v1\/gifts\/orders\/([^/]+)\/refresh$/);
+  if (req.method === 'POST' && giftOrderMatch) {
+    const user = getUserFromRequest(req);
+    const order = mystarsOrders.get(decodeURIComponent(giftOrderMatch[1]));
+    if (!user || !order || order.userId !== user.id) return json(res, 404, { error: 'gift_order_not_found' });
+    try { await syncMyStarsOrder(order); return json(res, 200, mystarsOrderForUser(order, user)); }
+    catch (error) { return json(res, 503, { error: 'mystars_status_failed', message: error.message }); }
   }
   if (req.method === 'POST' && /^\/api\/v1\/auth\/(telegram|vk)\/start$/.test(url.pathname)) {
     const provider = url.pathname.split('/')[4];
@@ -1446,6 +1649,14 @@ async function handleApi(req, res, url) {
     } catch (error) {
       return json(res, 503, { error: 'payment_provider_unavailable', provider, message: error.message });
     }
+  }
+  if (req.method === 'POST' && url.pathname === '/webhooks/mystars') {
+    const body = await readBody(req);
+    const remoteOrderId = body.order_id || body.orderId || body.id;
+    const order = [...mystarsOrders.values()].find((candidate) => candidate.remoteOrderId === remoteOrderId);
+    if (!order) return json(res, 200, { ok: true, processed: false });
+    try { await syncMyStarsOrder(order); return json(res, 200, { ok: true, processed: true, status: order.remoteStatus }); }
+    catch (error) { console.error('[mystars] webhook reconciliation failed:', error.message); return json(res, 200, { ok: true, processed: false }); }
   }
   if (req.method === 'POST' && (url.pathname === '/webhooks/payments/cryptobot' || url.pathname === '/webhooks/cryptobot' || url.pathname === '/webhooks/payments/xrocket' || url.pathname === '/webhooks/xrocket' || url.pathname === '/webhooks/payments/yoomoney' || url.pathname === '/webhooks/yoomoney')) {
     const provider = url.pathname.includes('cryptobot') ? 'cryptobot' : url.pathname.includes('xrocket') ? 'xrocket' : 'yoomoney';

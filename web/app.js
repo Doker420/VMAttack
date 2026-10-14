@@ -469,6 +469,51 @@
     }
   });
 
+  const giftType = $('#giftType');
+  const giftStarsFields = $('#giftStarsFields');
+  const giftPremiumFields = $('#giftPremiumFields');
+  const updateGiftFields = () => {
+    const premium = giftType?.value === 'premium';
+    if (giftStarsFields) giftStarsFields.hidden = premium;
+    if (giftPremiumFields) giftPremiumFields.hidden = !premium;
+  };
+  giftType?.addEventListener('change', updateGiftFields);
+  updateGiftFields();
+  const giftPayload = () => ({
+    type: giftType?.value || 'stars',
+    username: $('#giftUsername')?.value.trim() || '',
+    quantity: Number($('#giftQuantity')?.value || 100),
+    months: Number($('#giftMonths')?.value || 3),
+    payment_currency: $('#giftCurrency')?.value || 'ton'
+  });
+  $('#giftQuoteButton')?.addEventListener('click', async () => {
+    const button = $('#giftQuoteButton');
+    button.disabled = true;
+    const result = await apiRequest('/api/v1/gifts/quote', { method: 'POST', body: JSON.stringify(giftPayload()) });
+    button.disabled = false;
+    const box = $('#giftQuote');
+    if (result?.quote) {
+      const recipient = result.recipient?.eligible ? 'Получатель доступен' : `Получатель: ${result.recipient?.reason || 'проверка не пройдена'}`;
+      box.innerHTML = `<strong>${escapeHtml(String(result.quote.amount || 'Цена уточняется'))} ${escapeHtml(String(result.quote.currency || ''))}</strong><br />${escapeHtml(recipient)}`;
+      box.hidden = false;
+      return;
+    }
+    showToast(result?.__error ? 'Не удалось получить цену MyStars' : 'Проверьте получателя');
+  });
+  $('#giftForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    button.disabled = true;
+    const result = await apiRequest('/api/v1/gifts/orders', { method: 'POST', body: JSON.stringify(giftPayload()) });
+    button.disabled = false;
+    if (result?.id) {
+      $('#giftSuccess').hidden = false;
+      showToast('Заказ создан: администратор оплатит подарок');
+      return;
+    }
+    showToast(result?.status === 401 ? 'Откройте Web App из Telegram' : 'Не удалось создать заказ подарка');
+  });
+
   $('#clearDemoButton')?.addEventListener('click', () => {
     messages = [];
     persistMessages();
@@ -520,6 +565,7 @@
     if (requestedPayment === 'reveal') openDialog('revealDialog');
     if (requestedPayment === 'vip') openDialog('paymentDialog');
     if (requestedPayment === 'balance') openDialog('topupDialog');
+    if (requestedPayment === 'gift') openDialog('giftDialog');
     if (requestedReply) {
       $('#replyText').value = '';
       openDialog('replyDialog');
@@ -534,6 +580,7 @@
   $('#webappRefreshButton')?.addEventListener('click', () => syncInbox().then(() => showToast('Ящик обновлён')));
   $('#webappVipButton')?.addEventListener('click', () => openDialog('paymentDialog'));
   $('#webappTopupButton')?.addEventListener('click', () => openDialog('topupDialog'));
+  $('#webappGiftButton')?.addEventListener('click', () => openDialog('giftDialog'));
   $('#webappSettingsButton')?.addEventListener('click', () => openDialog('integrationDialog'));
   $('#webappRetentionButton')?.addEventListener('click', () => openDialog('integrationDialog'));
   $('#webappDailySetting')?.addEventListener('click', () => openDialog('integrationDialog'));

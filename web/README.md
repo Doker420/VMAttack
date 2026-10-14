@@ -56,6 +56,25 @@ Telegram referral deep link сохраняет получателя и пока�
 
 Telegram polling запускается автоматически, если в `.env` задан `TELEGRAM_BOT_TOKEN`. Для production Web App URL должен быть HTTPS и реально открываться из интернета. Баннер `/start` загружается локальным файлом `TELEGRAM_START_BANNER_FILE`, поэтому Telegram не должен получать ошибку `failed to get HTTP URL content`; при любой ошибке отправка автоматически переключается на текст с кнопкой Web App. Токен и другие секреты нельзя хранить в исходниках или публиковать.
 
+## Анонимные подарки MyStars
+
+В Web App и Telegram-боте добавлена форма «Анонимный подарок»: пользователь указывает `@username`, выбирает Telegram Stars или Premium на 3/6/12 месяцев, а backend получает live quote, проверяет получателя и создаёт MyStars order с idempotency key. API key задаётся только в root `.env`:
+
+```dotenv
+MYSTARS_API_KEY=
+MYSTARS_API_URL=https://api.mystars.tg
+MYSTARS_PAYMENT_CURRENCY=ton
+```
+
+MyStars возвращает on-chain payment instructions. В текущем режиме выбранная схема — ручная оплата администратором: администратор получает в Telegram адрес, сумму и memo, оплачивает заказ и нажимает «Проверить оплату». После статуса `delivered` backend уведомляет получателя через `poslaniya_robot`; если получатель ещё не известен боту, используется опциональный существующий userbot adapter:
+
+```dotenv
+TELEGRAM_USERBOT_NOTIFY_URL=
+TELEGRAM_USERBOT_API_TOKEN=
+```
+
+Адаптер принимает `POST` JSON с `username`, `text`, `botUrl`, `orderId` и `gift`. После уведомления получатель получает ссылку на бота, кнопку «Узнать кто · 7 ₽» и кнопку тарифов. Callback MyStars принимается на `/webhooks/mystars` и сверяется через `GET /v1/orders/:id`; отдельный секрет в приложении не требуется. Получатель выбирается по Telegram `@username`, без раскрытия отправителя.
+
 ## Оплата и пополнение баланса
 
 Для VIP, раскрытия отправителя и пополнения внутреннего баланса доступны четыре метода: карта через готовую ссылку ЮMoney, xRocket, CryptoBot и СБП с ручной проверкой чека администратором. Методы и их состояние возвращаются через `GET /api/v1/payments/methods`, а checkout выполняется через `POST /api/v1/payments/checkout`.
