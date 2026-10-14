@@ -30,7 +30,8 @@
   const telegramWebApp = window.Telegram?.WebApp || null;
   const appModeRequested = queryParams.get('app') === '1';
   const isTelegramWebApp = Boolean(telegramWebApp?.initData || appModeRequested);
-  const queryRef = queryParams.get('ref') || '';
+  const telegramStartParam = telegramWebApp?.initDataUnsafe?.start_param || '';
+  const queryRef = queryParams.get('ref') || queryParams.get('startapp') || telegramStartParam;
   let recipientSlug = queryRef.replace(/^ref[_-]/i, '').trim();
   const appConfig = {
     siteUrl: window.location.origin,
@@ -214,7 +215,7 @@
     if ($('#webappPersonalLink')) $('#webappPersonalLink').textContent = shortLink;
     if ($('#dashboardPersonalLink')) $('#dashboardPersonalLink').textContent = shortLink;
     ['webappReferralText', 'profileReferralText'].forEach((id) => { if ($(`#${id}`)) $(`#${id}`).innerHTML = `Напиши мне анонимно 💌<br />Оставь послание здесь: ${escapeHtml(shortLink)}`; });
-    if ($('#webappTelegramReferral')) $('#webappTelegramReferral').href = personalLink(profileSlug);
+    if ($('#webappTelegramReferral')) $('#webappTelegramReferral').href = `${appConfig.telegramUrl}?startapp=ref_${encodeURIComponent(profileSlug)}`;
     if ($('#webappVkReferral')) $('#webappVkReferral').href = `${appConfig.vkUrl}?ref=ref_${encodeURIComponent(profileSlug)}`;
     return result;
   }
@@ -520,7 +521,7 @@
     quantity: Number($('#giftQuantity')?.value || 100),
     months: Number($('#giftMonths')?.value || 3),
     payment_currency: $('#giftCurrency')?.value || 'ton',
-    payment_method: $('#giftPaymentMethod')?.value || 'balance'
+    payment_method: 'balance'
   });
   $('#giftQuoteButton')?.addEventListener('click', async () => {
     const button = $('#giftQuoteButton');
@@ -531,9 +532,9 @@
     if (result?.quote) {
       const recipient = result.recipient?.eligible ? 'Получатель доступен' : `Получатель: ${result.recipient?.reason || 'проверка не пройдена'}`;
       const balance = result.balancePayment
-        ? `<br /><strong>С баланса: ${escapeHtml(String(result.balancePayment.amount))} ₽</strong> <small>(наценка ${escapeHtml(String(result.balancePayment.markupPercent))}%)</small>`
-        : '<br /><small>Оплата с баланса пока не настроена: добавьте цены MyStars в .env.</small>';
-      box.innerHTML = `<strong>MyStars: ${escapeHtml(String(result.quote.amount || 'Цена уточняется'))} ${escapeHtml(String(result.quote.currency || ''))}</strong>${balance}<br />${escapeHtml(recipient)}`;
+        ? `<br /><strong>С баланса: ${escapeHtml(String(result.balancePayment.amount))} ₽</strong>`
+        : '<br /><small>Оплата с баланса пока недоступна.</small>';
+      box.innerHTML = `${balance.replace('<br />', '')}<br />${escapeHtml(recipient)}`;
       box.hidden = false;
       return;
     }
@@ -546,14 +547,18 @@
     const result = await apiRequest('/api/v1/gifts/orders', { method: 'POST', body: JSON.stringify(giftPayload()) });
     button.disabled = false;
     if (result?.id) {
-      $('#giftSuccess').textContent = result.paymentMethod === 'balance'
-        ? `✓ Заказ создан. Списано ${result.balancePriceRub} ₽ с баланса; MyStars оплатит администратор.`
-        : '✓ Заказ создан и отправлен администратору на оплату';
+      $('#giftSuccess').textContent = '✓ Заказ создан. Подарок будет доставлен получателю.';
       $('#giftSuccess').hidden = false;
-      showToast(result.paymentMethod === 'balance' ? 'Подарок оплачен с баланса' : 'Заказ создан: администратор оплатит подарок');
+      showToast('Подарок оформлен');
       return;
     }
-    showToast(result?.status === 401 ? 'Откройте Web App из Telegram' : 'Не удалось создать заказ подарка');
+    if (result?.status === 402) {
+      closeDialog($('#giftDialog'));
+      showToast('Недостаточно средств. Пополните баланс.');
+      requestAnimationFrame(() => openDialog('topupDialog'));
+      return;
+    }
+    showToast(result?.status === 401 ? 'Откройте личный кабинет Telegram' : result?.status === 422 ? 'Оплата с баланса пока недоступна' : 'Не удалось оформить подарок');
   });
 
   $('#clearDemoButton')?.addEventListener('click', () => {

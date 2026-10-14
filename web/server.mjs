@@ -690,9 +690,8 @@ function platformLinks(user = null) {
   const slug = user ? ensurePublicLink(user).slug : (DEMO_MODE ? demoSlug() : '');
   return {
     telegram: `https://t.me/${TELEGRAM_BOT_USERNAME}`,
-    // Public profile links must open the anonymous message form directly.
-    // A t.me deep link would require pressing Start before Telegram delivers /start.
-    telegramReferral: `${site}/?ref=${encodeURIComponent(slug)}`,
+    // Telegram's startapp deep link opens the Main Mini App directly without a bot Start step.
+    telegramReferral: `https://t.me/${TELEGRAM_BOT_USERNAME}?startapp=ref_${encodeURIComponent(slug)}`,
     vk: `https://vk.me/${VK_GROUP_ID}`,
     vkReferral: `https://vk.me/${VK_GROUP_ID}?ref=ref_${encodeURIComponent(slug)}`,
     site,
@@ -1069,7 +1068,7 @@ async function syncMyStarsOrder(order) {
 }
 
 function mystarsOrderForUser(order, user) {
-  return { id: order.id, username: order.username, type: order.type, quantity: order.quantity, months: order.months, payment_currency: order.payment_currency, quote: order.quote, paymentMethod: order.paymentMethod || 'admin', balancePriceRub: order.balancePriceRub || null, balanceMarkupPercent: order.balanceMarkupPercent ?? null, remoteOrderId: order.remoteOrderId, status: order.remoteStatus, deliveredAt: order.deliveredAt || null, notificationStatus: order.notificationStatus || null, createdAt: order.createdAt };
+  return { id: order.id, username: order.username, type: order.type, quantity: order.quantity, months: order.months, payment_currency: order.payment_currency, quote: order.quote, paymentMethod: order.paymentMethod || 'balance', balancePriceRub: order.balancePriceRub || null, remoteOrderId: order.remoteOrderId, status: order.remoteStatus, deliveredAt: order.deliveredAt || null, notificationStatus: order.notificationStatus || null, createdAt: order.createdAt };
 }
 
 async function createMystarsOrder(user, gift, { paymentMethod = 'admin' } = {}) {
@@ -1180,7 +1179,34 @@ async function answerCallback(callbackId, text = '') {
 }
 
 async function sendAdminPanel(chatId) {
-  return sendTelegramMessage(chatId, botText('ru', 'admin'), { reply_markup: { inline_keyboard: [[{ text: 'Статистика', callback_data: 'admin:stats' }], [{ text: 'Создать рассылку', callback_data: 'admin:broadcast' }], [{ text: 'Пользователи', callback_data: 'admin:users' }]] } });
+  return sendTelegramMessage(chatId, botText('ru', 'admin'), { reply_markup: { inline_keyboard: [[{ text: '📥 Заказы пополнения', callback_data: 'admin:topups' }], [{ text: 'Статистика', callback_data: 'admin:stats' }], [{ text: 'Создать рассылку', callback_data: 'admin:broadcast' }], [{ text: 'Пользователи', callback_data: 'admin:users' }]] } });
+}
+
+function paymentStatusLabel(status) {
+  return ({ manual_pending: 'ожидает чек', pending: 'ожидает оплату', paid: 'оплачен', failed: 'ошибка', rejected: 'отклонён' })[status] || status || 'unknown';
+}
+
+async function sendAdminTopups(chatId) {
+  const topups = [...payments.values()]
+    .filter((payment) => payment.purpose === 'balance')
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, 20);
+  if (!topups.length) {
+    return sendTelegramMessage(chatId, '📥 <b>Заказы пополнения</b>\n\nПока заказов нет.', { reply_markup: { inline_keyboard: [[{ text: '← Админ-панель', callback_data: 'admin:home' }]] } });
+  }
+  const lines = topups.map((payment, index) => {
+    const user = payment.userId ? users.get(payment.userId) : null;
+    const owner = user?.username ? `@${user.username}` : String(payment.userId || 'без пользователя').slice(-12);
+    return `${index + 1}. <code>${escapeTelegramHtml(payment.id.slice(-8))}</code> — <b>${escapeTelegramHtml(String(payment.amount))} ₽</b>\n   ${escapeTelegramHtml(paymentProviderLabels[payment.provider] || payment.provider)} · ${escapeTelegramHtml(paymentStatusLabel(payment.status))} · ${escapeTelegramHtml(owner)}`;
+  }).join('\n');
+  const keyboard = [];
+  for (const payment of topups) {
+    if (payment.provider === 'sbp' && payment.status === 'manual_pending' && payment.receipt) {
+      keyboard.push([{ text: `✅ Одобрить ${payment.amount} ₽`, callback_data: `sbp:approve:${payment.id}` }, { text: `❌ Отклонить ${payment.amount} ₽`, callback_data: `sbp:reject:${payment.id}` }]);
+    }
+  }
+  keyboard.push([{ text: '🔄 Обновить', callback_data: 'admin:topups' }, { text: '← Админ-панель', callback_data: 'admin:home' }]);
+  return sendTelegramMessage(chatId, `📥 <b>Заказы пополнения</b>\n\n${lines}`, { reply_markup: { inline_keyboard: keyboard } });
 }
 
 async function sendAdminBroadcast(chatId, message) {
@@ -1368,6 +1394,11 @@ async function handleTelegramCallback(callback) {
       await answerCallback(callback.id, 'Способ оплаты пока не настроен');
       return sendTelegramMessage(chatId, `Не удалось создать платёж: ${escapeTelegramHtml(error.message)}`, { reply_markup: paymentKeyboard(user.language, plan, messageId === '-' ? null : messageId, user) });
     }
+  }
+  if (data === 'admin:topups') {
+    if (!isTelegramAdmin(chatId)) return answerCallback(callback.id, botText(user.language, 'noAccess'));
+    await answerCallback(callback.id);
+    return sendAdminTopups(chatId);
   }
   if (data === 'admin:stats' || data === 'admin:users' || data === 'admin:broadcast') {
     if (!isTelegramAdmin(chatId)) return answerCallback(callback.id, botText(user.language, 'noAccess'));
@@ -1598,7 +1629,8 @@ async function handleApi(req, res, url) {
     try {
       const gift = validateGiftRequest(await readBody(req));
       const [quote, recipient] = await Promise.all([getMyStarsQuote(gift), checkMyStarsRecipient(gift)]);
-      return json(res, 200, { gift, quote, recipient, balancePayment: mystarsBalancePrice(gift) });
+      const balancePrice = mystarsBalancePrice(gift);
+      return json(res, 200, { gift, quote, recipient, balancePayment: balancePrice ? { amount: balancePrice.amount } : null });
     } catch (error) {
       return json(res, error.message.includes('required') || error.message.includes('between') || error.message.includes('must be') ? 422 : 503, { error: 'mystars_quote_failed', message: error.message });
     }
@@ -1606,15 +1638,18 @@ async function handleApi(req, res, url) {
   if (req.method === 'POST' && url.pathname === '/api/v1/gifts/orders') {
     const user = getUserFromRequest(req);
     if (!user) return json(res, 401, { error: 'unauthorized' });
+    let gift = null;
     try {
       const body = await readBody(req);
-      const gift = validateGiftRequest(body);
+      gift = validateGiftRequest(body);
       const paymentMethod = body.payment_method === 'admin' ? 'admin' : 'balance';
       const order = await createMystarsOrder(user, gift, { paymentMethod });
       return json(res, 201, mystarsOrderForUser(order, user));
     } catch (error) {
-      const status = error.message.includes('required') || error.message.includes('between') || error.message.includes('must be') || error.message.includes('cannot receive') ? 422 : 503;
-      return json(res, status, { error: 'mystars_order_failed', message: error.message });
+      const insufficient = error.message.startsWith('Недостаточно средств');
+      const balancePrice = gift ? mystarsBalancePrice(gift) : null;
+      const status = insufficient ? 402 : error.message.includes('required') || error.message.includes('between') || error.message.includes('must be') || error.message.includes('cannot receive') || error.message.includes('not configured') ? 422 : 503;
+      return json(res, status, { error: insufficient ? 'insufficient_balance' : 'mystars_order_failed', message: error.message, ...(insufficient ? { balance: Number(user.balanceRub || 0), required: balancePrice?.amount || null } : {}) });
     }
   }
   if (req.method === 'GET' && url.pathname === '/api/v1/gifts/orders') {
