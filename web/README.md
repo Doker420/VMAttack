@@ -111,7 +111,8 @@ YUMONEY_SUCCESS_URL=https://app.goago.club/?payment=success
 YUMONEY_TOKEN=
 CRYPTOBOT_API_TOKEN=
 CRYPTOBOT_API_URL=https://pay.crypt.bot/api
-XROCKET_API_TOKEN=
+XROCKET_API_TOKEN= # именно Pay API token из приложения xRocket
+XROCKET_TESTNET=false
 XROCKET_API_URL=https://pay.api.xrocket.exchange
 XROCKET_WEBHOOK_SECRET=
 # Суммы каталога в приложении указаны в RUB; backend конвертирует их в актив xRocket.

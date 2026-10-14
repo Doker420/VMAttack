@@ -84,7 +84,8 @@ const YUMONEY_TOKEN = env('YUMONEY_TOKEN');
 const CRYPTOBOT_API_TOKEN = env('CRYPTOBOT_API_TOKEN');
 const CRYPTOBOT_API_URL = env('CRYPTOBOT_API_URL', 'https://pay.crypt.bot/api');
 const XROCKET_API_TOKEN = env('XROCKET_API_TOKEN');
-const XROCKET_API_URL = env('XROCKET_API_URL', 'https://pay.api.xrocket.exchange');
+const XROCKET_TESTNET = env('XROCKET_TESTNET', 'false').toLowerCase() === 'true';
+const XROCKET_API_URL = env('XROCKET_API_URL', XROCKET_TESTNET ? 'https://pay.api.testnet.xrocket.exchange' : 'https://pay.api.xrocket.exchange');
 const XROCKET_WEBHOOK_SECRET = env('XROCKET_WEBHOOK_SECRET');
 // The public xRocket asset list does not contain RUB on every account. Keep the
 // old RUB setting compatible by converting the RUB checkout amount to USDT (or
@@ -893,6 +894,11 @@ function paymentKeyboard(language, plan, messageId = null, user = null) {
   return { inline_keyboard: rows };
 }
 
+function xrocketAuthHeader() {
+  const token = String(XROCKET_API_TOKEN || '').trim().replace(/^Bearer\s+/i, '').replace(/^['"]|['"]$/g, '');
+  return token ? `Bearer ${token}` : '';
+}
+
 function paymentMethodIsConfigured(provider) {
   if (provider === 'yoomoney') return Boolean(YUMONEY_PAYMENT_URL || YUMONEY_RECEIVER);
   if (provider === 'xrocket') return Boolean(XROCKET_API_TOKEN);
@@ -999,7 +1005,7 @@ async function createXRocketPaymentLink(payment) {
   const invoicePrice = await resolveXRocketInvoicePrice(payment);
   const response = await fetch(`${XROCKET_API_URL.replace(/\/$/, '')}/api/v1/invoices`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${XROCKET_API_TOKEN}` },
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: xrocketAuthHeader() },
     body: JSON.stringify({
       priceAmount: String(invoicePrice.amount),
       priceCurrency: invoicePrice.currency,
@@ -1014,8 +1020,13 @@ async function createXRocketPaymentLink(payment) {
       url: { successUrl: YUMONEY_SUCCESS_URL, cancelUrl: `${new URL(WEB_APP_URL).origin}/?payment=cancel` }
     })
   });
-  const payload = await response.json();
-  if (!response.ok) throw new Error(payload.detail || payload.message || payload.title || `xRocket payment link failed (${response.status})`);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    if (response.status === 401 || String(payload.title || payload.error || '').toLowerCase() === 'unauthorized') {
+      throw new Error('xRocket API отклонил токен. Нужен токен приложения из раздела Pay API, а не токен бота; для testnet используйте XROCKET_TESTNET=true.');
+    }
+    throw new Error(payload.detail || payload.message || payload.title || `xRocket payment link failed (${response.status})`);
+  }
   const result = payload.result || payload.data || payload;
   return {
     url: result.links?.webLink || result.links?.telegramBotLink || result.pay_url || result.payment_url || result.url,
@@ -1046,7 +1057,7 @@ async function createPaymentCheckout(user, { provider, purpose, plan = null, amo
       payment.paymentUrl = invoice.url;
       payment.externalId = invoice.externalId || null;
     } else if (provider === 'xrocket') {
-      if (!XROCKET_API_TOKEN) throw new Error('XROCKET_API_TOKEN is not configured');
+      if (!xrocketAuthHeader()) throw new Error('XROCKET_API_TOKEN is not configured');
       const paymentLink = await createXRocketPaymentLink(payment);
       if (!paymentLink.url) throw new Error('xRocket did not return a payment URL');
       payment.paymentUrl = paymentLink.url;
@@ -1212,12 +1223,19 @@ function mystarsBalancePrice(gift) {
   return { basePrice, markupPercent: markup, amount: Math.ceil(basePrice * (1 + markup / 100)) };
 }
 
-function userbotGiftBalancePrice(offer) {
+function userbotGiftBalancePrice(offer, gift = null) {
   const currency = String(offer?.priceCurrency || '').toUpperCase();
   const nativeRub = currency === 'RUB' && Number(offer?.priceAmount) > 0 ? Number(offer.priceAmount) / 100 : 0;
   if (nativeRub > 0) {
     const markup = Number.isFinite(MYSTARS_BALANCE_MARKUP_PERCENT) ? MYSTARS_BALANCE_MARKUP_PERCENT : 10;
     return { basePrice: nativeRub, markupPercent: markup, amount: Math.ceil(nativeRub * (1 + markup / 100)) };
+  }
+  // Premium has an XTR price from Telegram, while the service price can be
+  // configured per subscription period. Prefer that period price instead of
+  // silently requiring a Stars-to-RUB unit rate.
+  if (offer?.type === 'premium' && gift?.months) {
+    const premiumPrice = mystarsBalancePrice({ type: 'premium', months: gift.months });
+    if (premiumPrice) return premiumPrice;
   }
   return mystarsBalancePrice({ type: 'stars', quantity: offer?.costStars });
 }
@@ -1362,7 +1380,7 @@ async function createUserbotGiftOrder(user, gift) {
   if (!telegramUserbot.isReady) throw new Error('Telegram userbot is not configured for gifts');
   const offer = await telegramUserbot.getGiftOffer(gift);
   if (gift.offerKey && gift.offerKey !== giftOfferKey(offer)) throw new Error('Цена или выбранная опция Telegram изменилась. Повторите проверку.');
-  const balancePrice = userbotGiftBalancePrice(offer);
+  const balancePrice = userbotGiftBalancePrice(offer, gift);
   if (!balancePrice) throw new Error('Gift prices are not configured');
   if (Number(user.balanceRub || 0) < balancePrice.amount) throw new Error(`Недостаточно средств на балансе: нужно ${balancePrice.amount} ₽`);
 
@@ -2044,7 +2062,7 @@ async function handleApi(req, res, url) {
     try {
       const gift = validateGiftRequest(await readBody(req));
       const offer = await telegramUserbot.getGiftOffer(gift);
-      const balancePrice = userbotGiftBalancePrice(offer);
+      const balancePrice = userbotGiftBalancePrice(offer, gift);
       const stars = Number(offer.costStars || offer.giftStars || 0);
       return json(res, 200, {
         gift: { ...gift, title: offer.title, stars },
