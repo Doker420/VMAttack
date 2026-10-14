@@ -8,6 +8,8 @@
 cp .env.example .env
 npm install
 npm start
+# или напрямую:
+node server.mjs
 ```
 
 После запуска откройте значение `WEB_APP_URL` из `.env` или локально `http://localhost:4173`.

@@ -10,40 +10,40 @@ import { createSqliteStore } from './sqlite-store.mjs';
 const WEB_ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = resolve(WEB_ROOT, '..');
 
-function requiredEnv(name) {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`Missing ${name}. Copy .env.example to .env and set the application configuration.`);
-  return value;
+function env(name, fallback = '') {
+  return process.env[name]?.trim() || fallback;
 }
 
 function resolveProjectPath(value) {
   return value.startsWith('/') ? value : join(PROJECT_ROOT, value);
 }
 
-const PORT = Number(requiredEnv('PORT'));
-const RETENTION_INTERVAL_MS = Number(requiredEnv('RETENTION_INTERVAL_MS'));
-const DEMO_MODE = requiredEnv('DEMO_MODE') === 'true';
-const TELEGRAM_MODE = requiredEnv('TELEGRAM_MODE');
-const TELEGRAM_BOT_USERNAME = requiredEnv('TELEGRAM_BOT_USERNAME');
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN?.trim() || '';
-const TELEGRAM_ADMIN_IDS = process.env.TELEGRAM_ADMIN_IDS?.trim() || '';
-const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET?.trim() || '';
-const VK_GROUP_ID = requiredEnv('VK_GROUP_ID');
-const VK_GROUP_TOKEN = process.env.VK_GROUP_TOKEN?.trim() || '';
-const VK_API_VERSION = requiredEnv('VK_API_VERSION');
-const VK_CONFIRMATION_TOKEN = process.env.VK_CONFIRMATION_TOKEN?.trim() || '';
-const CLOUDPAYMENTS_API_SECRET = process.env.CLOUDPAYMENTS_API_SECRET?.trim() || '';
-const WEB_APP_URL = requiredEnv('WEB_APP_URL');
-const DEFAULT_RECIPIENT_SLUG = requiredEnv('DEFAULT_RECIPIENT_SLUG');
-const DEMO_RECIPIENT_ID = requiredEnv('DEMO_RECIPIENT_ID');
-const DEMO_RECIPIENT_NAME = requiredEnv('DEMO_RECIPIENT_NAME');
-const DATA_FILE = resolveProjectPath(requiredEnv('DATA_FILE'));
-const DB_DRIVER = requiredEnv('DB_DRIVER');
-const SQLITE_FILE = resolveProjectPath(requiredEnv('SQLITE_FILE'));
-const DAILY_RU_FILE = resolveProjectPath(requiredEnv('DAILY_RU_FILE'));
-const DAILY_EN_FILE = resolveProjectPath(requiredEnv('DAILY_EN_FILE'));
-const START_BANNER_URL = process.env.TELEGRAM_START_BANNER_URL?.trim() || '';
-const CORS_ORIGIN = requiredEnv('CORS_ORIGIN');
+// Values in .env always win. Defaults keep an older, partial .env file
+// bootable; secrets never have a source-code fallback.
+const PORT = Number(env('PORT', '4173'));
+const RETENTION_INTERVAL_MS = Number(env('RETENTION_INTERVAL_MS', '86400000'));
+const DEMO_MODE = env('DEMO_MODE', 'true') === 'true';
+const TELEGRAM_MODE = env('TELEGRAM_MODE', 'polling');
+const TELEGRAM_BOT_USERNAME = env('TELEGRAM_BOT_USERNAME', 'poslaniya_robot');
+const TELEGRAM_BOT_TOKEN = env('TELEGRAM_BOT_TOKEN');
+const TELEGRAM_ADMIN_IDS = env('TELEGRAM_ADMIN_IDS');
+const TELEGRAM_WEBHOOK_SECRET = env('TELEGRAM_WEBHOOK_SECRET');
+const VK_GROUP_ID = env('VK_GROUP_ID', 'poslaniya_demo');
+const VK_GROUP_TOKEN = env('VK_GROUP_TOKEN');
+const VK_API_VERSION = env('VK_API_VERSION', '5.199');
+const VK_CONFIRMATION_TOKEN = env('VK_CONFIRMATION_TOKEN');
+const CLOUDPAYMENTS_API_SECRET = env('CLOUDPAYMENTS_API_SECRET');
+const WEB_APP_URL = env('WEB_APP_URL', 'https://app.gogoa.club');
+const DEFAULT_RECIPIENT_SLUG = env('DEFAULT_RECIPIENT_SLUG', 'anya');
+const DEMO_RECIPIENT_ID = env('DEMO_RECIPIENT_ID', 'demo_recipient');
+const DEMO_RECIPIENT_NAME = env('DEMO_RECIPIENT_NAME', 'Аня');
+const DATA_FILE = resolveProjectPath(env('DATA_FILE', 'data/store.json'));
+const DB_DRIVER = env('DB_DRIVER', 'sqlite');
+const SQLITE_FILE = resolveProjectPath(env('SQLITE_FILE', 'data/dev.sqlite'));
+const DAILY_RU_FILE = resolveProjectPath(env('DAILY_RU_FILE', 'content/daily/ru.txt'));
+const DAILY_EN_FILE = resolveProjectPath(env('DAILY_EN_FILE', 'content/daily/en.txt'));
+const START_BANNER_URL = env('TELEGRAM_START_BANNER_URL');
+const CORS_ORIGIN = env('CORS_ORIGIN', WEB_APP_URL);
 const devStore = DB_DRIVER === 'json' ? null : await createSqliteStore(SQLITE_FILE);
 
 // In-memory stores keep this starter runnable without a database. Replace them with
