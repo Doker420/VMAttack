@@ -43,6 +43,16 @@ const TELEGRAM_GROUP_CHAT_IDS = env('TELEGRAM_GROUP_CHAT_IDS').split(',').map((i
 const TELEGRAM_STICKER_ID = env('TELEGRAM_STICKER_ID');
 const TELEGRAM_RECEIVED_STICKER_ID = env('TELEGRAM_RECEIVED_STICKER_ID', TELEGRAM_STICKER_ID);
 const TELEGRAM_SENT_STICKER_ID = env('TELEGRAM_SENT_STICKER_ID', TELEGRAM_STICKER_ID);
+const TELEGRAM_SBP_ADMIN_TEXT = env('TELEGRAM_SBP_ADMIN_TEXT', 'Реквизиты СБП не настроены. Обратитесь к администратору.');
+const YUMONEY_PAYMENT_URL = env('YUMONEY_PAYMENT_URL');
+const YUMONEY_WEBHOOK_SECRET = env('YUMONEY_WEBHOOK_SECRET');
+const CRYPTOBOT_API_TOKEN = env('CRYPTOBOT_API_TOKEN');
+const CRYPTOBOT_API_URL = env('CRYPTOBOT_API_URL', 'https://pay.crypt.bot/api');
+const CRYPTOBOT_WEBHOOK_SECRET = env('CRYPTOBOT_WEBHOOK_SECRET');
+const XROCKET_API_TOKEN = env('XROCKET_API_TOKEN');
+const XROCKET_CREATE_INVOICE_URL = env('XROCKET_CREATE_INVOICE_URL');
+const XROCKET_WEBHOOK_SECRET = env('XROCKET_WEBHOOK_SECRET');
+const SBP_PAYMENT_DETAILS = env('SBP_PAYMENT_DETAILS', TELEGRAM_SBP_ADMIN_TEXT);
 const VK_GROUP_ID = env('VK_GROUP_ID', 'poslaniya_demo');
 const VK_GROUP_TOKEN = env('VK_GROUP_TOKEN');
 const VK_API_VERSION = env('VK_API_VERSION', '5.199');
@@ -314,6 +324,7 @@ function completeAuth(provider, providerUserId, profile = {}) {
     createdAt: new Date().toISOString(),
     vipUntil: null,
     revealCredits: 0,
+    balanceRub: 0,
     language: profile.language || 'ru',
     dailyEnabled: true,
     identities: []
@@ -325,6 +336,7 @@ function completeAuth(provider, providerUserId, profile = {}) {
   if (profile.username) user.username = profile.username;
   if (profile.language) user.language = profile.language;
   if (profile.photoUrl) user.photoUrl = profile.photoUrl;
+  if (!Number.isFinite(Number(user.balanceRub))) user.balanceRub = 0;
   users.set(user.id, user);
   ensurePublicLink(user);
   if (!retentionSettings.has(user.id)) retentionSettings.set(user.id, { dailyEnabled: user.dailyEnabled !== false });
@@ -541,6 +553,7 @@ const botCopy = {
     daily: 'Послание дня',
     vip: 'VIP — 20 ₽ / 7 дней',
     reveal: 'Открыть за 7 ₽',
+    topup: 'Пополнить баланс',
     settings: 'Настройки',
     help: 'Помощь',
     language: 'Язык',
@@ -563,6 +576,7 @@ const botCopy = {
     daily: 'Message of the day',
     vip: 'VIP — 20 RUB / 7 days',
     reveal: 'Unlock for 7 RUB',
+    topup: 'Top up balance',
     settings: 'Settings',
     help: 'Help',
     language: 'Language',
@@ -626,20 +640,201 @@ function botMenuKeyboard(language, recipientSlug = null) {
     [{ text: `💌 ${botText(language, 'openApp')}`, web_app: { url: appUrl } }],
     [{ text: `🔗 ${botText(language, 'myLink')}`, callback_data: 'menu:link' }, { text: `✦ ${botText(language, 'daily')}`, callback_data: 'menu:daily' }],
     [{ text: `♛ ${botText(language, 'vip')}`, callback_data: 'pay:choose:vip' }, { text: `? ${botText(language, 'reveal')}`, callback_data: 'pay:choose:reveal' }],
+    [{ text: `💳 ${botText(language, 'topup')}`, callback_data: 'topup:menu' }],
     [{ text: `📌 ${botText(language, 'instructions')}`, callback_data: 'menu:instructions' }],
     [{ text: `⚙ ${botText(language, 'settings')}`, callback_data: 'menu:settings' }, { text: `? ${botText(language, 'help')}`, callback_data: 'menu:help' }]
   ] };
 }
 
-function paymentKeyboard(language, plan, messageId = null) {
-  const label = plan === 'vip' ? botText(language, 'vip') : botText(language, 'reveal');
-  const appQuery = { payment: plan };
-  if (messageId) appQuery.messageId = messageId;
+const paymentProviderLabels = {
+  yoomoney: 'Карта / ЮMoney',
+  xrocket: 'xRocket',
+  cryptobot: 'CryptoBot',
+  sbp: 'СБП — чек админу',
+  balance: 'Внутренний баланс'
+};
+
+function paymentKeyboard(language, plan, messageId = null, user = null) {
+  const rows = [
+    [{ text: `💳 ${paymentProviderLabels.yoomoney}`, callback_data: `pay:method:yoomoney:${plan}:${messageId || '-'}` }],
+    [{ text: `🚀 ${paymentProviderLabels.xrocket}`, callback_data: `pay:method:xrocket:${plan}:${messageId || '-'}` }, { text: `₿ ${paymentProviderLabels.cryptobot}`, callback_data: `pay:method:cryptobot:${plan}:${messageId || '-'}` }],
+    [{ text: `🏦 ${paymentProviderLabels.sbp}`, callback_data: `pay:method:sbp:${plan}:${messageId || '-'}` }]
+  ];
+  const amount = plan === 'reveal' ? 7 : 20;
+  if (user && Number(user.balanceRub || 0) >= amount) rows.push([{ text: `💰 Заплатить с баланса (${user.balanceRub} ₽)`, callback_data: `pay:method:balance:${plan}:${messageId || '-'}` }]);
+  rows.push([{ text: `💌 ${botText(language, 'openApp')}`, web_app: { url: buildWebAppUrl({ payment: plan, ...(messageId ? { messageId } : {}) }) } }]);
+  return { inline_keyboard: rows };
+}
+
+function paymentMethodIsConfigured(provider) {
+  if (provider === 'yoomoney') return Boolean(YUMONEY_PAYMENT_URL);
+  if (provider === 'xrocket') return Boolean(XROCKET_API_TOKEN && XROCKET_CREATE_INVOICE_URL);
+  if (provider === 'cryptobot') return Boolean(CRYPTOBOT_API_TOKEN);
+  return provider === 'sbp';
+}
+
+function paymentProviderList() {
+  return Object.entries(paymentProviderLabels).filter(([id]) => id !== 'balance').map(([id, label]) => ({ id, label, configured: paymentMethodIsConfigured(id) }));
+}
+
+function paymentDescription(payment) {
+  if (payment.purpose === 'balance') return `Пополнение баланса «Послания» на ${payment.amount} ₽`;
+  if (payment.plan === 'vip') return 'VIP доступ «Послания» на 7 дней';
+  return 'Раскрытие отправителя послания';
+}
+
+function createPaymentRecord(user, { provider, purpose, plan = null, amount, messageId = null }) {
+  const payment = {
+    id: `pay-${randomUUID()}`,
+    provider,
+    purpose,
+    plan,
+    amount,
+    currency: 'RUB',
+    userId: user?.id || null,
+    messageId: messageId || null,
+    status: provider === 'sbp' ? 'manual_pending' : 'pending',
+    createdAt: new Date().toISOString()
+  };
+  payments.set(payment.id, payment);
+  schedulePersist();
+  return payment;
+}
+
+function appendPaymentUrlParams(baseUrl, payment) {
+  try {
+    const url = new URL(baseUrl);
+    url.searchParams.set('label', payment.id);
+    url.searchParams.set('sum', String(payment.amount));
+    url.searchParams.set('currency', payment.currency || 'RUB');
+    return url.toString();
+  } catch {
+    return baseUrl;
+  }
+}
+
+async function createCryptoBotInvoice(payment) {
+  const response = await fetch(`${CRYPTOBOT_API_URL.replace(/\/$/, '')}/createInvoice`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Crypto-Pay-API-Token': CRYPTOBOT_API_TOKEN },
+    body: JSON.stringify({
+      currency_type: 'fiat',
+      fiat: 'RUB',
+      amount: String(payment.amount),
+      description: paymentDescription(payment),
+      payload: payment.id,
+      expires_in: 3600
+    })
+  });
+  const payload = await response.json();
+  if (!response.ok || !payload.ok) throw new Error(payload.error?.name || payload.error?.description || 'CryptoBot invoice failed');
+  const result = payload.result || {};
+  return { url: result.bot_invoice_url || result.pay_url, externalId: result.invoice_id };
+}
+
+async function createXRocketInvoice(payment) {
+  const response = await fetch(XROCKET_CREATE_INVOICE_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${XROCKET_API_TOKEN}` },
+    body: JSON.stringify({ amount: payment.amount, currency: 'RUB', description: paymentDescription(payment), payload: payment.id })
+  });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error?.message || payload.message || 'xRocket invoice failed');
+  const result = payload.result || payload.data || payload;
+  return { url: result.pay_url || result.payment_url || result.invoice_url || result.url, externalId: result.invoice_id || result.id };
+}
+
+async function createPaymentCheckout(user, { provider, purpose, plan = null, amount, messageId = null }) {
+  if (provider === 'balance') {
+    if (!user) throw new Error('Balance payment requires authorization');
+    if (Number(user.balanceRub || 0) < amount) throw new Error('Недостаточно средств на балансе');
+    const payment = createPaymentRecord(user, { provider, purpose, plan, amount, messageId });
+    user.balanceRub = Number(user.balanceRub || 0) - amount;
+    applyPaidPayment(payment);
+    return payment;
+  }
+  const payment = createPaymentRecord(user, { provider, purpose, plan, amount, messageId });
+  try {
+    if (provider === 'yoomoney') {
+      if (!YUMONEY_PAYMENT_URL) throw new Error('YUMONEY_PAYMENT_URL is not configured');
+      payment.paymentUrl = appendPaymentUrlParams(YUMONEY_PAYMENT_URL, payment);
+    } else if (provider === 'cryptobot') {
+      if (!CRYPTOBOT_API_TOKEN) throw new Error('CRYPTOBOT_API_TOKEN is not configured');
+      const invoice = await createCryptoBotInvoice(payment);
+      if (!invoice.url) throw new Error('CryptoBot did not return a payment URL');
+      payment.paymentUrl = invoice.url;
+      payment.externalId = invoice.externalId || null;
+    } else if (provider === 'xrocket') {
+      if (!XROCKET_API_TOKEN || !XROCKET_CREATE_INVOICE_URL) throw new Error('xRocket is not configured');
+      const invoice = await createXRocketInvoice(payment);
+      if (!invoice.url) throw new Error('xRocket did not return a payment URL');
+      payment.paymentUrl = invoice.url;
+      payment.externalId = invoice.externalId || null;
+    } else if (provider === 'sbp') {
+      payment.instructions = SBP_PAYMENT_DETAILS;
+      payment.botUrl = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=sbp_${encodeURIComponent(payment.id)}`;
+    } else {
+      throw new Error('Unsupported payment provider');
+    }
+    if (provider !== 'sbp') payment.status = 'pending';
+    schedulePersist();
+    return payment;
+  } catch (error) {
+    payment.status = 'failed';
+    payment.error = error.message;
+    schedulePersist();
+    throw error;
+  }
+}
+
+function applyPaidPayment(payment) {
+  if (!payment || payment.status === 'paid') return false;
+  payment.status = 'paid';
+  payment.paidAt = new Date().toISOString();
+  const user = payment.userId && users.get(payment.userId);
+  if (user) {
+    if (payment.purpose === 'balance') user.balanceRub = (Number(user.balanceRub) || 0) + Number(payment.amount);
+    if (payment.plan === 'vip') user.vipUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    if (payment.plan === 'reveal') {
+      user.revealCredits = (user.revealCredits || 0) + 1;
+      const message = payment.messageId && messages.get(payment.messageId);
+      const ownerLink = message && [...publicLinks.values()].find((link) => link.id === message.publicLinkId && link.userId === user.id);
+      if (message && ownerLink && message.senderAvailable) {
+        message.revealedFor = Array.isArray(message.revealedFor) ? message.revealedFor : [];
+        if (!message.revealedFor.includes(user.id)) message.revealedFor.push(user.id);
+      }
+    }
+  }
+  schedulePersist();
+  return true;
+}
+
+function topupAmountKeyboard() {
   return { inline_keyboard: [
-    [{ text: `💳 ${label}`, web_app: { url: buildWebAppUrl(appQuery) } }],
-    [{ text: 'СБП / SBP — скоро', callback_data: `pay:stub:sbp:${plan}` }],
-    [{ text: 'ЮMoney — заглушка', callback_data: `pay:stub:yoomoney:${plan}` }, { text: 'CryptoBot — заглушка', callback_data: `pay:stub:crypto:${plan}` }]
+    [{ text: '100 ₽', callback_data: 'topup:amount:100' }, { text: '300 ₽', callback_data: 'topup:amount:300' }, { text: '500 ₽', callback_data: 'topup:amount:500' }],
+    [{ text: 'Открыть Web App и выбрать сумму', web_app: { url: buildWebAppUrl({ payment: 'balance' }) } }]
   ] };
+}
+
+function topupMethodKeyboard(amount) {
+  return { inline_keyboard: [
+    [{ text: `💳 ${paymentProviderLabels.yoomoney}`, callback_data: `topup:method:yoomoney:${amount}` }],
+    [{ text: `🚀 ${paymentProviderLabels.xrocket}`, callback_data: `topup:method:xrocket:${amount}` }, { text: `₿ ${paymentProviderLabels.cryptobot}`, callback_data: `topup:method:cryptobot:${amount}` }],
+    [{ text: `🏦 ${paymentProviderLabels.sbp}`, callback_data: `topup:method:sbp:${amount}` }]
+  ] };
+}
+
+async function sendPaymentResult(chatId, payment, language = 'ru') {
+  if (payment.status === 'paid') {
+    return sendTelegramMessage(chatId, `✅ Оплата на ${payment.amount} ₽ списана с внутреннего баланса.`, { reply_markup: botMenuKeyboard(language) });
+  }
+  if (payment.paymentUrl) {
+    return sendTelegramMessage(chatId, `💳 <b>${escapeTelegramHtml(paymentDescription(payment))}</b>\n\nОткройте ссылку для оплаты. После подтверждения платёж будет зачислен автоматически.`, { reply_markup: { inline_keyboard: [[{ text: `Оплатить через ${paymentProviderLabels[payment.provider]}`, url: payment.paymentUrl }], [{ text: '← Меню', callback_data: 'menu:home' }]] } });
+  }
+  if (payment.provider === 'sbp') {
+    return sendTelegramMessage(chatId, `🏦 <b>Оплата через СБП</b>\n\n${escapeTelegramHtml(payment.instructions || SBP_PAYMENT_DETAILS)}\n\nПосле оплаты нажмите «Открыть бота и отправить чек», затем отправьте фото или документ чека. Заявку проверит администратор.`, { reply_markup: { inline_keyboard: [[{ text: 'Открыть бота и отправить чек', url: payment.botUrl }], [{ text: '← Меню', callback_data: 'menu:home' }]] } });
+  }
+  return sendTelegramMessage(chatId, 'Платёж создан, но ссылка оплаты пока не настроена.', { reply_markup: botMenuKeyboard(language) });
 }
 
 function userInboxMessages(user) {
@@ -723,11 +918,51 @@ async function sendAdminBroadcast(chatId, message) {
 
 const adminBroadcastMode = new Set();
 
+function pendingSbpPaymentForUser(user) {
+  return [...payments.values()]
+    .filter((payment) => payment.provider === 'sbp' && payment.status === 'manual_pending' && payment.userId === user.id)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] || null;
+}
+
+async function notifySbpAdmins(payment, message) {
+  const adminIds = TELEGRAM_ADMIN_IDS.split(',').map((id) => id.trim()).filter(Boolean);
+  for (const adminId of adminIds) {
+    await sendTelegramMessage(adminId, `🏦 <b>Новая проверка СБП</b>\n\nПлатёж: <code>${escapeTelegramHtml(payment.id)}</code>\nСумма: <b>${payment.amount} ₽</b>\nПользователь: <code>${escapeTelegramHtml(String(payment.userId || 'unknown'))}</code>`, { reply_markup: { inline_keyboard: [[{ text: '✅ Одобрить', callback_data: `sbp:approve:${payment.id}` }, { text: '❌ Отклонить', callback_data: `sbp:reject:${payment.id}` }]] } });
+    try {
+      await telegramRequest('copyMessage', { chat_id: adminId, from_chat_id: message.chat.id, message_id: message.message_id });
+    } catch (error) {
+      console.error('[sbp] receipt copy failed:', error.message);
+    }
+  }
+}
+
 async function handleTelegramCallback(callback) {
   const chatId = callback.message?.chat?.id;
   const data = callback.data || '';
   const user = callback.message ? getTelegramUser(callback.message) : null;
   if (!user || !chatId) return answerCallback(callback.id);
+  if (data.startsWith('sbp:')) {
+    if (!isTelegramAdmin(chatId)) return answerCallback(callback.id, botText(user.language, 'noAccess'));
+    const [, action, paymentId] = data.split(':');
+    const payment = payments.get(paymentId);
+    if (!payment || payment.provider !== 'sbp' || payment.status !== 'manual_pending' || !payment.receipt) return answerCallback(callback.id, 'Заявка уже обработана или чек не найден');
+    if (action === 'approve') {
+      applyPaidPayment(payment);
+      await answerCallback(callback.id, 'Пополнение одобрено');
+      if (payment.userId && users.has(payment.userId)) await notifyUser(users.get(payment.userId), payment.purpose === 'balance'
+        ? `✅ Пополнение на ${payment.amount} ₽ одобрено администратором.`
+        : `✅ Оплата на ${payment.amount} ₽ одобрена администратором.`);
+      return sendTelegramMessage(chatId, `✅ Платёж ${escapeTelegramHtml(payment.id)} одобрен.`);
+    }
+    if (action === 'reject') {
+      payment.status = 'failed';
+      payment.rejectedAt = new Date().toISOString();
+      schedulePersist();
+      await answerCallback(callback.id, 'Платёж отклонён');
+      if (payment.userId && users.has(payment.userId)) await notifyUser(users.get(payment.userId), `❌ Чек по пополнению на ${payment.amount} ₽ отклонён администратором.`);
+      return sendTelegramMessage(chatId, `❌ Платёж ${escapeTelegramHtml(payment.id)} отклонён.`);
+    }
+  }
   if (data.startsWith('lang:')) {
     user.language = data.slice(5) === 'en' ? 'en' : 'ru';
     schedulePersist();
@@ -781,19 +1016,51 @@ async function handleTelegramCallback(callback) {
     await answerCallback(callback.id, 'Отправитель заблокирован');
     return sendTelegramMessage(chatId, '🚫 Отправитель заблокирован. Новые послания с этого устройства больше не будут приниматься.', { reply_markup: botMenuKeyboard(user.language) });
   }
+  if (data === 'topup:menu') {
+    await answerCallback(callback.id);
+    return sendTelegramMessage(chatId, `💳 <b>${botText(user.language, 'topup')}</b>\n\nВыберите сумму пополнения баланса:`, { reply_markup: topupAmountKeyboard() });
+  }
+  if (data.startsWith('topup:amount:')) {
+    const amount = Number(data.split(':')[2]);
+    if (!Number.isInteger(amount) || amount < 10 || amount > 100000) return answerCallback(callback.id, 'Некорректная сумма');
+    await answerCallback(callback.id);
+    return sendTelegramMessage(chatId, `Выберите способ оплаты для пополнения на <b>${amount} ₽</b>:`, { reply_markup: topupMethodKeyboard(amount) });
+  }
+  if (data.startsWith('topup:method:')) {
+    const [, , provider, amountText] = data.split(':');
+    const amount = Number(amountText);
+    if (!paymentProviderLabels[provider] || !Number.isInteger(amount) || amount < 10 || amount > 100000) return answerCallback(callback.id, 'Некорректный платёж');
+    try {
+      const payment = await createPaymentCheckout(user, { provider, purpose: 'balance', amount });
+      await answerCallback(callback.id, 'Платёж создан');
+      return sendPaymentResult(chatId, payment, user.language || 'ru');
+    } catch (error) {
+      await answerCallback(callback.id, 'Способ оплаты пока не настроен');
+      return sendTelegramMessage(chatId, `Не удалось создать платёж: ${escapeTelegramHtml(error.message)}`, { reply_markup: topupAmountKeyboard() });
+    }
+  }
   if (data === 'pay:choose:reveal') {
     await answerCallback(callback.id);
     return sendRevealPicker(user, chatId);
   }
   if (data.startsWith('pay:choose:')) {
-    const [, , plan, messageId = null] = data.split(':');
+    const [, , plan] = data.split(':');
     if (!['vip', 'reveal'].includes(plan)) return answerCallback(callback.id);
+    const messageId = data.split(':')[3] || null;
     await answerCallback(callback.id);
-    return sendTelegramMessage(chatId, botText(user.language, 'paymentTitle'), { reply_markup: paymentKeyboard(user.language, plan, messageId) });
+    return sendTelegramMessage(chatId, botText(user.language, 'paymentTitle'), { reply_markup: paymentKeyboard(user.language, plan, messageId === '-' ? null : messageId, user) });
   }
-  if (data.startsWith('pay:stub:')) {
-    await answerCallback(callback.id, botText(user.language, 'stub'));
-    return sendTelegramMessage(chatId, botText(user.language, 'stub'), { reply_markup: botMenuKeyboard(user.language) });
+  if (data.startsWith('pay:method:')) {
+    const [, , provider, plan, messageId = '-'] = data.split(':');
+    if (!paymentProviderLabels[provider] || !['vip', 'reveal'].includes(plan)) return answerCallback(callback.id, 'Некорректный платёж');
+    try {
+      const payment = await createPaymentCheckout(user, { provider, purpose: 'plan', plan, amount: plan === 'vip' ? 20 : 7, messageId: messageId === '-' ? null : messageId });
+      await answerCallback(callback.id, 'Платёж создан');
+      return sendPaymentResult(chatId, payment, user.language || 'ru');
+    } catch (error) {
+      await answerCallback(callback.id, 'Способ оплаты пока не настроен');
+      return sendTelegramMessage(chatId, `Не удалось создать платёж: ${escapeTelegramHtml(error.message)}`, { reply_markup: paymentKeyboard(user.language, plan, messageId === '-' ? null : messageId, user) });
+    }
   }
   if (data === 'admin:stats' || data === 'admin:users' || data === 'admin:broadcast') {
     if (!isTelegramAdmin(chatId)) return answerCallback(callback.id, botText(user.language, 'noAccess'));
@@ -863,6 +1130,25 @@ async function handleTelegramUpdate(update) {
   const chatId = message.chat.id;
   const text = message.text || '';
   const user = getTelegramUser(message);
+  const sbpStartMatch = text.match(/^\/start\s+sbp_(pay-[a-f0-9-]+)$/i);
+  if (sbpStartMatch) {
+    const payment = payments.get(sbpStartMatch[1]);
+    if (!payment || payment.userId !== user.id || payment.provider !== 'sbp' || payment.status !== 'manual_pending') return sendTelegramMessage(chatId, 'Заявка на СБП не найдена или уже обработана.');
+    payment.sbpChatId = String(chatId);
+    schedulePersist();
+    return sendTelegramMessage(chatId, `Заявка ${escapeTelegramHtml(payment.id)} найдена. Отправьте сюда фото или документ чека после оплаты.`, { reply_markup: { inline_keyboard: [[{ text: '← Меню', callback_data: 'menu:home' }]] } });
+  }
+  const receipt = message.photo?.at(-1) || message.document;
+  if (receipt) {
+    const payment = pendingSbpPaymentForUser(user);
+    if (!payment) return sendTelegramMessage(chatId, 'Сначала создайте заявку на оплату через СБП в меню «Пополнить баланс».');
+    if (payment.receipt) return sendTelegramMessage(chatId, 'Чек по этой заявке уже отправлен администратору. Ожидайте проверки.');
+    payment.sbpChatId = String(chatId);
+    payment.receipt = { type: message.photo ? 'photo' : 'document', fileId: receipt.file_id, messageId: message.message_id, receivedAt: new Date().toISOString() };
+    schedulePersist();
+    await notifySbpAdmins(payment, message);
+    return sendTelegramMessage(chatId, '✅ Чек отправлен администратору на проверку. После решения баланс будет обновлён.');
+  }
   const authMatch = text.match(/^\/start\s+auth_([a-z0-9]+)$/i);
   if (authMatch && pendingAuth.has(authMatch[1])) {
     const auth = pendingAuth.get(authMatch[1]);
@@ -892,6 +1178,7 @@ async function handleTelegramUpdate(update) {
     return sendTelegramMessage(chatId, 'Отменено.');
   }
   if (text === '/id') return sendTelegramMessage(chatId, `Telegram ID: ${chatId}`);
+  if (text === '/topup' || text === '/balance') return sendTelegramMessage(chatId, `💳 <b>${botText(user.language, 'topup')}</b>\n\nБаланс: <b>${Number(user.balanceRub || 0)} ₽</b>\n\nВыберите сумму:`, { reply_markup: topupAmountKeyboard() });
   if (text === '/admin') return isTelegramAdmin(chatId) ? sendAdminPanel(chatId) : sendTelegramMessage(chatId, botText(user.language, 'noAccess'));
   if (text === '/stats' && isTelegramAdmin(chatId)) {
     const botUsers = [...users.values()].filter((candidate) => telegramChatId(candidate));
@@ -936,7 +1223,8 @@ function publicConfig() {
     telegramUrl: `https://t.me/${TELEGRAM_BOT_USERNAME}`,
     vkGroupId: VK_GROUP_ID,
     vkUrl: `https://vk.me/${VK_GROUP_ID}`,
-    defaultRecipientSlug: demoSlug()
+    defaultRecipientSlug: demoSlug(),
+    paymentMethods: paymentProviderList()
   };
 }
 
@@ -947,6 +1235,9 @@ async function handleApi(req, res, url) {
   }
   if (req.method === 'GET' && url.pathname === '/api/v1/plans') {
     return json(res, 200, { plans: [{ id: 'vip', amount: 20, currency: 'RUB', durationDays: 7 }, { id: 'reveal', amount: 7, currency: 'RUB', durationDays: 0 }] });
+  }
+  if (req.method === 'GET' && url.pathname === '/api/v1/payments/methods') {
+    return json(res, 200, { currency: 'RUB', methods: paymentProviderList() });
   }
   if (req.method === 'POST' && /^\/api\/v1\/auth\/(telegram|vk)\/start$/.test(url.pathname)) {
     const provider = url.pathname.split('/')[4];
@@ -1102,15 +1393,60 @@ async function handleApi(req, res, url) {
     const result = await runDailyRetentionBroadcast();
     return json(res, 200, result);
   }
+  const paymentStatusMatch = url.pathname.match(/^\/api\/v1\/payments\/([^/]+)$/);
+  if (req.method === 'GET' && paymentStatusMatch) {
+    const user = getUserFromRequest(req);
+    const payment = payments.get(decodeURIComponent(paymentStatusMatch[1]));
+    if (!payment || (payment.userId && payment.userId !== user?.id)) return json(res, 404, { error: 'payment_not_found' });
+    return json(res, 200, { id: payment.id, status: payment.status, provider: payment.provider, purpose: payment.purpose, amount: payment.amount, currency: payment.currency, paidAt: payment.paidAt || null, error: payment.error || null });
+  }
   if (req.method === 'POST' && url.pathname === '/api/v1/payments/checkout') {
     const body = await readBody(req);
     const user = getUserFromRequest(req);
-    const plan = body.plan === 'reveal' ? 'reveal' : 'vip';
-    const amount = plan === 'reveal' ? 7 : 20;
-    const invoiceId = `demo-${plan}-${randomUUID()}`;
-    payments.set(invoiceId, { plan, amount, userId: user?.id || null, messageId: body.messageId || null, status: 'pending', createdAt: new Date().toISOString() });
-    schedulePersist();
-    return json(res, 200, { invoiceId, plan, amount, currency: 'RUB', status: 'pending', provider: 'cloudpayments' });
+    const purpose = body.purpose === 'balance' ? 'balance' : 'plan';
+    const plan = body.plan === 'reveal' ? 'reveal' : body.plan === 'vip' ? 'vip' : null;
+    if ((purpose === 'balance' || body.provider === 'balance') && !user) return json(res, 401, { error: 'unauthorized' });
+    if (purpose === 'plan' && !plan) return json(res, 422, { error: 'invalid_plan' });
+    const amount = purpose === 'balance' ? Number(body.amount) : (plan === 'reveal' ? 7 : 20);
+    if (!Number.isInteger(amount) || amount < 1 || amount > 100000) return json(res, 422, { error: 'invalid_amount' });
+    const provider = String(body.provider || 'yoomoney').toLowerCase();
+    if (!paymentProviderLabels[provider]) return json(res, 422, { error: 'invalid_payment_provider' });
+    if (provider === 'balance' && Number(user.balanceRub || 0) < amount) return json(res, 402, { error: 'insufficient_balance', balance: Number(user.balanceRub || 0), required: amount });
+    if (purpose === 'plan' && body.messageId && user) {
+      const message = messages.get(body.messageId);
+      const ownerLink = message && [...publicLinks.values()].find((link) => link.id === message.publicLinkId && link.userId === user.id);
+      if (!ownerLink) return json(res, 404, { error: 'message_not_found' });
+    }
+    try {
+      const payment = await createPaymentCheckout(user, { provider, purpose, plan, amount, messageId: body.messageId || null });
+      return json(res, 200, {
+        invoiceId: payment.id, id: payment.id, plan, purpose, amount, currency: payment.currency,
+        status: payment.status, provider, paymentUrl: payment.paymentUrl || null,
+        instructions: payment.instructions || null, botUrl: payment.botUrl || null,
+        balance: user?.balanceRub || 0
+      });
+    } catch (error) {
+      return json(res, 503, { error: 'payment_provider_unavailable', provider, message: error.message });
+    }
+  }
+  if (req.method === 'POST' && (url.pathname === '/webhooks/payments/cryptobot' || url.pathname === '/webhooks/cryptobot' || url.pathname === '/webhooks/payments/xrocket' || url.pathname === '/webhooks/xrocket' || url.pathname === '/webhooks/payments/yoomoney' || url.pathname === '/webhooks/yoomoney')) {
+    const provider = url.pathname.includes('cryptobot') ? 'cryptobot' : url.pathname.includes('xrocket') ? 'xrocket' : 'yoomoney';
+    const expectedSecret = provider === 'cryptobot' ? CRYPTOBOT_WEBHOOK_SECRET : provider === 'xrocket' ? XROCKET_WEBHOOK_SECRET : YUMONEY_WEBHOOK_SECRET;
+    if (expectedSecret && req.headers['x-payment-webhook-secret'] !== expectedSecret) return json(res, 403, { error: 'invalid_payment_webhook_secret' });
+    const body = await readBody(req);
+    const event = body.update_type || body.status || body.event || body.type || '';
+    const payload = body.payload || body.data || body.invoice || body;
+    const paymentId = payload.payload || payload.payment_id || payload.paymentId || payload.label || payload.metadata?.paymentId;
+    const payment = paymentId && payments.get(String(paymentId));
+    const paid = provider === 'cryptobot'
+      ? event === 'invoice_paid' || payload.status === 'paid'
+      : provider === 'yoomoney'
+        ? ['paid', 'success', 'completed'].includes(String(event || payload.status).toLowerCase()) || payload.paid === true
+        : ['paid', 'success', 'completed'].includes(String(event).toLowerCase()) || payload.paid === true;
+    const reportedAmount = payload.amount ?? payload.invoice_amount ?? payload.sum;
+    const amountMatches = reportedAmount === undefined || Number(reportedAmount) === Number(payment?.amount);
+    if (payment && payment.provider === provider && paid && amountMatches) applyPaidPayment(payment);
+    return json(res, 200, { ok: true, processed: Boolean(payment && paid && amountMatches) });
   }
   if (req.method === 'POST' && url.pathname.startsWith('/webhooks/cloudpayments/')) {
     const raw = await readRawBody(req);
@@ -1125,22 +1461,15 @@ async function handleApi(req, res, url) {
     const invoiceId = body.InvoiceId || body.invoiceId;
     const payment = invoiceId && payments.get(invoiceId);
     if (payment) {
-      payment.status = event === 'pay' ? 'paid' : event === 'fail' ? 'failed' : event;
-      const user = payment.userId && users.get(payment.userId);
-      if (event === 'pay' && user && payment.plan === 'vip') user.vipUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-      if (event === 'pay' && user && payment.plan === 'reveal') {
-        user.revealCredits = (user.revealCredits || 0) + 1;
-        const revealedMessage = payment.messageId && messages.get(payment.messageId);
-        const ownerLink = revealedMessage && [...publicLinks.values()].find((link) => link.id === revealedMessage.publicLinkId && link.userId === user.id);
-        if (revealedMessage && ownerLink && revealedMessage.senderAvailable) {
-          revealedMessage.revealedFor = Array.isArray(revealedMessage.revealedFor) ? revealedMessage.revealedFor : [];
-          if (!revealedMessage.revealedFor.includes(user.id)) revealedMessage.revealedFor.push(user.id);
-        }
+      if (event === 'pay') {
+        const applied = applyPaidPayment(payment);
         // Daily teaser messages have no real sender. We are transparent about that
         // and turn the 7 RUB purchase into a 7-day VIP apology reward.
-        if (!payment.messageId) await giftVipAfterReveal(user);
+        if (applied && payment.plan === 'reveal' && !payment.messageId && payment.userId && users.has(payment.userId)) await giftVipAfterReveal(users.get(payment.userId));
+      } else {
+        payment.status = event === 'fail' ? 'failed' : event;
+        schedulePersist();
       }
-      schedulePersist();
     }
     console.log(`[cloudpayments] event=${event} invoice=${invoiceId || 'unknown'}`);
     return json(res, 200, { code: 0 });

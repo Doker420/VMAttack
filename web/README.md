@@ -56,6 +56,27 @@ Telegram referral deep link сохраняет получателя и пока�
 
 Telegram polling запускается автоматически, если в `.env` задан `TELEGRAM_BOT_TOKEN`. Для production Web App URL должен быть HTTPS и реально открываться из интернета. Баннер `/start` загружается локальным файлом `TELEGRAM_START_BANNER_FILE`, поэтому Telegram не должен получать ошибку `failed to get HTTP URL content`; при любой ошибке отправка автоматически переключается на текст с кнопкой Web App. Токен и другие секреты нельзя хранить в исходниках или публиковать.
 
+## Оплата и пополнение баланса
+
+Для VIP, раскрытия отправителя и пополнения внутреннего баланса доступны четыре метода: карта через готовую ссылку ЮMoney, xRocket, CryptoBot и СБП с ручной проверкой чека администратором. Методы и их состояние возвращаются через `GET /api/v1/payments/methods`, а checkout выполняется через `POST /api/v1/payments/checkout`.
+
+```dotenv
+YUMONEY_PAYMENT_URL=https://yoomoney.ru/quickpay/confirm.xml?...
+YUMONEY_WEBHOOK_SECRET=
+CRYPTOBOT_API_TOKEN=
+CRYPTOBOT_API_URL=https://pay.crypt.bot/api
+CRYPTOBOT_WEBHOOK_SECRET=
+XROCKET_API_TOKEN=
+XROCKET_CREATE_INVOICE_URL=
+XROCKET_WEBHOOK_SECRET=
+SBP_PAYMENT_DETAILS=Перевод по СБП на ...
+TELEGRAM_ADMIN_IDS=123456789
+```
+
+Для CryptoBot и xRocket после оплаты нужно направить callback на `/webhooks/payments/cryptobot` или `/webhooks/payments/xrocket`; для ЮMoney доступен `/webhooks/payments/yoomoney`. Callback можно защитить заголовком `X-Payment-Webhook-Secret`. ЮMoney получает параметры `label` с ID заявки и `sum` с суммой, поэтому webhook должен передать тот же `label` и статус `paid`.
+
+СБП создаёт заявку `manual_pending`. Пользователь получает реквизиты и deep link в Telegram, отправляет боту фото или документ чека, а администратор получает копию чека с кнопками «Одобрить» и «Отклонить». После одобрения сумма зачисляется на баланс или активируется выбранная функция. Авторизованный пользователь также может оплатить VIP или раскрытие непосредственно с внутреннего баланса.
+
 ## Ответы, блокировка и стикеры
 
 У каждого послания доступны «Ответить», «Узнать кто · 7 ₽» и «Заблокировать» — в Web App и в Telegram-уведомлении. Ответ доставляется через Telegram только если backend подтвердил `Telegram.WebApp.initData`; у обычного анонимного web-отправителя ответ сохраняется в карточке с явным статусом, что канала доставки нет. Блокировка хранится отдельно для владельца и использует SHA-256 fingerprint первого forwarded IP или socket IP вместе с User-Agent; исходные IP/UA не сохраняются.

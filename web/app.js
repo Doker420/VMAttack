@@ -423,29 +423,50 @@
     showToast(result?.__error ? 'Не удалось отправить ответ' : 'Проверьте текст ответа');
   });
 
-  $('#fakePaymentButton')?.addEventListener('click', async () => {
-    const button = $('#fakePaymentButton');
-    button.disabled = true;
-    button.innerHTML = 'Проверяем оплату…';
-    await apiRequest('/api/v1/payments/checkout', { method: 'POST', body: JSON.stringify({ plan: 'vip', amount: 20, currency: 'RUB', days: 30 }) });
-    setTimeout(() => {
-      button.hidden = true;
-      $('#paymentSuccess').hidden = false;
-      showToast('VIP активирован в демо-режиме');
-    }, 850);
-  });
+  async function startCheckout(providerButton) {
+    const provider = providerButton.dataset.checkoutProvider;
+    const purpose = providerButton.dataset.checkoutPurpose || 'plan';
+    const plan = providerButton.dataset.checkoutPlan || null;
+    const amount = purpose === 'balance' ? Number($('#topupAmount')?.value) : (plan === 'reveal' ? 7 : 20);
+    if (purpose === 'balance' && (!Number.isInteger(amount) || amount < 10 || amount > 100000)) {
+      showToast('Введите сумму от 10 до 100 000 ₽');
+      return;
+    }
+    providerButton.disabled = true;
+    const result = await apiRequest('/api/v1/payments/checkout', { method: 'POST', body: JSON.stringify({ provider, purpose, plan, amount, messageId: plan === 'reveal' ? activeMessageId : null }) });
+    providerButton.disabled = false;
+    if (result?.__error) {
+      showToast(result.status === 401 ? 'Войдите через Telegram, чтобы пополнить баланс' : result.status === 402 ? 'Недостаточно средств на внутреннем балансе' : result.status === 503 ? 'Этот способ оплаты пока не настроен' : 'Не удалось создать платёж');
+      return;
+    }
+    if (result.paymentUrl) {
+      if (telegramWebApp?.openLink) telegramWebApp.openLink(result.paymentUrl);
+      else window.open(result.paymentUrl, '_blank', 'noopener,noreferrer');
+      showToast('Ссылка на оплату открыта');
+    } else if (result.status === 'paid') {
+      const success = purpose === 'balance' ? $('#topupSuccess') : plan === 'reveal' ? $('#revealSuccess') : $('#paymentSuccess');
+      if (success) { success.hidden = false; success.textContent = purpose === 'balance' ? `✓ Списано с баланса. Остаток: ${result.balance} ₽` : '✓ Оплата подтверждена'; }
+      await syncProfile();
+      showToast('Оплата с внутреннего баланса подтверждена');
+    } else if (result.instructions) {
+      const success = purpose === 'balance' ? $('#topupSuccess') : plan === 'reveal' ? $('#revealSuccess') : $('#paymentSuccess');
+      if (success) { success.hidden = false; success.textContent = `🏦 ${result.instructions} Чек отправьте боту для ручной проверки.`; }
+      if (result.botUrl) {
+        if (telegramWebApp?.openTelegramLink) telegramWebApp.openTelegramLink(result.botUrl);
+        else window.open(result.botUrl, '_blank', 'noopener,noreferrer');
+      }
+      showToast('Заявка на СБП создана');
+    }
+    if (purpose === 'balance' && result.balance !== undefined && $('#webappBalance')) $('#webappBalance').textContent = `${result.balance} ₽`;
+  }
 
-  $('#fakeRevealPaymentButton')?.addEventListener('click', async () => {
-    const button = $('#fakeRevealPaymentButton');
-    button.disabled = true;
-    button.innerHTML = 'Проверяем…';
-    await apiRequest('/api/v1/payments/checkout', { method: 'POST', body: JSON.stringify({ plan: 'reveal', amount: 7, currency: 'RUB', days: 0, messageId: activeMessageId }) });
-    await apiRequest(`/api/v1/messages/${activeMessageId || 'demo'}/reveal`, { method: 'POST', body: JSON.stringify({ amount: 7 }) });
-    setTimeout(() => {
-      button.hidden = true;
-      $('#revealSuccess').hidden = false;
-      showToast('Запрос на раскрытие создан');
-    }, 850);
+  document.addEventListener('click', async (event) => {
+    const checkoutButton = event.target.closest('[data-checkout-provider]');
+    if (checkoutButton) {
+      event.preventDefault();
+      await startCheckout(checkoutButton);
+      return;
+    }
   });
 
   $('#clearDemoButton')?.addEventListener('click', () => {
@@ -465,6 +486,7 @@
   function renderWebAppProfile(user) {
     if (!user) return;
     if ($('#webappUserLine')) $('#webappUserLine').textContent = `${user.displayName || 'Ваш ящик'}${user.username ? ` · @${user.username}` : ''}`;
+    if ($('#webappBalance')) $('#webappBalance').textContent = `${Number(user.balanceRub || 0)} ₽`;
     const avatar = $('#webappAvatar');
     const fallback = $('#webappAvatarFallback');
     const photoUrl = user.photoUrl || user.photo_url;
@@ -497,6 +519,7 @@
     await syncInbox();
     if (requestedPayment === 'reveal') openDialog('revealDialog');
     if (requestedPayment === 'vip') openDialog('paymentDialog');
+    if (requestedPayment === 'balance') openDialog('topupDialog');
     if (requestedReply) {
       $('#replyText').value = '';
       openDialog('replyDialog');
@@ -510,6 +533,7 @@
   $('#webappShareButton')?.addEventListener('click', () => copyText(personalLink(), 'Ссылка скопирована'));
   $('#webappRefreshButton')?.addEventListener('click', () => syncInbox().then(() => showToast('Ящик обновлён')));
   $('#webappVipButton')?.addEventListener('click', () => openDialog('paymentDialog'));
+  $('#webappTopupButton')?.addEventListener('click', () => openDialog('topupDialog'));
   $('#webappSettingsButton')?.addEventListener('click', () => openDialog('integrationDialog'));
   $('#webappRetentionButton')?.addEventListener('click', () => openDialog('integrationDialog'));
   $('#webappDailySetting')?.addEventListener('click', () => openDialog('integrationDialog'));
