@@ -17,11 +17,13 @@
   let toastTimer;
   let pendingAuthProvider = null;
   let pendingAuthChallenge = null;
-  let activeMessageId = null;
+  const queryParams = new URLSearchParams(window.location.search);
+  let activeMessageId = queryParams.get('messageId') || null;
+  const requestedPayment = queryParams.get('payment') || '';
   const telegramWebApp = window.Telegram?.WebApp || null;
-  const appModeRequested = new URLSearchParams(window.location.search).get('app') === '1';
+  const appModeRequested = queryParams.get('app') === '1';
   const isTelegramWebApp = Boolean(telegramWebApp?.initData || appModeRequested);
-  const queryRef = new URLSearchParams(window.location.search).get('ref') || '';
+  const queryRef = queryParams.get('ref') || '';
   let recipientSlug = queryRef.replace(/^ref[_-]/i, '').trim();
   const appConfig = {
     siteUrl: window.location.origin,
@@ -375,7 +377,7 @@
     const button = $('#fakeRevealPaymentButton');
     button.disabled = true;
     button.innerHTML = 'Проверяем…';
-    await apiRequest('/api/v1/payments/checkout', { method: 'POST', body: JSON.stringify({ plan: 'reveal', amount: 7, currency: 'RUB', days: 0 }) });
+    await apiRequest('/api/v1/payments/checkout', { method: 'POST', body: JSON.stringify({ plan: 'reveal', amount: 7, currency: 'RUB', days: 0, messageId: activeMessageId }) });
     await apiRequest(`/api/v1/messages/${activeMessageId || 'demo'}/reveal`, { method: 'POST', body: JSON.stringify({ amount: 7 }) });
     setTimeout(() => {
       button.hidden = true;
@@ -431,6 +433,8 @@
     }
     await syncProfile();
     await syncInbox();
+    if (requestedPayment === 'reveal') openDialog('revealDialog');
+    if (requestedPayment === 'vip') openDialog('paymentDialog');
   }
 
   $('#webappClose')?.addEventListener('click', () => {

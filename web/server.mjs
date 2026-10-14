@@ -236,9 +236,18 @@ function slugify(value, fallback) {
   return String(value || '').toLowerCase().replace(/[^a-zа-яё0-9_-]+/gi, '-').replace(/^-|-$/g, '') || fallback;
 }
 
+function isShortReferralSlug(value) {
+  return /^[a-z0-9][a-z0-9_-]{0,31}$/i.test(String(value || '')) && encodeURIComponent(`ref_${value}`).length <= 64;
+}
+
+function compactReferralSlug(value, fallback) {
+  const candidate = slugify(value, '');
+  return isShortReferralSlug(candidate) ? candidate : fallback;
+}
+
 function demoSlug() {
-  const fallback = slugify(DEMO_RECIPIENT_NAME, `demo-${DEMO_RECIPIENT_ID.slice(0, 6)}`);
-  const configured = slugify(DEFAULT_RECIPIENT_SLUG, fallback);
+  const fallback = `demo-${DEMO_RECIPIENT_ID.replace(/[^a-z0-9]/gi, '').slice(0, 8).toLowerCase() || 'user'}`;
+  const configured = compactReferralSlug(DEFAULT_RECIPIENT_SLUG, fallback);
   return configured === TELEGRAM_BOT_USERNAME ? fallback : configured;
 }
 
@@ -246,15 +255,14 @@ function ensurePublicLink(user, requestedSlug = null) {
   const existing = [...publicLinks.values()].find((link) => link.userId === user.id);
   const identityUsername = userIdentities(user).find((identity) => identity.username && identity.username !== TELEGRAM_BOT_USERNAME)?.username;
   const username = user.username && user.username !== TELEGRAM_BOT_USERNAME ? user.username : identityUsername;
-  // Repair links created by an old demo/default configuration. A real Telegram
-  // username must never turn into the bot username or a global demo slug.
-  const preferredName = user.id === DEMO_RECIPIENT_ID ? demoSlug() : (username || user.displayName);
-  const needsRepair = existing && !requestedSlug &&
-    (existing.slug === TELEGRAM_BOT_USERNAME || existing.slug === DEFAULT_RECIPIENT_SLUG) &&
-    slugify(preferredName, '') !== existing.slug;
+  const fallback = `u-${user.id.replace(/[^a-z0-9]/gi, '').slice(0, 10).toLowerCase() || 'user'}`;
+  const preferred = user.id === DEMO_RECIPIENT_ID ? demoSlug() : compactReferralSlug(username, fallback);
+  const requested = requestedSlug ? compactReferralSlug(requestedSlug, preferred) : null;
+  const reservedOrLong = existing && (!isShortReferralSlug(existing.slug) || existing.slug === TELEGRAM_BOT_USERNAME || existing.slug === DEFAULT_RECIPIENT_SLUG);
+  const needsRepair = existing && !requestedSlug && reservedOrLong && existing.slug !== preferred;
   if (existing && !requestedSlug && !needsRepair) return existing;
 
-  const base = slugify(requestedSlug || (needsRepair ? preferredName : null) || existing?.slug || preferredName, `user-${user.id.slice(0, 6)}`);
+  const base = requested || (needsRepair ? preferred : existing?.slug || preferred);
   let slug = base;
   let suffix = 2;
   while (publicLinks.has(slug) && publicLinks.get(slug).userId !== user.id) slug = `${base}-${suffix++}`;
@@ -320,8 +328,8 @@ function telegramAppKeyboard() {
   return { inline_keyboard: [[{ text: 'Открыть мой ящик 💌', web_app: { url: buildWebAppUrl() } }]] };
 }
 
-function vkAppKeyboard(appUrl = buildWebAppUrl()) {
-  return { inline: true, buttons: [[{ action: { type: 'open_link', label: 'Открыть мой ящик 💌', link: appUrl } }]] };
+function vkAppKeyboard(appUrl = buildWebAppUrl(), label = 'Открыть мой ящик 💌') {
+  return { inline: true, buttons: [[{ action: { type: 'open_link', label, link: appUrl } }]] };
 }
 
 async function telegramRequest(method, body = {}, timeoutMs = 15000) {
@@ -380,10 +388,10 @@ async function sendTelegramPhoto(chatId, caption, options = true) {
   }
 }
 
-async function sendVkMessage(userId, text, withApp = true, appUrl = buildWebAppUrl()) {
+async function sendVkMessage(userId, text, withApp = true, appUrl = buildWebAppUrl(), appLabel = 'Открыть мой ящик 💌') {
   if (!VK_GROUP_TOKEN || !userId) return { skipped: true, reason: 'VK_GROUP_TOKEN is not configured' };
   const payload = { user_id: String(userId), random_id: String(Date.now()), message: text, access_token: VK_GROUP_TOKEN, v: VK_API_VERSION };
-  if (withApp) payload.keyboard = JSON.stringify(vkAppKeyboard(appUrl));
+  if (withApp) payload.keyboard = JSON.stringify(vkAppKeyboard(appUrl, appLabel));
   const params = new URLSearchParams(payload);
   const response = await fetch(`https://api.vk.com/method/messages.send?${params}`);
   return { sent: response.ok, status: response.status };
@@ -395,6 +403,26 @@ async function notifyUser(user, text) {
     deliveries.push(identity.provider === 'telegram'
       ? sendTelegramMessage(identity.providerUserId, text)
       : sendVkMessage(identity.providerUserId, text));
+  }
+  return Promise.allSettled(deliveries);
+}
+
+function newMessageKeyboard(messageId) {
+  return {
+    inline_keyboard: [
+      [{ text: '🔎 Узнать отправителя · 7 ₽', web_app: { url: buildWebAppUrl({ payment: 'reveal', messageId }) } }],
+      [{ text: '💌 Открыть мой ящик', web_app: { url: buildWebAppUrl() } }]
+    ]
+  };
+}
+
+async function notifyNewMessage(user, message) {
+  const text = `💌 Новое анонимное послание\n\nТекст послания:\n«${message.text}»`;
+  const deliveries = [];
+  for (const identity of userIdentities(user)) {
+    deliveries.push(identity.provider === 'telegram'
+      ? sendTelegramMessage(identity.providerUserId, text, { reply_markup: newMessageKeyboard(message.id) })
+      : sendVkMessage(identity.providerUserId, text, true, buildWebAppUrl({ payment: 'reveal', messageId: message.id }), '🔎 Узнать отправителя · 7 ₽'));
   }
   return Promise.allSettled(deliveries);
 }
@@ -494,12 +522,12 @@ function profileInstructions(language = 'ru', user = null, channel = 'telegram')
     const platform = isVk ? 'VK' : 'Telegram';
     const platformLink = isVk ? links.vk : links.telegram;
     const referralLink = isVk ? links.vkReferral : links.telegramReferral;
-    return `📌 ${platform} profile link\n\nAdd this link to your ${platform} profile:\n${platformLink}\n\n🔗 Your personal referral link:\n${referralLink}\n\n🌐 Website link:\n${links.site}\n\nReady-to-post text:\n“Send me an anonymous message 💌\nLeave it here: ${links.siteReferral}”\n\nPeople can open your link and send you an anonymous message right away.`;
+    return `📌 ${platform} profile link\n\nAdd this link to your ${platform} profile:\n${platformLink}\n\n🔗 Your personal referral link:\n${referralLink}\n\n🌐 Website link:\n${links.site}\n\nReady-to-post text:\nSend me an anonymous message 💌\nLeave it here:\n${links.siteReferral}\n\nPeople can open your link and send you an anonymous message right away.`;
   }
   const platform = isVk ? 'ВКонтакте' : 'Telegram';
   const platformLink = isVk ? links.vk : links.telegram;
   const referralLink = isVk ? links.vkReferral : links.telegramReferral;
-  return `📌 Ссылка для профиля: ${platform}\n\nДобавьте эту ссылку в свой профиль:\n${platformLink}\n\n🔗 Ваша персональная реферальная ссылка:\n${referralLink}\n\n🌐 Ссылка на сайт:\n${links.site}\n\nГотовый текст для профиля:\n«Напиши мне анонимно 💌\nОставь послание здесь: ${links.siteReferral}»\n\nПо этой ссылке сразу можно открыть ящик и отправить вам послание.`;
+  return `📌 Ссылка для профиля: ${platform}\n\nДобавьте эту ссылку в свой профиль:\n${platformLink}\n\n🔗 Ваша персональная реферальная ссылка:\n${referralLink}\n\n🌐 Ссылка на сайт:\n${links.site}\n\nГотовый текст для профиля:\nНапиши мне анонимно 💌\nОставь послание здесь:\n${links.siteReferral}\n\nПо этой ссылке сразу можно открыть ящик и отправить вам послание.`;
 }
 
 function languageKeyboard() {
@@ -517,10 +545,12 @@ function botMenuKeyboard(language, recipientSlug = null) {
   ] };
 }
 
-function paymentKeyboard(language, plan) {
+function paymentKeyboard(language, plan, messageId = null) {
   const label = plan === 'vip' ? botText(language, 'vip') : botText(language, 'reveal');
+  const appQuery = { payment: plan };
+  if (messageId) appQuery.messageId = messageId;
   return { inline_keyboard: [
-    [{ text: `💳 ${label}`, web_app: { url: buildWebAppUrl({ payment: plan }) } }],
+    [{ text: `💳 ${label}`, web_app: { url: buildWebAppUrl(appQuery) } }],
     [{ text: 'СБП / SBP — скоро', callback_data: `pay:stub:sbp:${plan}` }],
     [{ text: 'ЮMoney — заглушка', callback_data: `pay:stub:yoomoney:${plan}` }, { text: 'CryptoBot — заглушка', callback_data: `pay:stub:crypto:${plan}` }]
   ] };
@@ -637,10 +667,11 @@ async function handleTelegramCallback(callback) {
     await answerCallback(callback.id);
     return sendBotMenu(user, chatId);
   }
-  if (data === 'pay:choose:vip' || data === 'pay:choose:reveal') {
-    const plan = data.endsWith('vip') ? 'vip' : 'reveal';
+  if (data.startsWith('pay:choose:')) {
+    const [, , plan, messageId = null] = data.split(':');
+    if (!['vip', 'reveal'].includes(plan)) return answerCallback(callback.id);
     await answerCallback(callback.id);
-    return sendTelegramMessage(chatId, botText(user.language, 'paymentTitle'), { reply_markup: paymentKeyboard(user.language, plan) });
+    return sendTelegramMessage(chatId, botText(user.language, 'paymentTitle'), { reply_markup: paymentKeyboard(user.language, plan, messageId) });
   }
   if (data.startsWith('pay:stub:')) {
     await answerCallback(callback.id, botText(user.language, 'stub'));
@@ -824,7 +855,7 @@ async function handleApi(req, res, url) {
     messages.set(message.id, message);
     schedulePersist();
     const owner = users.get(link.userId);
-    if (owner) await notifyUser(owner, `💌 Новое анонимное послание\n\n«${cleanText}»`);
+    if (owner) await notifyNewMessage(owner, message);
     return json(res, 200, { message: 'Послание отправлено', id: message.id });
   }
   if (req.method === 'POST' && /^\/api\/v1\/messages\/[^/]+\/(read|save)$/.test(url.pathname)) {
