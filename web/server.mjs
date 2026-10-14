@@ -49,6 +49,7 @@ const TELEGRAM_USERBOT_ENABLED = env('TELEGRAM_USERBOT_ENABLED', 'false') === 't
 const TELEGRAM_USERBOT_API_ID = Number(env('TELEGRAM_USERBOT_API_ID', '0'));
 const TELEGRAM_USERBOT_API_HASH = env('TELEGRAM_USERBOT_API_HASH');
 const TELEGRAM_USERBOT_SESSION = env('TELEGRAM_USERBOT_SESSION');
+const TELEGRAM_USERBOT_GIFT_PROMO = env('TELEGRAM_USERBOT_GIFT_PROMO', `Подарок отправлен через «Послания» 💌 https://t.me/${TELEGRAM_BOT_USERNAME}`);
 const MYSTARS_API_KEY = env('MYSTARS_API_KEY');
 const MYSTARS_API_URL = env('MYSTARS_API_URL', 'https://api.mystars.tg');
 const MYSTARS_PAYMENT_CURRENCY = env('MYSTARS_PAYMENT_CURRENCY', 'ton');
@@ -962,10 +963,15 @@ function normalizeTelegramUsername(value) {
 }
 
 function validateGiftRequest(body) {
-  const type = body.type === 'premium' ? 'premium' : body.type === 'stars' ? 'stars' : null;
+  const type = body.type === 'star_gift' ? 'star_gift' : body.type === 'premium' ? 'premium' : body.type === 'stars' ? 'stars' : null;
   const username = normalizeTelegramUsername(body.username || body.recipient?.username);
-  if (!type) throw new Error('type must be stars or premium');
+  if (!type) throw new Error('type must be star_gift, stars or premium');
   if (!/^[a-z0-9_]{5,32}$/i.test(username)) throw new Error('valid Telegram username is required');
+  if (type === 'star_gift') {
+    const giftId = String(body.gift_id || body.giftId || '').trim();
+    if (!/^\d{1,24}$/.test(giftId)) throw new Error('Telegram gift is required');
+    return { type, username, giftId };
+  }
   if (type === 'stars') {
     const quantity = Number(body.quantity);
     if (!Number.isInteger(quantity) || quantity < 50 || quantity > 1_000_000) throw new Error('Stars quantity must be between 50 and 1000000');
@@ -988,11 +994,12 @@ async function checkMyStarsRecipient(gift) {
 }
 
 function giftDescription(order) {
+  if (order.type === 'star_gift') return `${order.giftTitle || 'Telegram-подарок'} · ${order.quantity} Stars`;
   return order.type === 'stars' ? `${order.quantity} Telegram Stars` : `Telegram Premium на ${order.months} мес.`;
 }
 
 function mystarsBalanceBasePrice(gift) {
-  if (gift.type === 'stars') return Number(gift.quantity) * MYSTARS_BALANCE_STARS_RUB_PER_UNIT;
+  if (gift.type === 'stars' || gift.type === 'star_gift') return Number(gift.quantity || gift.stars) * MYSTARS_BALANCE_STARS_RUB_PER_UNIT;
   const prices = { 3: MYSTARS_BALANCE_PREMIUM_3_RUB, 6: MYSTARS_BALANCE_PREMIUM_6_RUB, 12: MYSTARS_BALANCE_PREMIUM_12_RUB };
   return prices[gift.months] || 0;
 }
@@ -1009,7 +1016,8 @@ async function notifyMystarsAdmins(order) {
   const adminIds = TELEGRAM_ADMIN_IDS.split(',').map((id) => id.trim()).filter(Boolean);
   if (!adminIds.length) return;
   const balanceLine = order.paymentMethod === 'balance' ? `\nОплата пользователя: <b>${escapeTelegramHtml(String(order.balancePriceRub))} ₽ списано с баланса</b>\nНаценка сервиса: <b>${escapeTelegramHtml(String(order.balanceMarkupPercent))}%</b>` : '\nОплата пользователя: администратор подтверждает оплату отдельно';
-  const details = `🎁 <b>Новый анонимный подарок</b>\n\nПолучатель: <code>@${escapeTelegramHtml(order.username)}</code>\nТовар: <b>${escapeTelegramHtml(giftDescription(order))}</b>${balanceLine}\nMyStars order: <code>${escapeTelegramHtml(String(order.remoteOrderId || order.id))}</code>\n\nОплатить MyStars вручную:\nСумма: <code>${escapeTelegramHtml(String(payment.amount || '—'))} ${escapeTelegramHtml(String(payment.currency || ''))}</code>\nАдрес: <code>${escapeTelegramHtml(String(payment.pay_to_address || '—'))}</code>\nMemo: <code>${escapeTelegramHtml(String(payment.memo || '—'))}</code>`;
+  const topupLine = order.userbotTopupQuantity ? `\nПополнение userbot: <b>${escapeTelegramHtml(String(order.userbotTopupQuantity))} Stars</b>` : '';
+  const details = `🎁 <b>Новый анонимный подарок</b>\n\nПолучатель: <code>@${escapeTelegramHtml(order.username)}</code>\nТовар: <b>${escapeTelegramHtml(giftDescription(order))}</b>${topupLine}${balanceLine}\nMyStars order: <code>${escapeTelegramHtml(String(order.remoteOrderId || order.id))}</code>\n\nОплатить MyStars вручную:\nСумма: <code>${escapeTelegramHtml(String(payment.amount || '—'))} ${escapeTelegramHtml(String(payment.currency || ''))}</code>\nАдрес: <code>${escapeTelegramHtml(String(payment.pay_to_address || '—'))}</code>\nMemo: <code>${escapeTelegramHtml(String(payment.memo || '—'))}</code>`;
   for (const adminId of adminIds) {
     await sendTelegramMessage(adminId, details, { reply_markup: { inline_keyboard: [[{ text: '🔄 Проверить оплату', callback_data: `mystars:check:${order.id}` }], [{ text: '❌ Отменить заказ', callback_data: `mystars:cancel:${order.id}` }]] } });
   }
@@ -1054,21 +1062,158 @@ async function notifyGiftRecipient(order, knownUser = null) {
   return { sent: false, channel: null };
 }
 
+async function refundGiftBalance(order) {
+  if (!order || order.balanceRefundedAt || !order.balancePriceRub) return false;
+  const user = order.userId && users.get(order.userId);
+  if (!user) return false;
+  user.balanceRub = Number(user.balanceRub || 0) + Number(order.balancePriceRub);
+  order.balanceRefundedAt = new Date().toISOString();
+  schedulePersist();
+  return true;
+}
+
+async function deliverUserbotGift(order) {
+  if (order.giftDeliveryStatus === 'delivered') return order;
+  if (!telegramUserbot.isReady) throw new Error('Telegram userbot is not ready to send the gift');
+  const requiredStars = Number(order.giftStarsCost || order.quantity || 0);
+  const availableStars = await telegramUserbot.getStarsBalance();
+  if (availableStars < requiredStars) {
+    order.giftDeliveryStatus = 'waiting_userbot_stars';
+    order.notificationStatus = 'waiting_userbot_stars';
+    schedulePersist();
+    throw new Error(`Telegram userbot has ${availableStars} Stars; ${requiredStars} are required`);
+  }
+  await telegramUserbot.sendGift({
+    gift: {
+      type: order.type,
+      username: order.username,
+      giftId: order.giftId,
+      quantity: order.quantity,
+      months: order.months
+    },
+    message: order.giftMessage || TELEGRAM_USERBOT_GIFT_PROMO
+  });
+  order.giftDeliveryStatus = 'delivered';
+  order.deliveredAt = new Date().toISOString();
+  order.notificationStatus = 'sent';
+  schedulePersist();
+  return order;
+}
+
 async function syncMyStarsOrder(order) {
   const remote = await mystarsRequest(`/v1/orders/${encodeURIComponent(order.remoteOrderId)}`);
   order.remoteStatus = remote.status;
   order.remoteOrder = remote;
   if (remote.status === 'delivered' && !order.deliveredAt) {
-    order.deliveredAt = new Date().toISOString();
-    await notifyGiftRecipient(order);
+    if (order.deliveryMode === 'userbot_gift') {
+      try { await deliverUserbotGift(order); }
+      catch (error) {
+        order.lastDeliveryError = error.message;
+        order.notificationStatus = 'userbot_gift_failed';
+        console.error(`[mystars] Star Gift delivery failed for ${order.id}:`, error.message);
+      }
+    } else {
+      order.deliveredAt = new Date().toISOString();
+      await notifyGiftRecipient(order);
+    }
   }
-  if (['failed', 'reversed', 'expired', 'cancelled'].includes(remote.status)) order.failedAt = order.failedAt || new Date().toISOString();
+  if (['failed', 'reversed', 'expired', 'cancelled'].includes(remote.status)) {
+    order.failedAt = order.failedAt || new Date().toISOString();
+    if (order.deliveryMode === 'userbot_gift') await refundGiftBalance(order);
+  }
   schedulePersist();
   return order;
 }
 
 function mystarsOrderForUser(order, user) {
-  return { id: order.id, username: order.username, type: order.type, quantity: order.quantity, months: order.months, payment_currency: order.payment_currency, quote: order.quote, paymentMethod: order.paymentMethod || 'balance', balancePriceRub: order.balancePriceRub || null, remoteOrderId: order.remoteOrderId, status: order.remoteStatus, deliveredAt: order.deliveredAt || null, notificationStatus: order.notificationStatus || null, createdAt: order.createdAt };
+  return {
+    id: order.id,
+    username: order.username,
+    type: order.type,
+    quantity: order.quantity,
+    months: order.months,
+    giftId: order.giftId || null,
+    giftTitle: order.giftTitle || null,
+    status: order.giftDeliveryStatus || order.remoteStatus,
+    deliveredAt: order.deliveredAt || null,
+    notificationStatus: order.notificationStatus || null,
+    createdAt: order.createdAt
+  };
+}
+
+async function createUserbotGiftOrder(user, gift) {
+  if (!telegramUserbot.isReady) throw new Error('Telegram userbot is not configured for gifts');
+  const offer = await telegramUserbot.getGiftOffer(gift);
+  const balancePrice = mystarsBalancePrice({ type: 'stars', quantity: offer.stars });
+  if (!balancePrice) throw new Error('Gift prices are not configured');
+  if (Number(user.balanceRub || 0) < balancePrice.amount) throw new Error(`Недостаточно средств на балансе: нужно ${balancePrice.amount} ₽`);
+
+  const localId = `gift-${randomUUID()}`;
+  const order = {
+    id: localId,
+    userId: user.id,
+    username: gift.username,
+    type: gift.type,
+    giftId: gift.giftId || null,
+    giftTitle: offer.title,
+    quantity: gift.type === 'stars' ? gift.quantity : (gift.type === 'star_gift' ? offer.stars : null),
+    months: gift.months || null,
+    giftStarsCost: offer.stars,
+    paymentMethod: 'balance',
+    balancePriceRub: balancePrice.amount,
+    balanceMarkupPercent: balancePrice.markupPercent,
+    giftMessage: TELEGRAM_USERBOT_GIFT_PROMO,
+    deliveryMode: 'userbot_gift',
+    createdAt: new Date().toISOString(),
+    notificationStatus: 'processing'
+  };
+
+  const availableStars = await telegramUserbot.getStarsBalance();
+  if (availableStars >= offer.stars) {
+    user.balanceRub = Number(user.balanceRub || 0) - balancePrice.amount;
+    mystarsOrders.set(order.id, order);
+    schedulePersist();
+    try {
+      await deliverUserbotGift(order);
+    } catch (error) {
+      order.lastDeliveryError = error.message;
+      order.notificationStatus = 'userbot_gift_failed';
+      await refundGiftBalance(order);
+      throw error;
+    }
+    return order;
+  }
+
+  const userbotUsername = await telegramUserbot.getUsername();
+  const topupQuantity = Math.max(50, Math.ceil((offer.stars - availableStars) / 50) * 50);
+  const topupGift = { type: 'stars', username: userbotUsername, quantity: topupQuantity, payment_currency: MYSTARS_PAYMENT_CURRENCY };
+  const [quote, recipient] = await Promise.all([getMyStarsQuote(topupGift), checkMyStarsRecipient(topupGift)]);
+  if (!recipient.eligible) throw new Error('The Telegram userbot account cannot receive Stars');
+  const remote = await mystarsRequest('/v1/orders', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': `${localId}:userbot-topup` },
+    body: JSON.stringify({
+      type: 'stars',
+      recipient: { username: userbotUsername },
+      quantity: topupQuantity,
+      payment_currency: MYSTARS_PAYMENT_CURRENCY,
+      callback_url: `${new URL(WEB_APP_URL).origin}/webhooks/mystars`
+    })
+  });
+  order.userbotUsername = userbotUsername;
+  order.userbotStarsBefore = availableStars;
+  order.userbotTopupQuantity = topupQuantity;
+  order.quote = quote;
+  order.remoteOrderId = remote.order_id || remote.id;
+  order.remoteStatus = remote.status || 'awaiting_payment';
+  order.remoteOrder = remote;
+  order.payment = remote.payment || null;
+  order.notificationStatus = 'waiting_userbot_topup';
+  user.balanceRub = Number(user.balanceRub || 0) - balancePrice.amount;
+  mystarsOrders.set(order.id, order);
+  schedulePersist();
+  await notifyMystarsAdmins(order);
+  return order;
 }
 
 async function createMystarsOrder(user, gift, { paymentMethod = 'admin' } = {}) {
@@ -1621,6 +1766,12 @@ async function handleApi(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/v1/payments/methods') {
     return json(res, 200, { currency: 'RUB', methods: paymentProviderList() });
   }
+  if (req.method === 'GET' && url.pathname === '/api/v1/gifts/catalog') {
+    const user = getUserFromRequest(req);
+    if (!user) return json(res, 401, { error: 'unauthorized' });
+    try { return json(res, 200, { gifts: await telegramUserbot.getStarGifts() }); }
+    catch (error) { return json(res, 503, { error: 'telegram_gifts_unavailable', message: error.message }); }
+  }
   if (req.method === 'GET' && url.pathname === '/api/v1/gifts/products') {
     try { return json(res, 200, await mystarsRequest('/v1/products')); }
     catch (error) { return json(res, 503, { error: 'mystars_unavailable', message: error.message }); }
@@ -1628,9 +1779,9 @@ async function handleApi(req, res, url) {
   if (req.method === 'POST' && url.pathname === '/api/v1/gifts/quote') {
     try {
       const gift = validateGiftRequest(await readBody(req));
-      const [quote, recipient] = await Promise.all([getMyStarsQuote(gift), checkMyStarsRecipient(gift)]);
-      const balancePrice = mystarsBalancePrice(gift);
-      return json(res, 200, { gift, quote, recipient, balancePayment: balancePrice ? { amount: balancePrice.amount } : null });
+      const offer = await telegramUserbot.getGiftOffer(gift);
+      const balancePrice = mystarsBalancePrice({ type: 'stars', quantity: offer.stars });
+      return json(res, 200, { gift: { ...gift, title: offer.title, stars: offer.stars }, quote: { stars: offer.stars }, recipient: { eligible: true }, balancePayment: balancePrice ? { amount: balancePrice.amount } : null });
     } catch (error) {
       return json(res, error.message.includes('required') || error.message.includes('between') || error.message.includes('must be') ? 422 : 503, { error: 'mystars_quote_failed', message: error.message });
     }
@@ -1642,8 +1793,7 @@ async function handleApi(req, res, url) {
     try {
       const body = await readBody(req);
       gift = validateGiftRequest(body);
-      const paymentMethod = body.payment_method === 'admin' ? 'admin' : 'balance';
-      const order = await createMystarsOrder(user, gift, { paymentMethod });
+      const order = await createUserbotGiftOrder(user, gift);
       return json(res, 201, mystarsOrderForUser(order, user));
     } catch (error) {
       const insufficient = error.message.startsWith('Недостаточно средств');

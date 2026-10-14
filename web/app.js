@@ -506,21 +506,49 @@
   });
 
   const giftType = $('#giftType');
+  const giftCatalogFields = $('#giftCatalogFields');
+  const giftCatalog = $('#giftCatalog');
   const giftStarsFields = $('#giftStarsFields');
   const giftPremiumFields = $('#giftPremiumFields');
+  let giftCatalogLoaded = false;
   const updateGiftFields = () => {
+    const starGift = giftType?.value === 'star_gift';
     const premium = giftType?.value === 'premium';
-    if (giftStarsFields) giftStarsFields.hidden = premium;
-    if (giftPremiumFields) giftPremiumFields.hidden = !premium;
+    if (giftCatalogFields) giftCatalogFields.hidden = !starGift;
+    if (giftCatalog) giftCatalog.required = starGift;
+    if (giftStarsFields) giftStarsFields.hidden = starGift || premium;
+    if (giftPremiumFields) giftPremiumFields.hidden = starGift || !premium;
   };
-  giftType?.addEventListener('change', updateGiftFields);
+  const loadGiftCatalog = async () => {
+    if (giftCatalogLoaded || !giftCatalog) return;
+    giftCatalog.disabled = true;
+    const result = await apiRequest('/api/v1/gifts/catalog');
+    giftCatalog.replaceChildren();
+    if (Array.isArray(result?.gifts) && result.gifts.length) {
+      for (const gift of result.gifts) {
+        const option = document.createElement('option');
+        option.value = gift.id;
+        option.textContent = `${gift.title || 'Telegram-подарок'} · ${gift.stars} Stars`;
+        giftCatalog.appendChild(option);
+      }
+      giftCatalogLoaded = true;
+      giftCatalog.disabled = false;
+    } else {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = 'Каталог временно недоступен';
+      giftCatalog.appendChild(option);
+      giftCatalog.disabled = true;
+    }
+  };
+  giftType?.addEventListener('change', () => { updateGiftFields(); if (giftType.value === 'star_gift') loadGiftCatalog(); });
   updateGiftFields();
   const giftPayload = () => ({
-    type: giftType?.value || 'stars',
+    type: giftType?.value || 'star_gift',
+    gift_id: giftCatalog?.value || '',
     username: $('#giftUsername')?.value.trim() || '',
     quantity: Number($('#giftQuantity')?.value || 100),
     months: Number($('#giftMonths')?.value || 3),
-    payment_currency: $('#giftCurrency')?.value || 'ton',
     payment_method: 'balance'
   });
   $('#giftQuoteButton')?.addEventListener('click', async () => {
@@ -532,13 +560,13 @@
     if (result?.quote) {
       const recipient = result.recipient?.eligible ? 'Получатель доступен' : `Получатель: ${result.recipient?.reason || 'проверка не пройдена'}`;
       const balance = result.balancePayment
-        ? `<br /><strong>С баланса: ${escapeHtml(String(result.balancePayment.amount))} ₽</strong>`
-        : '<br /><small>Оплата с баланса пока недоступна.</small>';
-      box.innerHTML = `${balance.replace('<br />', '')}<br />${escapeHtml(recipient)}`;
+        ? `<strong>С баланса: ${escapeHtml(String(result.balancePayment.amount))} ₽</strong>`
+        : '<small>Оплата с баланса пока недоступна.</small>';
+      box.innerHTML = `${balance}<br />${escapeHtml(recipient)}`;
       box.hidden = false;
       return;
     }
-    showToast(result?.__error ? 'Не удалось получить цену MyStars' : 'Проверьте получателя');
+    showToast(result?.__error ? 'Не удалось получить цену подарка' : 'Проверьте получателя');
   });
   $('#giftForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -633,7 +661,7 @@
   $('#webappRefreshButton')?.addEventListener('click', () => syncInbox().then(() => showToast('Ящик обновлён')));
   $('#webappVipButton')?.addEventListener('click', () => openDialog('paymentDialog'));
   $('#webappTopupButton')?.addEventListener('click', () => openDialog('topupDialog'));
-  $('#webappGiftButton')?.addEventListener('click', () => openDialog('giftDialog'));
+  $('#webappGiftButton')?.addEventListener('click', () => { openDialog('giftDialog'); loadGiftCatalog(); });
   $('#webappSettingsButton')?.addEventListener('click', () => openDialog('integrationDialog'));
   $('#webappRetentionButton')?.addEventListener('click', () => openDialog('integrationDialog'));
   $('#webappDailySetting')?.addEventListener('click', () => openDialog('integrationDialog'));

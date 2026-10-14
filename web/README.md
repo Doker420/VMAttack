@@ -58,25 +58,24 @@ Telegram-ссылка с `startapp` сразу открывает форму п�
 
 Telegram polling запускается автоматически, если в `.env` задан `TELEGRAM_BOT_TOKEN`. При `/start` бот выдаёт одноразовый Web App auth-токен для первичной передачи авторизации. Он нужен только один раз: после обмена через `POST /api/v1/auth/telegram/token` сайт получает постоянную серверную сессию, сохраняемую вместе с пользователем. Повторно нажимать `/start` не требуется; при открытии настоящего Telegram Web App сервер также автоматически проверяет подписанный `initData`. Скопированная обычная реферальная ссылка авторизацию не выполняет — она сразу открывает форму отправки послания. Для production Web App URL должен быть HTTPS и реально открываться из интернета. Баннер `/start` загружается локальным файлом `TELEGRAM_START_BANNER_FILE`, поэтому Telegram не должен получать ошибку `failed to get HTTP URL content`; при любой ошибке отправка автоматически переключается на текст с кнопкой Web App. Токен и другие секреты нельзя хранить в исходниках или публиковать.
 
-## Анонимные подарки MyStars
+## Анонимные подарки через Telegram userbot
 
-В Web App и Telegram-боте добавлена форма «Анонимный подарок»: пользователь указывает `@username`, выбирает Telegram Stars или Premium на 3/6/12 месяцев, а backend получает live quote, проверяет получателя и создаёт MyStars order с idempotency key. Подарок оплачивается с внутреннего баланса: при достаточной сумме рубли списываются сразу, заказ создаётся через подключённый MyStars-аккаунт, а статус доставки отслеживается backend. Если средств недостаточно, пользователь получает предложение пополнить баланс. API key задаётся только в root `.env`:
+В Web App пользователь выбирает конкретный Telegram Star Gift из актуального каталога, указывает `@username` получателя и подтверждает заказ. Рубли списываются с его внутреннего баланса. Userbot покупает выбранный подарок за Stars и отправляет его анонимно с промо-подписью сервиса. В форме также сохранены варианты отправки Stars и Premium.
+
+Если на Stars-балансе userbot не хватает средств, backend автоматически создаёт MyStars-заказ на пополнение Stars самого userbot, отслеживает его через callback и после доставки пополнения повторяет отправку выбранного подарка. API key задаётся только в root `.env`:
 
 ```dotenv
 MYSTARS_API_KEY=
 MYSTARS_API_URL=https://api.mystars.tg
 MYSTARS_PAYMENT_CURRENCY=ton
 
-# Базовые цены для оплаты подарка с внутреннего баланса.
-# Итоговая сумма = base + 10% наценки по умолчанию.
+# Цена одного Star в рублях для списания с внутреннего баланса.
 MYSTARS_BALANCE_MARKUP_PERCENT=10
 MYSTARS_BALANCE_STARS_RUB_PER_UNIT=
 MYSTARS_BALANCE_PREMIUM_3_RUB=
 MYSTARS_BALANCE_PREMIUM_6_RUB=
 MYSTARS_BALANCE_PREMIUM_12_RUB=
 ```
-
-MyStars возвращает on-chain payment instructions и статус доставки. После статуса `delivered` backend сначала пытается отправить уведомление через встроенный Telegram userbot по `@username`, а затем использует уже известный чат `poslaniya_robot` как безопасный fallback.
 
 Userbot запускается из того же production entrypoint — `node server.mjs`; второй постоянный процесс не нужен. Настройки находятся в корневом `.env`:
 
@@ -85,6 +84,7 @@ TELEGRAM_USERBOT_ENABLED=false
 TELEGRAM_USERBOT_API_ID=
 TELEGRAM_USERBOT_API_HASH=
 TELEGRAM_USERBOT_SESSION=
+TELEGRAM_USERBOT_GIFT_PROMO=Подарок отправлен через «Послания» 💌 https://t.me/poslaniya_robot
 ```
 
 Одноразовая настройка:
@@ -92,11 +92,10 @@ TELEGRAM_USERBOT_SESSION=
 1. Получите собственные API ID и API hash на `https://my.telegram.org`.
 2. Запишите их в root `.env` и оставьте `TELEGRAM_USERBOT_ENABLED=false`.
 3. Запустите `node userbot/setup.mjs` из корня. Скрипт запросит номер телефона, код Telegram и пароль 2FA, если он включён.
-4. Скопируйте напечатанный `StringSession` в `TELEGRAM_USERBOT_SESSION`, затем включите `TELEGRAM_USERBOT_ENABLED=true` и перезапустите `node server.mjs`.
+4. Убедитесь, что аккаунт userbot имеет публичный `@username` и Stars для первой покупки либо настроенный MyStars.
+5. Скопируйте напечатанный `StringSession` в `TELEGRAM_USERBOT_SESSION`, затем включите `TELEGRAM_USERBOT_ENABLED=true` и перезапустите `node server.mjs`.
 
-Номер телефона, код, пароль 2FA, API ID/API hash и session не зашиты в код и не генерируются приложением — их добавляет владелец аккаунта. Если userbot выключен, поля неполные или session больше не авторизована, backend продолжает работать, пишет причину в лог и сохраняет статус уведомления `pending_userbot` при отсутствии bot fallback.
-
-Уведомление содержит анонимный подарок, ссылку на `poslaniya_robot`, ссылку на раскрытие отправителя и ссылку на тарифы. Отправитель подарка не передаётся userbot и не раскрывается. Callback MyStars принимается на `/webhooks/mystars` и сверяется через `GET /v1/orders/:id`; отдельный секрет в приложении не требуется. Получатель выбирается только по Telegram `@username`.
+Каталог доступен через `GET /api/v1/gifts/catalog` только авторизованному Web App. Callback MyStars принимается на `/webhooks/mystars` и сверяется через `GET /v1/orders/:id`. Отправитель подарка не передаётся получателю и не раскрывается. Получатель выбирается по Telegram `@username`. Успешный Star Gift содержит промо-текст, заданный `TELEGRAM_USERBOT_GIFT_PROMO`.
 
 ## Оплата и пополнение баланса
 
