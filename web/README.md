@@ -17,7 +17,7 @@ node server.mjs
 Все настройки приложения загружаются из корневого `.env`. Секреты в Git не добавляются. На Node.js 20 используется `better-sqlite3`, на Node.js 22+ — встроенный `node:sqlite`. Если SQLite-драйвер недоступен, включается JSON fallback с предупреждением.
 
 ```dotenv
-WEB_APP_URL=https://app.gogoa.club
+WEB_APP_URL=https://app.goago.club
 TELEGRAM_BOT_USERNAME=poslaniya_robot
 VK_GROUP_ID=poslaniya_demo
 VK_API_VERSION=5.199

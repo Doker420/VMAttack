@@ -34,7 +34,7 @@ const VK_GROUP_TOKEN = env('VK_GROUP_TOKEN');
 const VK_API_VERSION = env('VK_API_VERSION', '5.199');
 const VK_CONFIRMATION_TOKEN = env('VK_CONFIRMATION_TOKEN');
 const CLOUDPAYMENTS_API_SECRET = env('CLOUDPAYMENTS_API_SECRET');
-const WEB_APP_URL = env('WEB_APP_URL', 'https://app.gogoa.club');
+const WEB_APP_URL = env('WEB_APP_URL', 'https://app.goago.club');
 const DEFAULT_RECIPIENT_SLUG = env('DEFAULT_RECIPIENT_SLUG', 'anya');
 const DEMO_RECIPIENT_ID = env('DEMO_RECIPIENT_ID', 'demo_recipient');
 const DEMO_RECIPIENT_NAME = env('DEMO_RECIPIENT_NAME', 'Аня');
@@ -227,10 +227,16 @@ function slugify(value, fallback) {
   return String(value || '').toLowerCase().replace(/[^a-zа-яё0-9_-]+/gi, '-').replace(/^-|-$/g, '') || fallback;
 }
 
+function demoSlug() {
+  const fallback = slugify(DEMO_RECIPIENT_NAME, `demo-${DEMO_RECIPIENT_ID.slice(0, 6)}`);
+  const configured = slugify(DEFAULT_RECIPIENT_SLUG, fallback);
+  return configured === TELEGRAM_BOT_USERNAME ? fallback : configured;
+}
+
 function ensurePublicLink(user, requestedSlug = null) {
   const existing = [...publicLinks.values()].find((link) => link.userId === user.id);
-  const identityUsername = userIdentities(user).find((identity) => identity.username)?.username;
-  const username = user.username || identityUsername || null;
+  const identityUsername = userIdentities(user).find((identity) => identity.username && identity.username !== TELEGRAM_BOT_USERNAME)?.username;
+  const username = user.username && user.username !== TELEGRAM_BOT_USERNAME ? user.username : identityUsername;
   // Repair links created by an old demo/default configuration. A real Telegram
   // username must never turn into the bot username or a global demo slug.
   const preferredName = username || user.displayName;
@@ -283,8 +289,8 @@ function completeAuth(provider, providerUserId, profile = {}) {
 
 // A small shared fixture makes the Web App and public page demonstrable before
 // credentials/database are configured. Production starts with an empty database.
-const demoAccount = completeAuth('telegram', DEMO_RECIPIENT_ID, { displayName: DEMO_RECIPIENT_NAME, username: DEFAULT_RECIPIENT_SLUG }).user;
-const demoLink = ensurePublicLink(demoAccount, DEFAULT_RECIPIENT_SLUG);
+const demoAccount = completeAuth('telegram', DEMO_RECIPIENT_ID, { displayName: DEMO_RECIPIENT_NAME, username: demoSlug() }).user;
+const demoLink = ensurePublicLink(demoAccount, demoSlug());
 for (const [text, hoursAgo, mood] of [
   ['Ты очень классно справляешься. Просто хотела, чтобы ты это знала 🤍', 2, 'pink'],
   ['Кажется, ты мне нравишься. Давно хотел сказать.', 8, 'yellow'],
@@ -461,7 +467,7 @@ function botText(language, key) {
 
 function platformLinks(user = null) {
   const site = new URL(WEB_APP_URL).origin;
-  const slug = user ? ensurePublicLink(user).slug : DEFAULT_RECIPIENT_SLUG;
+  const slug = user ? ensurePublicLink(user).slug : demoSlug();
   return {
     telegram: `https://t.me/${TELEGRAM_BOT_USERNAME}`,
     telegramReferral: `https://t.me/${TELEGRAM_BOT_USERNAME}?start=ref_${encodeURIComponent(slug)}`,
@@ -731,7 +737,7 @@ function publicConfig() {
     telegramUrl: `https://t.me/${TELEGRAM_BOT_USERNAME}`,
     vkGroupId: VK_GROUP_ID,
     vkUrl: `https://vk.me/${VK_GROUP_ID}`,
-    defaultRecipientSlug: DEFAULT_RECIPIENT_SLUG
+    defaultRecipientSlug: demoSlug()
   };
 }
 
