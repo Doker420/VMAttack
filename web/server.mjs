@@ -87,6 +87,7 @@ const devStore = DB_DRIVER === 'json' ? null : await createSqliteStore(SQLITE_FI
 const users = new Map();
 const pendingAuth = new Map();
 const authResults = new Map();
+const webAuthTokens = new Map();
 const sessions = new Map();
 const payments = new Map();
 const retentionSettings = new Map();
@@ -173,6 +174,12 @@ async function loadDailyMessages() {
 function randomMessage(language = 'ru') {
   const messagesForLanguage = dailyMessages[language === 'en' ? 'en' : 'ru'];
   return messagesForLanguage[Math.floor(Math.random() * messagesForLanguage.length)] || fallbackDailyMessages.ru[0];
+}
+
+function dailyAnonymousText(language, text) {
+  return language === 'en'
+    ? `💌 <b>Anonymous message of the day</b>\n\n${escapeTelegramHtml(text)}\n\n<b>Sender:</b> Anonymous`
+    : `💌 <b>Анонимное послание дня</b>\n\n${escapeTelegramHtml(text)}\n\n<b>Отправитель:</b> Аноним`;
 }
 
 const mimeTypes = {
@@ -359,6 +366,26 @@ function completeAuth(provider, providerUserId, profile = {}) {
   return { user, token };
 }
 
+function issueWebAuthToken(user) {
+  const token = randomUUID();
+  webAuthTokens.set(token, { userId: user.id, expiresAt: Date.now() + 10 * 60 * 1000 });
+  return token;
+}
+
+function consumeWebAuthToken(token) {
+  const record = token && webAuthTokens.get(String(token));
+  if (!record || record.expiresAt <= Date.now()) {
+    if (token) webAuthTokens.delete(String(token));
+    return null;
+  }
+  webAuthTokens.delete(String(token));
+  const user = users.get(record.userId);
+  if (!user) return null;
+  const sessionToken = randomUUID();
+  sessions.set(sessionToken, user.id);
+  return { user, token: sessionToken };
+}
+
 // A small shared fixture makes the Web App and public page demonstrable before
 // credentials/database are configured. Production starts with an empty database.
 const demoAccount = completeAuth('telegram', DEMO_RECIPIENT_ID, { displayName: DEMO_RECIPIENT_NAME, username: demoSlug() }).user;
@@ -504,7 +531,9 @@ function messageForOwner(message, user) {
     replyDelivery: message.replyDelivery || null,
     blocked: Boolean(message.sender?.fingerprint && isSenderBlocked(user.id, message.sender.fingerprint))
   };
-  if (revealed && message.sender) {
+  if (message.source === 'daily-anonymous') {
+    result.sender = { provider: null, providerUserId: null, username: null, displayName: 'Аноним' };
+  } else if (revealed && message.sender) {
     result.sender = {
       provider: message.sender.provider,
       providerUserId: message.sender.providerUserId,
@@ -649,8 +678,11 @@ function languageKeyboard() {
   return { inline_keyboard: [[{ text: '🇷🇺 Русский', callback_data: 'lang:ru' }, { text: '🇬🇧 English', callback_data: 'lang:en' }]] };
 }
 
-function botMenuKeyboard(language, recipientSlug = null) {
-  const appUrl = recipientSlug ? buildWebAppUrl({ ref: recipientSlug }) : buildWebAppUrl();
+function botMenuKeyboard(language, recipientSlug = null, authToken = null) {
+  const appUrl = buildWebAppUrl({
+    ...(recipientSlug ? { ref: recipientSlug } : {}),
+    ...(authToken ? { auth: authToken } : {})
+  });
   return { inline_keyboard: [
     [{ text: `💌 ${botText(language, 'openApp')}`, web_app: { url: appUrl } }],
     [{ text: `🔗 ${botText(language, 'myLink')}`, callback_data: 'menu:link' }, { text: `✦ ${botText(language, 'daily')}`, callback_data: 'menu:daily' }],
@@ -1039,15 +1071,18 @@ function telegramChatId(user) {
 async function sendBotMenu(user, chatId, text = null, { withBanner = false, recipientSlug = user.activeRecipientSlug || null } = {}) {
   const language = user.language || 'ru';
   const caption = text || `${botText(language, 'welcome')}\n\n${botText(language, 'menuHint')}`;
-  const options = { reply_markup: botMenuKeyboard(language, recipientSlug) };
+  const authToken = issueWebAuthToken(user);
+  const options = { reply_markup: botMenuKeyboard(language, recipientSlug, authToken) };
   return withBanner ? sendTelegramPhoto(chatId, caption, options) : sendTelegramMessage(chatId, caption, options);
 }
 
-async function sendStartLanguage(chatId, language = 'ru') {
+async function sendStartLanguage(chatId, language = 'ru', user = null) {
   const caption = language === 'en'
     ? '💌 Welcome to Poslaniya\n\nAnonymous messages, warm words and honest thoughts in one place.\n\nChoose your language:'
     : '💌 Добро пожаловать в «Послания»\n\nАнонимные сообщения, тёплые слова и честные мысли в одном месте.\n\nВыберите язык:';
-  return sendTelegramPhoto(chatId, caption, { reply_markup: languageKeyboard() });
+  const keyboard = languageKeyboard();
+  if (user) keyboard.inline_keyboard.push([{ text: `💌 ${botText(language, 'openApp')}`, web_app: { url: buildWebAppUrl({ auth: issueWebAuthToken(user) }) } }]);
+  return sendTelegramPhoto(chatId, caption, { reply_markup: keyboard });
 }
 
 async function answerCallback(callbackId, text = '') {
@@ -1160,7 +1195,7 @@ async function handleTelegramCallback(callback) {
   if (data === 'menu:daily') {
     const text = randomMessage(user.language);
     await answerCallback(callback.id);
-    return sendTelegramMessage(chatId, `🎲 ${botText(user.language, 'daily')} от «Посланий»\n\n${text}\n\nЭто игровой тизер от сервиса — в нём нет реального автора.`, { reply_markup: dailyKeyboard(user.language) });
+    return sendTelegramMessage(chatId, dailyAnonymousText(user.language, text), { reply_markup: dailyKeyboard(user.language) });
   }
   if (data === 'menu:settings') {
     await answerCallback(callback.id);
@@ -1357,7 +1392,7 @@ async function handleTelegramUpdate(update) {
     if (!referralSlug) return sendBotMenu(user, chatId);
     user.activeRecipientSlug = referralSlug;
     schedulePersist();
-    if (!user.language) return sendStartLanguage(chatId);
+    if (!user.language) return sendStartLanguage(chatId, 'ru', user);
     return sendBotMenu(user, chatId, user.language === 'en' ? 'You opened a personal message link. Send an anonymous message in the Web App 💌' : 'Вы открыли персональную ссылку. Отправьте анонимное послание в Web App 💌', { withBanner: true, recipientSlug: user.activeRecipientSlug });
   }
   if (isTelegramAdmin(chatId) && adminBroadcastMode.has(String(chatId)) && text !== '/cancel' && !text.startsWith('/')) {
@@ -1380,30 +1415,64 @@ async function handleTelegramUpdate(update) {
     adminBroadcastMode.add(String(chatId));
     return sendTelegramMessage(chatId, botCopy.ru.broadcastAsk);
   }
-  if (text === '/start' && !user.language) return sendStartLanguage(chatId);
+  if (text === '/start' && !user.language) return sendStartLanguage(chatId, 'ru', user);
   if (text === '/start' || text === '/app') return sendBotMenu(user, chatId, null, { withBanner: text === '/start' });
   if (text === '/settings') return handleTelegramCallback({ id: `settings-${update.update_id}`, data: 'menu:settings', message });
   return sendBotMenu(user, chatId);
 }
 
+function addDailyAnonymousMessage(user, text) {
+  const link = ensurePublicLink(user);
+  const message = {
+    id: `daily-${randomUUID()}`,
+    publicLinkId: link.id,
+    body: text,
+    text,
+    source: 'daily-anonymous',
+    senderAvailable: false,
+    sender: { provider: null, providerUserId: null, displayName: 'Аноним', username: null },
+    unread: true,
+    saved: false,
+    createdAt: new Date().toISOString(),
+    time: 'сегодня',
+    mood: 'lilac'
+  };
+  messages.set(message.id, message);
+  return message;
+}
+
 async function runDailyRetentionBroadcast() {
-  const targets = [...users.values()].filter((user) => retentionSettings.get(user.id)?.dailyEnabled);
+  const dailyDate = new Date().toISOString().slice(0, 10);
+  const targets = [...users.values()].filter((user) => user.dailyEnabled !== false && userIdentities(user).length && user.lastDailyMessageDate !== dailyDate);
   let delivered = 0;
+  let usersDelivered = 0;
   for (const user of targets) {
-    const text = randomMessage(user.language || 'ru');
+    const language = user.language || 'ru';
+    const text = randomMessage(language);
+    const notification = dailyAnonymousText(language, text);
+    let userDelivered = false;
     for (const identity of userIdentities(user)) {
       try {
         const result = identity.provider === 'telegram'
-          ? await sendTelegramMessage(identity.providerUserId, `🎲 Послание дня от «Посланий»\n\n${text}\n\nЭто игровой тизер от сервиса — в нём нет реального автора.`, { reply_markup: dailyKeyboard(user.language || 'ru') })
-          : await sendVkMessage(identity.providerUserId, `🎲 Послание дня от «Посланий»\n\n${text}\n\nЭто игровой тизер от сервиса — в нём нет реального автора.`);
-        if (result.sent) delivered += 1;
+          ? await sendTelegramMessage(identity.providerUserId, notification, { reply_markup: dailyKeyboard(language) })
+          : await sendVkMessage(identity.providerUserId, notification.replace(/<[^>]+>/g, ''));
+        if (result.sent) {
+          delivered += 1;
+          userDelivered = true;
+        }
       } catch (error) {
         console.error(`[retention] delivery failed for ${user.id}:`, error.message);
       }
     }
+    if (userDelivered) {
+      addDailyAnonymousMessage(user, text);
+      user.lastDailyMessageDate = dailyDate;
+      usersDelivered += 1;
+    }
   }
-  console.log(`[retention] ${new Date().toISOString()} targets=${targets.length} delivered=${delivered}`);
-  return { targets: targets.length, delivered };
+  if (usersDelivered) schedulePersist();
+  console.log(`[retention] ${new Date().toISOString()} targets=${targets.length} usersDelivered=${usersDelivered} deliveries=${delivered}`);
+  return { targets: targets.length, usersDelivered, delivered };
 }
 
 function publicConfig() {
@@ -1468,6 +1537,11 @@ async function handleApi(req, res, url) {
     if (!user || !order || order.userId !== user.id) return json(res, 404, { error: 'gift_order_not_found' });
     try { await syncMyStarsOrder(order); return json(res, 200, mystarsOrderForUser(order, user)); }
     catch (error) { return json(res, 503, { error: 'mystars_status_failed', message: error.message }); }
+  }
+  if (req.method === 'POST' && url.pathname === '/api/v1/auth/telegram/token') {
+    const body = await readBody(req);
+    const result = consumeWebAuthToken(body.token);
+    return result ? json(res, 200, result) : json(res, 401, { error: 'auth_token_expired' });
   }
   if (req.method === 'POST' && /^\/api\/v1\/auth\/(telegram|vk)\/start$/.test(url.pathname)) {
     const provider = url.pathname.split('/')[4];
@@ -1817,7 +1891,7 @@ async function bootstrap() {
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`Послания listening on http://0.0.0.0:${PORT}`);
     console.log(`Telegram Web App: ${WEB_APP_URL}`);
-    console.log(`Daily retention scheduler: every ${Math.round(RETENTION_INTERVAL_MS / 1000)}s, only opted-in users`);
+    console.log(`Daily anonymous messages: every ${Math.round(RETENTION_INTERVAL_MS / 1000)}s, all active users unless disabled`);
     configureTelegramBot();
     if (TELEGRAM_MODE === 'polling') telegramBot.start();
     else console.log(`[telegram] mode=${TELEGRAM_MODE}; polling is disabled`);

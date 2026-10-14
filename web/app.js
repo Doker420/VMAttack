@@ -21,6 +21,7 @@
   let activeMessageId = queryParams.get('messageId') || queryParams.get('replyMessageId') || null;
   const requestedPayment = queryParams.get('payment') || '';
   const requestedReply = queryParams.get('replyMessageId') || '';
+  const webAuthToken = queryParams.get('auth') || '';
   const telegramWebApp = window.Telegram?.WebApp || null;
   const appModeRequested = queryParams.get('app') === '1';
   const isTelegramWebApp = Boolean(telegramWebApp?.initData || appModeRequested);
@@ -62,6 +63,21 @@
     } catch {
       return { __error: true, status: 0 };
     }
+  }
+
+  async function consumeWebAuthToken() {
+    if (!webAuthToken) return null;
+    const result = await apiRequest('/api/v1/auth/telegram/token', { method: 'POST', body: JSON.stringify({ token: webAuthToken }) });
+    if (!result?.token || !result?.user) return result;
+    localStorage.setItem(authKey, JSON.stringify({ provider: 'telegram', loggedInAt: Date.now(), ...result }));
+    try {
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete('auth');
+      window.history.replaceState({}, document.title, cleanUrl.toString());
+    } catch {
+      // The token is still one-time and already consumed if URL cleanup is unavailable.
+    }
+    return result;
   }
 
   async function loadAppConfig() {
@@ -110,6 +126,7 @@
   }
 
   function messageActionsMarkup(message) {
+    if (message.source === 'daily-anonymous') return '<div class="message-actions"><small class="reply-status">Ежедневное послание от Анонима</small></div>';
     const id = escapeHtml(message.id || '');
     const blockLabel = message.blocked ? 'Заблокирован' : 'Заблокировать';
     const replyStatus = message.replyDelivery?.status === 'unavailable'
@@ -154,7 +171,7 @@
     list.innerHTML = messages.slice(0, 10).map((message) => `
       <article class="webapp-message ${message.unread ? 'unread' : ''}">
         <div class="message-avatar avatar-${message.mood || 'pink'}">${message.mood === 'yellow' ? '✦' : message.mood === 'lilac' ? '♡' : '?'}</div>
-        <div class="webapp-message-body"><div class="webapp-message-meta"><strong>${message.sender?.username ? `@${escapeHtml(message.sender.username)}` : 'Анонимно'}</strong><time>${escapeHtml(message.time || 'недавно')}</time></div><p>${escapeHtml(message.text)}</p>${message.reply ? `<div class="message-reply"><strong>Ваш ответ:</strong><p>${escapeHtml(message.reply.text)}</p></div>` : ''}${messageActionsMarkup(message)}</div>
+        <div class="webapp-message-body"><div class="webapp-message-meta"><strong>${message.sender?.username ? `@${escapeHtml(message.sender.username)}` : message.sender?.displayName ? escapeHtml(message.sender.displayName) : 'Анонимно'}</strong><time>${escapeHtml(message.time || 'недавно')}</time></div><p>${escapeHtml(message.text)}</p>${message.reply ? `<div class="message-reply"><strong>Ваш ответ:</strong><p>${escapeHtml(message.reply.text)}</p></div>` : ''}${messageActionsMarkup(message)}</div>
         ${message.unread ? '<span class="unread-dot"></span>' : ''}
       </article>`).join('');
   }
@@ -362,15 +379,15 @@
 
   const dailyToggle = $('#dailyMessagesToggle');
   const retentionNote = $('#retentionNote');
-  const storedDaily = localStorage.getItem(retentionKey) === 'true';
+  const storedDaily = localStorage.getItem(retentionKey) !== 'false';
   if (dailyToggle) {
     dailyToggle.setAttribute('aria-checked', String(storedDaily));
-    if (retentionNote && storedDaily) retentionNote.textContent = 'Включено: одно случайное послание в сутки после подключения бота.';
+    if (retentionNote && storedDaily) retentionNote.textContent = 'Включено: одно анонимное послание в сутки из библиотеки текстов.';
     dailyToggle.addEventListener('click', async () => {
       const enabled = dailyToggle.getAttribute('aria-checked') !== 'true';
       dailyToggle.setAttribute('aria-checked', String(enabled));
       localStorage.setItem(retentionKey, String(enabled));
-      if (retentionNote) retentionNote.textContent = enabled ? 'Включено: одно случайное послание в сутки после подключения бота.' : 'По умолчанию выключено. Вы будете получать сообщения только после согласия.';
+      if (retentionNote) retentionNote.textContent = enabled ? 'Включено: одно анонимное послание в сутки из библиотеки текстов.' : 'Выключено. Ежедневные послания больше не будут приходить.';
       await apiRequest('/api/v1/retention/settings', { method: 'PUT', body: JSON.stringify({ dailyEnabled: enabled }) });
       showToast(enabled ? 'Ежедневные послания включены' : 'Ежедневные послания выключены');
     });
@@ -618,6 +635,7 @@
 
   // Load server configuration before resolving the referral and opening the Web App.
   (async () => {
+    await consumeWebAuthToken();
     await loadAppConfig();
     renderInbox();
     renderWebAppInbox();
