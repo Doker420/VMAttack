@@ -83,7 +83,13 @@ const YUMONEY_PAYMENT_URL = env('YUMONEY_PAYMENT_URL');
 const YUMONEY_TOKEN = env('YUMONEY_TOKEN');
 const CRYPTOBOT_API_TOKEN = env('CRYPTOBOT_API_TOKEN');
 const CRYPTOBOT_API_URL = env('CRYPTOBOT_API_URL', 'https://pay.crypt.bot/api');
-const CRYPTOBOT_WEBHOOK_SECRET = env('CRYPTOBOT_WEBHOOK_SECRET');
+const configuredCryptoBotWebhookSecret = env('CRYPTOBOT_WEBHOOK_SECRET');
+// Crypto Pay does not issue this secret in a dashboard: the merchant chooses it
+// when calling setWebhook. Keep webhook verification on by deriving a stable
+// secret when the optional env value is not provided.
+const CRYPTOBOT_WEBHOOK_SECRET = configuredCryptoBotWebhookSecret || (CRYPTOBOT_API_TOKEN
+  ? createHash('sha256').update(`poslaniya:cryptobot-webhook:${CRYPTOBOT_API_TOKEN}:${env('WEB_APP_URL', 'https://app.goago.club')}`).digest('hex')
+  : '');
 const XROCKET_API_TOKEN = env('XROCKET_API_TOKEN');
 const XROCKET_TESTNET = env('XROCKET_TESTNET', 'false').toLowerCase() === 'true';
 const XROCKET_API_URL = env('XROCKET_API_URL', XROCKET_TESTNET ? 'https://pay.api.testnet.xrocket.exchange' : 'https://pay.api.xrocket.exchange');

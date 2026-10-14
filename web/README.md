@@ -111,7 +111,9 @@ YUMONEY_SUCCESS_URL=https://app.goago.club/?payment=success
 YUMONEY_TOKEN=
 CRYPTOBOT_API_TOKEN=
 CRYPTOBOT_API_URL=https://pay.crypt.bot/api
-CRYPTOBOT_WEBHOOK_SECRET= # optional; webhook is registered automatically on startup
+# CryptoBot does not issue this in a dashboard; empty means a stable server-derived secret.
+CRYPTOBOT_WEBHOOK_SECRET=
+# The server registers the webhook and its secret automatically on startup.
 XROCKET_API_TOKEN= # именно Pay API token из приложения xRocket
 XROCKET_TESTNET=false
 XROCKET_API_URL=https://pay.api.xrocket.exchange
