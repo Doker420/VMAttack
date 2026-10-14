@@ -55,7 +55,8 @@ const TELEGRAM_USERBOT_SESSION = env('TELEGRAM_USERBOT_SESSION');
 const TELEGRAM_USERBOT_GIFT_PROMO = env('TELEGRAM_USERBOT_GIFT_PROMO');
 
 function telegramUserbotGiftPromo() {
-  return TELEGRAM_USERBOT_GIFT_PROMO || `Подарок отправлен через «Послания» 💌 https://t.me/${TELEGRAM_BOT_USERNAME}`;
+  const botUsername = TELEGRAM_BOT_USERNAME || 'poslaniya_robot';
+  return TELEGRAM_USERBOT_GIFT_PROMO || `Подарок отправлен через Послания 💌 t.me/${botUsername}`;
 }
 const MYSTARS_API_KEY = env('MYSTARS_API_KEY');
 const MYSTARS_API_URL = env('MYSTARS_API_URL', 'https://api.mystars.tg');
@@ -855,7 +856,7 @@ const paymentProviderLabels = {
   yoomoney: 'Карта / ЮMoney',
   xrocket: 'xRocket',
   cryptobot: 'CryptoBot',
-  sbp: 'СБП — чек админу',
+  sbp: 'СБП — по чеку',
   balance: 'Внутренний баланс'
 };
 
@@ -1069,8 +1070,8 @@ async function sendPaymentResult(chatId, payment, language = 'ru') {
     const keyboard = [{ text: '← Меню', callback_data: 'menu:home' }];
     if (botUrl && sbpDetailsConfigured()) keyboard.unshift({ text: 'Открыть бота и отправить чек', url: botUrl });
     const nextStep = sbpDetailsConfigured()
-      ? 'После оплаты нажмите «Открыть бота и отправить чек», затем отправьте фото или документ чека. Заявку проверит администратор.'
-      : 'СБП временно недоступна: администратор ещё не указал реквизиты.';
+      ? 'После оплаты нажмите «Открыть бота и отправить чек», затем отправьте фото или документ чека. Баланс пополнится после подтверждения оплаты.'
+      : 'СБП временно недоступна: реквизиты ещё не настроены.';
     return sendTelegramMessage(chatId, `🏦 <b>Оплата через СБП</b>\n\n${escapeTelegramHtml(details)}\n\n${nextStep}`, { reply_markup: { inline_keyboard: [keyboard] } });
   }
   return sendTelegramMessage(chatId, 'Платёж создан, но ссылка оплаты пока не настроена.', { reply_markup: botMenuKeyboard(language) });
@@ -1092,21 +1093,39 @@ function normalizeTelegramUsername(value) {
 function validateGiftRequest(body) {
   const type = body.type === 'star_gift' ? 'star_gift' : body.type === 'premium' ? 'premium' : body.type === 'stars' ? 'stars' : null;
   const username = normalizeTelegramUsername(body.username || body.recipient?.username);
+  const offerKey = String(body.offer_key || body.offerKey || '').trim() || null;
   if (!type) throw new Error('type must be star_gift, stars or premium');
   if (!/^[a-z0-9_]{5,32}$/i.test(username)) throw new Error('valid Telegram username is required');
   if (type === 'star_gift') {
     const giftId = String(body.gift_id || body.giftId || '').trim();
     if (!/^\d{1,24}$/.test(giftId)) throw new Error('Telegram gift is required');
-    return { type, username, giftId };
+    return { type, username, giftId, offerKey };
   }
   if (type === 'stars') {
     const quantity = Number(body.quantity);
     if (!Number.isInteger(quantity) || quantity < 50 || quantity > 1_000_000) throw new Error('Stars quantity must be between 50 and 1000000');
-    return { type, username, quantity, payment_currency: body.payment_currency === 'usdt_ton' ? 'usdt_ton' : MYSTARS_PAYMENT_CURRENCY };
+    return { type, username, quantity, offerKey, payment_currency: body.payment_currency === 'usdt_ton' ? 'usdt_ton' : MYSTARS_PAYMENT_CURRENCY };
   }
   const months = Number(body.months);
   if (![3, 6, 12].includes(months)) throw new Error('Premium months must be 3, 6 or 12');
-  return { type, username, months, payment_currency: body.payment_currency === 'usdt_ton' ? 'usdt_ton' : MYSTARS_PAYMENT_CURRENCY };
+  return { type, username, months, offerKey, payment_currency: body.payment_currency === 'usdt_ton' ? 'usdt_ton' : MYSTARS_PAYMENT_CURRENCY };
+}
+
+function giftOfferKey(offer) {
+  const snapshot = {
+    type: offer?.type || null,
+    giftId: offer?.giftId || null,
+    giftStars: Number(offer?.giftStars || 0),
+    costStars: Number(offer?.costStars || 0),
+    priceCurrency: String(offer?.priceCurrency || '').toUpperCase(),
+    priceAmount: Number(offer?.priceAmount || 0),
+    option: offer?.option ? {
+      currency: String(offer.option.currency || '').toUpperCase(),
+      stars: Number(offer.option.stars || 0),
+      amount: Number(offer.option.amount || 0)
+    } : null
+  };
+  return createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
 }
 
 async function getMyStarsQuote(gift) {
@@ -1209,10 +1228,21 @@ async function refundGiftBalance(order) {
   return true;
 }
 
-async function deliverUserbotGift(order) {
+async function deliverUserbotGift(order, selectedOffer = null) {
   if (order.giftDeliveryStatus === 'delivered') return order;
   if (!telegramUserbot.isReady) throw new Error('Telegram userbot is not ready to send the gift');
-  const requiredStars = Number(order.giftStarsCost || order.quantity || 0);
+  const gift = {
+    type: order.type,
+    username: order.username,
+    giftId: order.giftId,
+    quantity: order.quantity,
+    months: order.months
+  };
+  const offer = selectedOffer || await telegramUserbot.getGiftOffer(gift);
+  if (order.giftOfferKey && order.giftOfferKey !== giftOfferKey(offer)) {
+    throw new Error('Цена или выбранная опция Telegram изменилась. Повторите проверку.');
+  }
+  const requiredStars = Number(order.giftStarsCost || offer.costStars || order.quantity || 0);
   const availableStars = await telegramUserbot.getStarsBalance();
   if (availableStars < requiredStars) {
     order.giftDeliveryStatus = 'waiting_userbot_stars';
@@ -1221,13 +1251,8 @@ async function deliverUserbotGift(order) {
     throw new Error(`Telegram userbot has ${availableStars} Stars; ${requiredStars} are required`);
   }
   await telegramUserbot.sendGift({
-    gift: {
-      type: order.type,
-      username: order.username,
-      giftId: order.giftId,
-      quantity: order.quantity,
-      months: order.months
-    },
+    gift,
+    offer,
     message: order.giftMessage || telegramUserbotGiftPromo()
   });
   order.giftDeliveryStatus = 'delivered';
@@ -1281,6 +1306,7 @@ function mystarsOrderForUser(order, user) {
 async function createUserbotGiftOrder(user, gift) {
   if (!telegramUserbot.isReady) throw new Error('Telegram userbot is not configured for gifts');
   const offer = await telegramUserbot.getGiftOffer(gift);
+  if (gift.offerKey && gift.offerKey !== giftOfferKey(offer)) throw new Error('Цена или выбранная опция Telegram изменилась. Повторите проверку.');
   const balancePrice = userbotGiftBalancePrice(offer);
   if (!balancePrice) throw new Error('Gift prices are not configured');
   if (Number(user.balanceRub || 0) < balancePrice.amount) throw new Error(`Недостаточно средств на балансе: нужно ${balancePrice.amount} ₽`);
@@ -1296,6 +1322,7 @@ async function createUserbotGiftOrder(user, gift) {
     quantity: gift.type === 'stars' ? gift.quantity : (gift.type === 'star_gift' ? offer.giftStars : null),
     months: gift.months || null,
     giftStarsCost: offer.costStars,
+    giftOfferKey: giftOfferKey(offer),
     paymentMethod: 'balance',
     balancePriceRub: balancePrice.amount,
     balanceMarkupPercent: balancePrice.markupPercent,
@@ -1306,12 +1333,15 @@ async function createUserbotGiftOrder(user, gift) {
   };
 
   const availableStars = await telegramUserbot.getStarsBalance();
+  if (availableStars < offer.costStars && gift.type !== 'star_gift') {
+    throw new Error(`Telegram userbot has ${availableStars} Stars; direct ${gift.type === 'premium' ? 'Premium' : 'Stars'} delivery requires ${offer.costStars} Stars`);
+  }
   if (availableStars >= offer.costStars) {
     user.balanceRub = Number(user.balanceRub || 0) - balancePrice.amount;
     mystarsOrders.set(order.id, order);
     schedulePersist();
     try {
-      await deliverUserbotGift(order);
+      await deliverUserbotGift(order, offer);
     } catch (error) {
       order.lastDeliveryError = error.message;
       order.notificationStatus = 'userbot_gift_failed';
@@ -1347,49 +1377,6 @@ async function createUserbotGiftOrder(user, gift) {
   order.payment = remote.payment || null;
   order.notificationStatus = 'waiting_userbot_topup';
   user.balanceRub = Number(user.balanceRub || 0) - balancePrice.amount;
-  mystarsOrders.set(order.id, order);
-  schedulePersist();
-  await notifyMystarsAdmins(order);
-  return order;
-}
-
-async function createMystarsOrder(user, gift, { paymentMethod = 'admin' } = {}) {
-  const balancePrice = paymentMethod === 'balance' ? mystarsBalancePrice(gift) : null;
-  if (paymentMethod === 'balance' && !balancePrice) throw new Error('MYSTARS balance prices are not configured');
-  if (paymentMethod === 'balance' && Number(user.balanceRub || 0) < balancePrice.amount) throw new Error(`Недостаточно средств на балансе: нужно ${balancePrice.amount} ₽`);
-
-  const localId = `gift-${randomUUID()}`;
-  const quote = await getMyStarsQuote(gift);
-  const recipient = await checkMyStarsRecipient(gift);
-  if (!recipient.eligible) throw new Error(recipient.telegram_message || recipient.reason || 'Recipient cannot receive this gift');
-  const body = { type: gift.type, recipient: { username: gift.username }, payment_currency: gift.payment_currency, callback_url: `${new URL(WEB_APP_URL).origin}/webhooks/mystars` };
-  if (gift.type === 'stars') body.quantity = gift.quantity;
-  else body.months = gift.months;
-  const remote = await mystarsRequest('/v1/orders', { method: 'POST', headers: { 'Idempotency-Key': localId }, body: JSON.stringify(body) });
-
-  if (paymentMethod === 'balance') {
-    user.balanceRub = Number(user.balanceRub || 0) - balancePrice.amount;
-    schedulePersist();
-  }
-  const order = {
-    id: localId,
-    userId: user.id,
-    username: gift.username,
-    type: gift.type,
-    quantity: gift.quantity || null,
-    months: gift.months || null,
-    payment_currency: gift.payment_currency,
-    paymentMethod,
-    balancePriceRub: balancePrice?.amount || null,
-    balanceMarkupPercent: balancePrice?.markupPercent ?? null,
-    quote,
-    remoteOrderId: remote.order_id || remote.id,
-    remoteStatus: remote.status || 'awaiting_payment',
-    remoteOrder: remote,
-    payment: remote.payment || null,
-    createdAt: new Date().toISOString(),
-    notificationStatus: 'waiting_delivery'
-  };
   mystarsOrders.set(order.id, order);
   schedulePersist();
   await notifyMystarsAdmins(order);
@@ -1596,8 +1583,8 @@ async function handleTelegramCallback(callback) {
       applyPaidPayment(payment);
       await answerCallback(callback.id, 'Пополнение одобрено');
       if (payment.userId && users.has(payment.userId)) await notifyUser(users.get(payment.userId), payment.purpose === 'balance'
-        ? `✅ Пополнение на ${payment.amount} ₽ одобрено администратором.`
-        : `✅ Оплата на ${payment.amount} ₽ одобрена администратором.`);
+        ? `✅ Пополнение на ${payment.amount} ₽ подтверждено.`
+        : `✅ Оплата на ${payment.amount} ₽ подтверждена.`);
       return sendTelegramMessage(chatId, `✅ Платёж ${escapeTelegramHtml(payment.id)} одобрен.`);
     }
     if (action === 'reject') {
@@ -1605,7 +1592,7 @@ async function handleTelegramCallback(callback) {
       payment.rejectedAt = new Date().toISOString();
       schedulePersist();
       await answerCallback(callback.id, 'Платёж отклонён');
-      if (payment.userId && users.has(payment.userId)) await notifyUser(users.get(payment.userId), `❌ Чек по пополнению на ${payment.amount} ₽ отклонён администратором.`);
+      if (payment.userId && users.has(payment.userId)) await notifyUser(users.get(payment.userId), `❌ Не удалось подтвердить пополнение на ${payment.amount} ₽.`);
       return sendTelegramMessage(chatId, `❌ Платёж ${escapeTelegramHtml(payment.id)} отклонён.`);
     }
   }
@@ -1842,12 +1829,12 @@ async function handleTelegramUpdate(update) {
   if (receipt) {
     const payment = pendingSbpPaymentForUser(user, chatId);
     if (!payment) return sendTelegramMessage(chatId, 'Сначала создайте заявку на оплату через СБП в меню «Пополнить баланс».');
-    if (payment.receipt) return sendTelegramMessage(chatId, 'Чек по этой заявке уже отправлен администратору. Ожидайте проверки.');
+    if (payment.receipt) return sendTelegramMessage(chatId, 'Чек по этой заявке уже отправлен. Ожидайте подтверждения оплаты.');
     payment.sbpChatId = String(chatId);
     payment.receipt = { type: message.photo ? 'photo' : 'document', fileId: receipt.file_id, messageId: message.message_id, receivedAt: new Date().toISOString() };
     schedulePersist();
     await notifySbpAdmins(payment, message);
-    return sendTelegramMessage(chatId, '✅ Чек отправлен администратору на проверку. После решения баланс будет обновлён.');
+    return sendTelegramMessage(chatId, '✅ Чек отправлен. После подтверждения оплаты баланс будет обновлён.');
   }
   const authMatch = text.match(/^\/start\s+auth_([a-z0-9]+)$/i);
   if (authMatch && pendingAuth.has(authMatch[1])) {
@@ -1864,7 +1851,7 @@ async function handleTelegramUpdate(update) {
     schedulePersist();
     return sendBotMenu(user, chatId, 'Ввод послания отменён.');
   }
-  const referralMatch = text.match(/^\/start\s+ref[_-]([^\s]+)$/i);
+  const referralMatch = text.match(/^\/start(?:@[a-z0-9_]+)?\s+ref[_-]([^\s]+)$/i);
   if (referralMatch) {
     const referralSlug = referralMatch[1].toLowerCase().replace(/[^a-zа-яё0-9_-]/gi, '');
     if (!referralSlug) return sendBotMenu(user, chatId);
@@ -1998,18 +1985,28 @@ async function handleApi(req, res, url) {
     try { return json(res, 200, { gifts: await telegramUserbot.getStarGifts() }); }
     catch (error) { return json(res, 503, { error: 'telegram_gifts_unavailable', message: error.message }); }
   }
-  if (req.method === 'GET' && url.pathname === '/api/v1/gifts/products') {
-    try { return json(res, 200, await mystarsRequest('/v1/products')); }
-    catch (error) { return json(res, 503, { error: 'mystars_unavailable', message: error.message }); }
-  }
   if (req.method === 'POST' && url.pathname === '/api/v1/gifts/quote') {
     try {
       const gift = validateGiftRequest(await readBody(req));
       const offer = await telegramUserbot.getGiftOffer(gift);
       const balancePrice = userbotGiftBalancePrice(offer);
-      return json(res, 200, { gift: { ...gift, title: offer.title, stars: offer.giftStars || offer.costStars }, quote: { stars: offer.giftStars || offer.costStars }, recipient: { eligible: true }, balancePayment: balancePrice ? { amount: balancePrice.amount } : null });
+      const stars = Number(offer.costStars || offer.giftStars || 0);
+      return json(res, 200, {
+        gift: { ...gift, title: offer.title, stars },
+        quote: {
+          title: offer.title,
+          stars,
+          currency: offer.priceCurrency || 'XTR',
+          amount: Number(offer.priceAmount || stars),
+          option: offer.option ? { currency: offer.option.currency, stars: Number(offer.option.stars), amount: Number(offer.option.amount) } : null
+        },
+        offerKey: giftOfferKey(offer),
+        recipient: { eligible: true, username: offer.recipient?.username || gift.username },
+        balancePayment: balancePrice ? { amount: balancePrice.amount } : null
+      });
     } catch (error) {
-      return json(res, error.message.includes('required') || error.message.includes('between') || error.message.includes('must be') ? 422 : 503, { error: 'mystars_quote_failed', message: error.message });
+      const validation = error.message.includes('required') || error.message.includes('between') || error.message.includes('must be');
+      return json(res, validation ? 422 : 503, { error: 'mystars_quote_failed', message: error.message });
     }
   }
   if (req.method === 'POST' && url.pathname === '/api/v1/gifts/orders') {
@@ -2024,8 +2021,11 @@ async function handleApi(req, res, url) {
     } catch (error) {
       const insufficient = error.message.startsWith('Недостаточно средств');
       const balancePrice = gift ? mystarsBalancePrice(gift) : null;
-      const status = insufficient ? 402 : error.message.includes('required') || error.message.includes('between') || error.message.includes('must be') || error.message.includes('cannot receive') || error.message.includes('not configured') ? 422 : 503;
-      return json(res, status, { error: insufficient ? 'insufficient_balance' : 'mystars_order_failed', message: error.message, ...(insufficient ? { balance: Number(user.balanceRub || 0), required: balancePrice?.amount || null } : {}) });
+      const changed = error.message.includes('изменилась');
+      const status = insufficient ? 402 : changed ? 409 : error.message.includes('required') || error.message.includes('between') || error.message.includes('must be') || error.message.includes('cannot receive') || error.message.includes('not configured') ? 422 : 503;
+      const internalPaymentError = /mystars|my\s*stars|pay_to_address|memo|payment api/i.test(error.message);
+      const message = internalPaymentError ? 'Не удалось подготовить подарок. Попробуйте ещё раз позже.' : error.message;
+      return json(res, status, { error: insufficient ? 'insufficient_balance' : 'gift_order_failed', message, ...(insufficient ? { balance: Number(user.balanceRub || 0), required: balancePrice?.amount || null } : {}) });
     }
   }
   if (req.method === 'GET' && url.pathname === '/api/v1/gifts/orders') {

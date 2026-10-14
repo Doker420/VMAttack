@@ -22,11 +22,13 @@
   let toastTimer;
   let pendingAuthProvider = null;
   let pendingAuthChallenge = null;
+  let pendingCreatorSlug = null;
   const queryParams = new URLSearchParams(window.location.search);
-  let activeMessageId = queryParams.get('messageId') || queryParams.get('replyMessageId') || null;
-  const requestedPayment = queryParams.get('payment') || '';
-  const requestedReply = queryParams.get('replyMessageId') || '';
-  const webAuthToken = queryParams.get('auth') || '';
+  let activeMessageId = queryParams.get('messageId') || queryParams.get('message_id') || queryParams.get('replyMessageId') || queryParams.get('reply') || null;
+  const requestedGiftType = queryParams.get('giftType') || queryParams.get('gift') || '';
+  const requestedPayment = queryParams.get('payment') || queryParams.get('pay') || (requestedGiftType ? 'gift' : '');
+  const requestedReply = queryParams.get('replyMessageId') || queryParams.get('reply') || '';
+  const webAuthToken = queryParams.get('auth') || queryParams.get('auth_token') || queryParams.get('authToken') || '';
   const telegramWebApp = window.Telegram?.WebApp || null;
   const appModeRequested = queryParams.get('app') === '1';
   const isTelegramWebApp = Boolean(telegramWebApp?.initData || appModeRequested);
@@ -97,7 +99,7 @@
     localStorage.setItem(authKey, JSON.stringify({ provider: 'telegram', loggedInAt: Date.now(), ...result }));
     try {
       const cleanUrl = new URL(window.location.href);
-      cleanUrl.searchParams.delete('auth');
+      ['auth', 'auth_token', 'authToken'].forEach((key) => cleanUrl.searchParams.delete(key));
       window.history.replaceState({}, document.title, cleanUrl.toString());
     } catch {
       // The token is still one-time and already consumed if URL cleanup is unavailable.
@@ -319,6 +321,14 @@
         if ($('#authPending')) $('#authPending').hidden = true;
         if ($('#authCompleteButton')) $('#authCompleteButton').hidden = false;
       }
+      let storedAuth = null;
+      try { storedAuth = JSON.parse(localStorage.getItem(authKey) || 'null'); } catch { storedAuth = null; }
+      if (targetId === 'dashboardDialog' && !storedAuth?.token) {
+        if (currentDialog) closeDialog(currentDialog);
+        openDialog('authDialog');
+        showToast('Сначала войдите через Telegram, чтобы открыть личный кабинет');
+        return;
+      }
       if (currentDialog && currentDialog.id !== targetId) {
         closeDialog(currentDialog);
         requestAnimationFrame(() => openDialog(targetId));
@@ -414,6 +424,22 @@
     $('#authPendingTitle').textContent = 'Авторизация подтверждена';
     $('#authPendingText').textContent = `Теперь послания будут приходить в ${provider === 'telegram' ? 'Telegram' : 'ВКонтакте'}.`;
     $('#authCompleteButton').hidden = true;
+    if (pendingCreatorSlug) {
+      const slug = pendingCreatorSlug;
+      const linkResult = await createPersonalLink(slug);
+      if (!linkResult?.link) {
+        pendingCreatorSlug = slug;
+        $('#authCompleteButton').hidden = false;
+        showToast(linkResult?.message || 'Не удалось создать ссылку после авторизации');
+        return;
+      }
+      pendingCreatorSlug = null;
+      closeDialog($('#authDialog'));
+      openDialog('dashboardDialog');
+      showToast('Ссылка создана. Личный кабинет открыт');
+      $('#authCompleteButton').hidden = false;
+      return;
+    }
     showToast('Вы вошли через бота');
     setTimeout(() => {
       closeDialog($('#authDialog'));
@@ -438,18 +464,49 @@
     });
   }
 
+  async function createPersonalLink(slug) {
+    const result = await apiRequest('/api/v1/links', { method: 'POST', body: JSON.stringify({ slug }) });
+    if (result?.link) {
+      profileSlug = result.slug || slug;
+      if ($('#createdLinkText')) $('#createdLinkText').textContent = result.link;
+      if ($('#createdLink')) $('#createdLink').hidden = false;
+      if ($('#creatorName')?.closest('.slug-input')) $('#creatorName').closest('.slug-input').style.borderColor = '#aaca9f';
+      await syncProfile();
+      return result;
+    }
+    return result;
+  }
+
   const creatorForm = $('#creatorForm');
   creatorForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const input = $('#creatorName');
     const normalized = input.value.trim().toLowerCase().replace(/\s+/g, '-');
     if (!normalized || normalized.length < 3) return;
-    const result = await apiRequest('/api/v1/links', { method: 'POST', body: JSON.stringify({ slug: normalized }) });
-    const link = result?.link || `poslaniya.app/${normalized}`;
-    $('#createdLinkText').textContent = link;
-    $('#createdLink').hidden = false;
-    input.closest('.slug-input').style.borderColor = '#aaca9f';
-    showToast('Ваша ссылка создана');
+    let storedAuth = null;
+    try { storedAuth = JSON.parse(localStorage.getItem(authKey) || 'null'); } catch { storedAuth = null; }
+    if (!storedAuth?.token) {
+      pendingCreatorSlug = normalized;
+      closeDialog($('#creatorDialog'));
+      openDialog('authDialog');
+      showToast('Сначала войдите через Telegram, чтобы открыть личный кабинет');
+      return;
+    }
+    const result = await createPersonalLink(normalized);
+    if (result?.link) {
+      showToast('Ваша ссылка создана');
+      closeDialog($('#creatorDialog'));
+      openDialog('dashboardDialog');
+      return;
+    }
+    if (result?.status === 401) {
+      pendingCreatorSlug = normalized;
+      closeDialog($('#creatorDialog'));
+      openDialog('authDialog');
+      showToast('Сессия истекла. Войдите через Telegram ещё раз');
+      return;
+    }
+    showToast(result?.message || 'Не удалось создать ссылку');
   });
 
   $('#copyLinkButton')?.addEventListener('click', () => copyText($('#createdLinkText').textContent));
@@ -525,7 +582,7 @@
       showToast('Оплата с внутреннего баланса подтверждена');
     } else if (result.instructions) {
       const success = purpose === 'balance' ? $('#topupSuccess') : plan === 'reveal' ? $('#revealSuccess') : $('#paymentSuccess');
-      if (success) { success.hidden = false; success.textContent = `🏦 ${result.instructions} Чек отправьте боту для ручной проверки.`; }
+      if (success) { success.hidden = false; success.textContent = `🏦 ${result.instructions} Чек отправьте боту для подтверждения оплаты.`; }
       if (result.botUrl) {
         if (telegramWebApp?.openTelegramLink) telegramWebApp.openTelegramLink(result.botUrl);
         else window.open(result.botUrl, '_blank', 'noopener,noreferrer');
@@ -553,6 +610,12 @@
   const giftPremiumFields = $('#giftPremiumFields');
   let giftCatalogLoaded = false;
   let giftCatalogLoading = false;
+  let lastGiftQuoteKey = '';
+  const invalidateGiftQuote = () => {
+    lastGiftQuoteKey = '';
+    if ($('#giftQuote')) $('#giftQuote').hidden = true;
+    if ($('#giftSuccess')) $('#giftSuccess').hidden = true;
+  };
   const updateGiftFields = () => {
     const starGift = giftType?.value === 'star_gift';
     const premium = giftType?.value === 'premium';
@@ -596,7 +659,9 @@
     if (giftCatalogRetry) giftCatalogRetry.hidden = false;
   };
   giftCatalogRetry?.addEventListener('click', loadGiftCatalog);
-  giftType?.addEventListener('change', () => { updateGiftFields(); if (giftType.value === 'star_gift') loadGiftCatalog(); });
+  giftType?.addEventListener('change', () => { invalidateGiftQuote(); updateGiftFields(); if (giftType.value === 'star_gift') loadGiftCatalog(); });
+  giftCatalog?.addEventListener('change', invalidateGiftQuote);
+  ['giftUsername', 'giftQuantity', 'giftMonths'].forEach((id) => $(`#${id}`)?.addEventListener('input', invalidateGiftQuote));
   updateGiftFields();
   const giftPayload = () => ({
     type: giftType?.value || 'star_gift',
@@ -618,51 +683,69 @@
   $('#giftQuoteButton')?.addEventListener('click', async () => {
     const button = $('#giftQuoteButton');
     button.disabled = true;
+    lastGiftQuoteKey = '';
     setGiftQuoteStatus('Проверяем получателя и загружаем актуальную цену…', 'loading');
-    const result = await apiRequest('/api/v1/gifts/quote', { method: 'POST', body: JSON.stringify(giftPayload()), timeoutMs: 15000 });
-    button.disabled = false;
-    const box = $('#giftQuote');
-    if (result?.quote) {
-      const recipient = result.recipient?.eligible ? 'Получатель доступен' : `Получатель: ${result.recipient?.reason || 'проверка не пройдена'}`;
-      const balance = result.balancePayment
-        ? `<strong>С баланса: ${escapeHtml(String(result.balancePayment.amount))} ₽</strong>`
-        : '<small>Оплата с баланса пока недоступна.</small>';
-      box.classList.remove('gift-quote-error', 'gift-quote-loading');
-      box.innerHTML = `${balance}<br />${escapeHtml(recipient)}`;
-      box.hidden = false;
-      return;
+    try {
+      const result = await apiRequest('/api/v1/gifts/quote', { method: 'POST', body: JSON.stringify(giftPayload()), timeoutMs: 15000 });
+      const box = $('#giftQuote');
+      if (result?.quote) {
+        lastGiftQuoteKey = result.offerKey || '';
+        const verifiedUsername = result.recipient?.username || $('#giftUsername')?.value.trim() || 'получатель';
+        const recipient = result.recipient?.eligible
+          ? `Получатель проверен: @${verifiedUsername.replace(/^@+/, '')}`
+          : `Получатель: ${result.recipient?.reason || 'проверка не пройдена'}`;
+        const title = result.quote.title ? `<strong>${escapeHtml(result.quote.title)}</strong>` : '';
+        const stars = Number(result.quote.stars || 0) > 0 ? `Цена Telegram: ${escapeHtml(String(result.quote.stars))} Stars` : '';
+        const balance = result.balancePayment
+          ? `<strong>К списанию с баланса: ${escapeHtml(String(result.balancePayment.amount))} ₽</strong>`
+          : '<small>Оплата с внутреннего баланса пока недоступна.</small>';
+        box.classList.remove('gift-quote-error', 'gift-quote-loading');
+        box.innerHTML = `${title ? `${title}<br />` : ''}${escapeHtml(recipient)}${stars ? `<br />${escapeHtml(stars)}` : ''}<br />${balance}`;
+        box.hidden = false;
+        return;
+      }
+      const message = result?.message || (result?.status === 401
+        ? 'Откройте форму из Telegram Web App для проверки получателя.'
+        : result?.status === 503
+          ? 'Telegram userbot временно недоступен. Повторите попытку через несколько секунд.'
+          : 'Проверьте username получателя и выбранный товар.');
+      setGiftQuoteStatus(message, 'error');
+    } catch (error) {
+      setGiftQuoteStatus(error?.message || 'Не удалось проверить получателя и цену.', 'error');
+    } finally {
+      button.disabled = false;
     }
-    const message = result?.message || (result?.status === 401
-      ? 'Откройте форму из Telegram Web App для проверки получателя.'
-      : result?.status === 503
-        ? 'Telegram userbot временно недоступен. Повторите попытку через несколько секунд.'
-        : 'Проверьте username получателя и выбранный товар.');
-    setGiftQuoteStatus(message, 'error');
   });
   $('#giftForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const button = event.currentTarget.querySelector('button[type="submit"]');
     button.disabled = true;
-    const result = await apiRequest('/api/v1/gifts/orders', { method: 'POST', body: JSON.stringify(giftPayload()) });
-    button.disabled = false;
-    if (result?.id) {
-      $('#giftSuccess').textContent = '✓ Заказ создан. Подарок будет доставлен получателю.';
-      $('#giftSuccess').hidden = false;
-      showToast('Подарок оформлен');
-      return;
+    try {
+      const payload = { ...giftPayload(), ...(lastGiftQuoteKey ? { offer_key: lastGiftQuoteKey } : {}) };
+      const result = await apiRequest('/api/v1/gifts/orders', { method: 'POST', body: JSON.stringify(payload) });
+      if (result?.id) {
+        $('#giftSuccess').textContent = '✓ Заказ создан. Подарок будет доставлен получателю.';
+        $('#giftSuccess').hidden = false;
+        showToast('Подарок оформлен');
+        return;
+      }
+      if (result?.status === 402) {
+        closeDialog($('#giftDialog'));
+        showToast('Недостаточно средств. Пополните баланс.');
+        requestAnimationFrame(() => openDialog('topupDialog'));
+        return;
+      }
+      const message = result?.message || (result?.status === 401
+        ? 'Откройте личный кабинет Telegram.'
+        : result?.status === 422
+          ? 'Оплата с баланса пока недоступна.'
+          : 'Не удалось оформить подарок. Проверьте цену и получателя.');
+      setGiftQuoteStatus(message, 'error');
+    } catch (error) {
+      setGiftQuoteStatus(error?.message || 'Не удалось оформить подарок.', 'error');
+    } finally {
+      button.disabled = false;
     }
-    if (result?.status === 402) {
-      closeDialog($('#giftDialog'));
-      showToast('Недостаточно средств. Пополните баланс.');
-      requestAnimationFrame(() => openDialog('topupDialog'));
-      return;
-    }
-    const message = result?.message || (result?.status === 401
-      ? 'Откройте личный кабинет Telegram.'
-      : result?.status === 422
-        ? 'Оплата с баланса пока недоступна.'
-        : 'Не удалось оформить подарок. Проверьте цену и получателя.');
-    setGiftQuoteStatus(message, 'error');
   });
 
   $('#clearDemoButton')?.addEventListener('click', () => {
@@ -711,7 +794,8 @@
     } else if (result?.user) {
       renderWebAppProfile(result.user);
     }
-    const storedAuth = JSON.parse(localStorage.getItem(authKey) || 'null');
+    let storedAuth = null;
+    try { storedAuth = JSON.parse(localStorage.getItem(authKey) || 'null'); } catch { storedAuth = null; }
     if (!storedAuth?.token) {
       $('#webappPanel')?.setAttribute('hidden', '');
       showToast('Откройте приложение кнопкой из Telegram для авторизации');
@@ -721,8 +805,15 @@
     await syncInbox();
     if (requestedPayment === 'reveal') openDialog('revealDialog');
     if (requestedPayment === 'vip') openDialog('paymentDialog');
-    if (requestedPayment === 'balance') openDialog('topupDialog');
-    if (requestedPayment === 'gift') { openDialog('giftDialog'); loadGiftCatalog(); }
+    if (requestedPayment === 'balance' || requestedPayment === 'topup') openDialog('topupDialog');
+    if (requestedPayment === 'gift') {
+      if (['star_gift', 'stars', 'premium'].includes(requestedGiftType)) {
+        giftType.value = requestedGiftType;
+        updateGiftFields();
+      }
+      openDialog('giftDialog');
+      loadGiftCatalog();
+    }
     if (requestedReply) {
       $('#replyText').value = '';
       openDialog('replyDialog');
