@@ -148,11 +148,29 @@ async function loadState() {
     if (Array.isArray(snapshot.blockedSenders)) { blockedSenders.clear(); snapshot.blockedSenders.forEach(([id, fingerprints]) => blockedSenders.set(id, new Set(fingerprints || []))); }
     if (Array.isArray(snapshot.mystarsOrders)) { mystarsOrders.clear(); snapshot.mystarsOrders.forEach(([id, order]) => mystarsOrders.set(id, order)); }
     for (const user of users.values()) ensurePublicLink(user);
+    purgeDemoDataIfDisabled();
     console.log(`[store] loaded ${users.size} users, ${messages.size} messages via ${devStore ? 'SQLite' : 'JSON'}`);
   } catch (error) {
     if (error.code !== 'ENOENT') console.error('[store] load failed:', error.message);
     schedulePersist();
   }
+}
+
+function purgeDemoDataIfDisabled() {
+  if (DEMO_MODE) return;
+  const demoUserIds = new Set([...users.values()]
+    .filter((user) => user.id === DEMO_RECIPIENT_ID || userIdentities(user).some((identity) => identity.provider === 'telegram' && identity.providerUserId === DEMO_RECIPIENT_ID))
+    .map((user) => user.id));
+  const demoLinkIds = new Set([...publicLinks.values()].filter((link) => demoUserIds.has(link.userId)).map((link) => link.id));
+  const demoLinkSlugs = new Set([...publicLinks.values()].filter((link) => demoUserIds.has(link.userId)).map((link) => link.slug));
+  for (const slug of demoLinkSlugs) publicLinks.delete(slug);
+  for (const [id, message] of messages) if (demoLinkIds.has(message.publicLinkId) || String(id).startsWith('demo-') || demoUserIds.has(message.userId)) messages.delete(id);
+  for (const userId of demoUserIds) {
+    users.delete(userId);
+    retentionSettings.delete(userId);
+  }
+  schedulePersist();
+  console.warn(`[store] removed ${demoUserIds.size} demo account(s) because DEMO_MODE=false`);
 }
 
 const fallbackDailyMessages = {
@@ -391,17 +409,23 @@ function consumeWebAuthToken(token) {
   return { user, token: sessionToken };
 }
 
-// A small shared fixture makes the Web App and public page demonstrable before
-// credentials/database are configured. Production starts with an empty database.
-const demoAccount = completeAuth('telegram', DEMO_RECIPIENT_ID, { displayName: DEMO_RECIPIENT_NAME, username: demoSlug() }).user;
-const demoLink = ensurePublicLink(demoAccount, demoSlug());
-for (const [text, hoursAgo, mood] of [
-  ['Ты очень классно справляешься. Просто хотела, чтобы ты это знала 🤍', 2, 'pink'],
-  ['Кажется, ты мне нравишься. Давно хотел сказать.', 8, 'yellow'],
-  ['Спасибо, что однажды поддержала меня. Я этого не забыл.', 72, 'lilac']
-]) {
-  const id = `demo-${messages.size + 1}`;
-  messages.set(id, { id, publicLinkId: demoLink.id, body: text, text, source: 'telegram', senderAvailable: false, unread: hoursAgo < 24, saved: false, createdAt: new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString(), time: hoursAgo < 24 ? 'сегодня, 12:44' : hoursAgo < 48 ? 'вчера, 20:18' : '12 марта, 09:02', mood });
+// Demo data is seeded after persisted state has loaded, and only in DEMO_MODE.
+// Production must never create the demo account or its messages.
+function seedDemoData() {
+  if (!DEMO_MODE) return;
+  const demoAccount = [...users.values()].find((user) => user.id === DEMO_RECIPIENT_ID || userIdentities(user).some((identity) => identity.provider === 'telegram' && identity.providerUserId === DEMO_RECIPIENT_ID))
+    || completeAuth('telegram', DEMO_RECIPIENT_ID, { displayName: DEMO_RECIPIENT_NAME, username: demoSlug() }).user;
+  const demoLink = ensurePublicLink(demoAccount, demoSlug());
+  if ([...messages.keys()].some((id) => String(id).startsWith('demo-'))) return;
+  for (const [text, hoursAgo, mood] of [
+    ['Ты очень классно справляешься. Просто хотела, чтобы ты это знала 🤍', 2, 'pink'],
+    ['Кажется, ты мне нравишься. Давно хотел сказать.', 8, 'yellow'],
+    ['Спасибо, что однажды поддержала меня. Я этого не забыл.', 72, 'lilac']
+  ]) {
+    const id = `demo-${messages.size + 1}`;
+    messages.set(id, { id, publicLinkId: demoLink.id, body: text, text, source: 'telegram', senderAvailable: false, unread: hoursAgo < 24, saved: false, createdAt: new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString(), time: hoursAgo < 24 ? 'сегодня, 12:44' : hoursAgo < 48 ? 'вчера, 20:18' : '12 марта, 09:02', mood });
+  }
+  schedulePersist();
 }
 
 function buildWebAppUrl(query = {}) {
@@ -646,7 +670,7 @@ function botText(language, key) {
 
 function platformLinks(user = null) {
   const site = new URL(WEB_APP_URL).origin;
-  const slug = user ? ensurePublicLink(user).slug : demoSlug();
+  const slug = user ? ensurePublicLink(user).slug : (DEMO_MODE ? demoSlug() : '');
   return {
     telegram: `https://t.me/${TELEGRAM_BOT_USERNAME}`,
     telegramReferral: `https://t.me/${TELEGRAM_BOT_USERNAME}?start=ref_${encodeURIComponent(slug)}`,
@@ -1530,7 +1554,8 @@ function publicConfig() {
     telegramUrl: `https://t.me/${TELEGRAM_BOT_USERNAME}`,
     vkGroupId: VK_GROUP_ID,
     vkUrl: `https://vk.me/${VK_GROUP_ID}`,
-    defaultRecipientSlug: demoSlug(),
+    defaultRecipientSlug: DEMO_MODE ? demoSlug() : '',
+    demoMode: DEMO_MODE,
     paymentMethods: paymentProviderList()
   };
 }
@@ -1935,6 +1960,7 @@ async function bootstrap() {
   await loadDailyMessages();
   await telegramUserbot.start();
   await loadState();
+  seedDemoData();
   setInterval(runDailyRetentionBroadcast, RETENTION_INTERVAL_MS).unref();
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`Послания listening on http://0.0.0.0:${PORT}`);

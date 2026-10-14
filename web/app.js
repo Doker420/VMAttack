@@ -11,7 +11,12 @@
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
   const getStoredMessages = () => {
-    try { return JSON.parse(localStorage.getItem(demoKey)) || defaultMessages; } catch { return defaultMessages; }
+    try {
+      const stored = JSON.parse(localStorage.getItem(demoKey));
+      return Array.isArray(stored) ? stored : [];
+    } catch {
+      return [];
+    }
   };
   let messages = getStoredMessages();
   let toastTimer;
@@ -33,7 +38,8 @@
     telegramUsername: '',
     telegramUrl: '',
     vkGroupId: '',
-    vkUrl: ''
+    vkUrl: '',
+    demoMode: false
   };
   let profileSlug = recipientSlug;
   const publicSiteOrigin = () => {
@@ -82,7 +88,17 @@
 
   async function loadAppConfig() {
     const result = await apiRequest('/api/v1/config');
-    if (!result?.__error) Object.assign(appConfig, result);
+    if (!result?.__error) {
+      Object.assign(appConfig, result);
+      const hasDemoMessages = messages.some((message) => !message.id || String(message.id).startsWith('demo-'));
+      if (appConfig.demoMode && !localStorage.getItem(demoKey) && !messages.length) {
+        messages = defaultMessages;
+        persistMessages();
+      } else if (!appConfig.demoMode && hasDemoMessages) {
+        messages = [];
+        localStorage.removeItem(demoKey);
+      }
+    }
     if (!recipientSlug) recipientSlug = appConfig.defaultRecipientSlug || '';
     return appConfig;
   }
@@ -596,6 +612,12 @@
       renderWebAppProfile(result.user);
     } else if (result?.user) {
       renderWebAppProfile(result.user);
+    }
+    const storedAuth = JSON.parse(localStorage.getItem(authKey) || 'null');
+    if (!storedAuth?.token) {
+      $('#webappPanel')?.setAttribute('hidden', '');
+      showToast('Откройте приложение кнопкой из Telegram для авторизации');
+      return;
     }
     await syncProfile();
     await syncInbox();
