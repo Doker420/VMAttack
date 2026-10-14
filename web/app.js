@@ -39,6 +39,16 @@
     try { return new URL(appConfig.siteUrl || window.location.origin).origin; } catch { return window.location.origin; }
   };
   const personalLink = (slug = profileSlug) => `${publicSiteOrigin()}/?ref=${encodeURIComponent(slug)}`;
+  const personalWebAppLink = (slug = profileSlug) => {
+    try {
+      const url = new URL(appConfig.webAppUrl || `${publicSiteOrigin()}/?app=1`, window.location.origin);
+      url.searchParams.set('app', '1');
+      url.searchParams.set('ref', slug);
+      return url.toString();
+    } catch {
+      return `${publicSiteOrigin()}/?app=1&ref=${encodeURIComponent(slug)}`;
+    }
+  };
 
   async function apiRequest(path, options = {}) {
     try {
@@ -176,8 +186,11 @@
     if (!result?.link?.slug) return result;
     profileSlug = result.link.slug;
     const link = personalLink();
+    const webAppLink = personalWebAppLink();
     const shortLink = link.replace(/^https?:\/\//, '');
-    ['webappPersonalLink', 'dashboardPersonalLink'].forEach((id) => { if ($(`#${id}`)) $(`#${id}`).textContent = shortLink; });
+    const shortWebAppLink = webAppLink.replace(/^https?:\/\//, '');
+    if ($('#webappPersonalLink')) $('#webappPersonalLink').textContent = shortWebAppLink;
+    if ($('#dashboardPersonalLink')) $('#dashboardPersonalLink').textContent = shortLink;
     ['webappReferralText', 'profileReferralText'].forEach((id) => { if ($(`#${id}`)) $(`#${id}`).innerHTML = `Напиши мне анонимно 💌<br />Оставь послание здесь: ${escapeHtml(shortLink)}`; });
     if ($('#webappTelegramReferral')) $('#webappTelegramReferral').href = `${appConfig.telegramUrl}?start=ref_${encodeURIComponent(profileSlug)}`;
     if ($('#webappVkReferral')) $('#webappVkReferral').href = `${appConfig.vkUrl}?ref=ref_${encodeURIComponent(profileSlug)}`;
@@ -576,7 +589,7 @@
     if (telegramWebApp) telegramWebApp.close();
     else document.body.classList.remove('telegram-webapp');
   });
-  $('#webappShareButton')?.addEventListener('click', () => copyText(personalLink(), 'Ссылка скопирована'));
+  $('#webappShareButton')?.addEventListener('click', () => copyText(personalWebAppLink(), 'Ссылка Web App скопирована'));
   $('#webappRefreshButton')?.addEventListener('click', () => syncInbox().then(() => showToast('Ящик обновлён')));
   $('#webappVipButton')?.addEventListener('click', () => openDialog('paymentDialog'));
   $('#webappTopupButton')?.addEventListener('click', () => openDialog('topupDialog'));
