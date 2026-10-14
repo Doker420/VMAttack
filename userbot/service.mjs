@@ -144,9 +144,12 @@ export function createTelegramUserbot({ enabled, apiId, apiHash, session, appUrl
     if (gift.type === 'stars') {
       const options = await withTimeout(client.invoke(new Api.payments.GetStarsGiftOptions({ userId: user })), 10000, 'Telegram Stars gift options');
       const matching = (options || []).filter((candidate) => Number(candidate.stars) === Number(gift.quantity));
-      const option = matching.find((candidate) => String(candidate.currency).toUpperCase() === 'XTR');
-      if (!option) throw new Error('Telegram Stars payment option is not available for this recipient');
-      const costStars = Number(option.amount);
+      // StarsGiftOption.amount is a fiat smallest-unit value for native options.
+      // Only XTR amount is already a Stars cost; never turn RUB kopecks into Stars.
+      const option = matching.find((candidate) => String(candidate.currency).toUpperCase() === 'XTR') || matching[0];
+      if (!option) throw new Error('Telegram Stars gift option is not available for this recipient');
+      const isXtr = String(option.currency).toUpperCase() === 'XTR';
+      const costStars = isXtr ? Number(option.amount) : Number(option.stars);
       return { type: gift.type, title: `${gift.quantity} Telegram Stars`, giftStars: Number(option.stars), costStars, priceCurrency: option.currency, priceAmount: Number(option.amount), option };
     }
     const options = await withTimeout(client.invoke(new Api.payments.GetPremiumGiftCodeOptions({})), 10000, 'Telegram Premium options');

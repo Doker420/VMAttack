@@ -80,8 +80,9 @@
       if (response.status === 401 && retryAuth && telegramWebApp?.initData && !path.includes('/auth/telegram/webapp')) {
         if (await refreshTelegramSession()) return apiRequest(path, options, false);
       }
-      if (!response.ok) return { __error: true, status: response.status };
-      return await response.json();
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) return { ...payload, __error: true, status: response.status };
+      return payload;
     } catch {
       return { __error: true, status: 0 };
     } finally {
@@ -605,10 +606,20 @@
     months: Number($('#giftMonths')?.value || 3),
     payment_method: 'balance'
   });
+  const setGiftQuoteStatus = (message, tone = 'info') => {
+    const box = $('#giftQuote');
+    if (!box) return;
+    box.classList.remove('gift-quote-error', 'gift-quote-loading');
+    if (tone === 'error') box.classList.add('gift-quote-error');
+    if (tone === 'loading') box.classList.add('gift-quote-loading');
+    box.innerHTML = escapeHtml(message);
+    box.hidden = false;
+  };
   $('#giftQuoteButton')?.addEventListener('click', async () => {
     const button = $('#giftQuoteButton');
     button.disabled = true;
-    const result = await apiRequest('/api/v1/gifts/quote', { method: 'POST', body: JSON.stringify(giftPayload()) });
+    setGiftQuoteStatus('Проверяем получателя и загружаем актуальную цену…', 'loading');
+    const result = await apiRequest('/api/v1/gifts/quote', { method: 'POST', body: JSON.stringify(giftPayload()), timeoutMs: 15000 });
     button.disabled = false;
     const box = $('#giftQuote');
     if (result?.quote) {
@@ -616,11 +627,17 @@
       const balance = result.balancePayment
         ? `<strong>С баланса: ${escapeHtml(String(result.balancePayment.amount))} ₽</strong>`
         : '<small>Оплата с баланса пока недоступна.</small>';
+      box.classList.remove('gift-quote-error', 'gift-quote-loading');
       box.innerHTML = `${balance}<br />${escapeHtml(recipient)}`;
       box.hidden = false;
       return;
     }
-    showToast(result?.__error ? 'Не удалось получить цену подарка' : 'Проверьте получателя');
+    const message = result?.message || (result?.status === 401
+      ? 'Откройте форму из Telegram Web App для проверки получателя.'
+      : result?.status === 503
+        ? 'Telegram userbot временно недоступен. Повторите попытку через несколько секунд.'
+        : 'Проверьте username получателя и выбранный товар.');
+    setGiftQuoteStatus(message, 'error');
   });
   $('#giftForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -640,7 +657,12 @@
       requestAnimationFrame(() => openDialog('topupDialog'));
       return;
     }
-    showToast(result?.status === 401 ? 'Откройте личный кабинет Telegram' : result?.status === 422 ? 'Оплата с баланса пока недоступна' : 'Не удалось оформить подарок');
+    const message = result?.message || (result?.status === 401
+      ? 'Откройте личный кабинет Telegram.'
+      : result?.status === 422
+        ? 'Оплата с баланса пока недоступна.'
+        : 'Не удалось оформить подарок. Проверьте цену и получателя.');
+    setGiftQuoteStatus(message, 'error');
   });
 
   $('#clearDemoButton')?.addEventListener('click', () => {
