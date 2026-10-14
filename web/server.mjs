@@ -691,8 +691,8 @@ function platformLinks(user = null) {
   const slug = user ? ensurePublicLink(user).slug : (DEMO_MODE ? demoSlug() : '');
   return {
     telegram: `https://t.me/${TELEGRAM_BOT_USERNAME}`,
-    // Telegram's startapp deep link opens the Main Mini App directly without a bot Start step.
-    telegramReferral: `https://t.me/${TELEGRAM_BOT_USERNAME}?startapp=ref_${encodeURIComponent(slug)}`,
+    // Use the regular bot deep link: Telegram opens the bot and delivers /start ref_<slug>.
+    telegramReferral: `https://t.me/${TELEGRAM_BOT_USERNAME}?start=ref_${encodeURIComponent(slug)}`,
     vk: `https://vk.me/${VK_GROUP_ID}`,
     vkReferral: `https://vk.me/${VK_GROUP_ID}?ref=ref_${encodeURIComponent(slug)}`,
     site,
@@ -717,9 +717,9 @@ function profileInstructions(language = 'ru', user = null, channel = 'telegram')
   const safeSiteReferral = escapeTelegramHtml(links.siteReferral);
   if (language === 'en') {
     const englishPlatform = isVk ? 'VK' : 'Telegram';
-    return `<b>📌 Personal profile link: ${englishPlatform}</b>\n\nAdd this personal referral link to your profile:\n<a href="${safeReferral}">${safeReferral}</a>\n\n<b>🌐 Personal website link</b>\n<a href="${safeSiteReferral}">${safeSiteReferral}</a>\n\n<b>Ready-to-post text:</b>\nSend me an anonymous message 💌\nLeave it here:\n${safeSiteReferral}\n\nThis link opens your inbox directly.`;
+    return `<b>📌 Personal profile link: ${englishPlatform}</b>\n\nAdd this personal referral link to your profile:\n<a href="${safeReferral}">${safeReferral}</a>\n\n<b>🌐 Personal website link</b>\n<a href="${safeSiteReferral}">${safeSiteReferral}</a>\n\n<b>Ready-to-post text:</b>\nSend me an anonymous message 💌\nLeave it here:\n${safeSiteReferral}\n\nThe Telegram link opens the bot and accepts the message directly in chat.`;
   }
-  return `<b>📌 Персональная ссылка в профиль: ${platform}</b>\n\nДобавьте в профиль именно эту реферальную ссылку:\n<a href="${safeReferral}">${safeReferral}</a>\n\n<b>🌐 Персональная ссылка на сайт</b>\n<a href="${safeSiteReferral}">${safeSiteReferral}</a>\n\n<b>Готовый текст для профиля:</b>\nНапиши мне анонимно 💌\nОставь послание здесь:\n${safeSiteReferral}\n\nЭта ссылка сразу открывает ваш ящик для посланий.`;
+    return `<b>📌 Персональная ссылка в профиль: ${platform}</b>\n\nДобавьте в профиль именно эту реферальную ссылку:\n<a href="${safeReferral}">${safeReferral}</a>\n\n<b>🌐 Персональная ссылка на сайт</b>\n<a href="${safeSiteReferral}">${safeSiteReferral}</a>\n\n<b>Готовый текст для профиля:</b>\nНапиши мне анонимно 💌\nОставь послание здесь:\n${safeSiteReferral}\n\nTelegram-ссылка открывает бот и принимает послание прямо в чате.`;
 }
 
 function languageKeyboard() {
@@ -1477,6 +1477,10 @@ async function handleTelegramCallback(callback) {
     return sendTelegramMessage(chatId, '💌 Отправьте свою ссылку друзьям. Новые сообщения появятся в ящике и в боте.\n\nVIP: 20 ₽ / 7 дней. Раскрытие отправителя: 7 ₽.', { reply_markup: botMenuKeyboard(user.language) });
   }
   if (data === 'menu:home' || data === 'app') {
+    if (data === 'menu:home' && user.awaitingDirectMessageSlug) {
+      delete user.awaitingDirectMessageSlug;
+      schedulePersist();
+    }
     await answerCallback(callback.id);
     return sendBotMenu(user, chatId);
   }
@@ -1604,6 +1608,33 @@ async function handleTelegramGroupMessage(message) {
   return sendTelegramMessage(chatId, '💌 Откройте свой ящик в Web App.', { reply_markup: { inline_keyboard: [[{ text: 'Открыть Web App 💌', web_app: { url: buildWebAppUrl() } }]] } });
 }
 
+async function deliverDirectTelegramMessage(user, recipientSlug, text) {
+  const link = publicLinks.get(String(recipientSlug || '').toLowerCase());
+  const cleanText = String(text || '').trim();
+  if (!link || !link.isActive) return { ok: false, reason: 'link_not_found' };
+  if (cleanText.length < 3 || cleanText.length > 500) return { ok: false, reason: 'message_length' };
+  const providerUserId = telegramChatId(user);
+  const message = {
+    id: randomUUID(),
+    publicLinkId: link.id,
+    body: cleanText,
+    text: cleanText,
+    source: 'telegram-bot',
+    senderAvailable: true,
+    sender: { fingerprint: `telegram:${providerUserId}`, provider: 'telegram', providerUserId, displayName: user.displayName, username: user.username },
+    unread: true,
+    saved: false,
+    createdAt: new Date().toISOString(),
+    time: 'только что',
+    mood: 'pink'
+  };
+  messages.set(message.id, message);
+  schedulePersist();
+  const owner = users.get(link.userId);
+  if (owner) await notifyNewMessage(owner, message);
+  return { ok: true, message };
+}
+
 async function handleTelegramUpdate(update) {
   if (update.my_chat_member) return handleTelegramGroupMember(update);
   if (update.callback_query) return handleTelegramCallback(update.callback_query);
@@ -1656,9 +1687,21 @@ async function handleTelegramUpdate(update) {
     const referralSlug = referralMatch[1].toLowerCase().replace(/[^a-zа-яё0-9_-]/gi, '');
     if (!referralSlug) return sendBotMenu(user, chatId);
     user.activeRecipientSlug = referralSlug;
+    user.awaitingDirectMessageSlug = referralSlug;
     schedulePersist();
-    if (!user.language) return sendStartLanguage(chatId, 'ru', user);
-    return sendBotMenu(user, chatId, user.language === 'en' ? 'You opened a personal message link. Send an anonymous message in the Web App 💌' : 'Вы открыли персональную ссылку. Отправьте анонимное послание в Web App 💌', { withBanner: true, recipientSlug: user.activeRecipientSlug });
+    return sendTelegramMessage(chatId, '💌 Напишите послание одним сообщением — оно будет отправлено анонимно.', { reply_markup: { inline_keyboard: [[{ text: 'Отмена', callback_data: 'menu:home' }]] } });
+  }
+  if (user.awaitingDirectMessageSlug && text && !text.startsWith('/')) {
+    const directResult = await deliverDirectTelegramMessage(user, user.awaitingDirectMessageSlug, text);
+    if (directResult.ok) {
+      delete user.awaitingDirectMessageSlug;
+      schedulePersist();
+      return sendTelegramMessage(chatId, '✅ Послание отправлено анонимно.', { reply_markup: botMenuKeyboard(user.language || 'ru') });
+    }
+    if (directResult.reason === 'message_length') return sendTelegramMessage(chatId, 'Послание должно содержать от 3 до 500 символов. Попробуйте ещё раз.');
+    delete user.awaitingDirectMessageSlug;
+    schedulePersist();
+    return sendTelegramMessage(chatId, 'Не удалось найти получателя. Откройте актуальную персональную ссылку ещё раз.');
   }
   if (isTelegramAdmin(chatId) && adminBroadcastMode.has(String(chatId)) && text !== '/cancel' && !text.startsWith('/')) {
     adminBroadcastMode.delete(String(chatId));
