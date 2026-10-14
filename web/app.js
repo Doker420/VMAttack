@@ -18,8 +18,9 @@
   let pendingAuthProvider = null;
   let pendingAuthChallenge = null;
   const queryParams = new URLSearchParams(window.location.search);
-  let activeMessageId = queryParams.get('messageId') || null;
+  let activeMessageId = queryParams.get('messageId') || queryParams.get('replyMessageId') || null;
   const requestedPayment = queryParams.get('payment') || '';
+  const requestedReply = queryParams.get('replyMessageId') || '';
   const telegramWebApp = window.Telegram?.WebApp || null;
   const appModeRequested = queryParams.get('app') === '1';
   const isTelegramWebApp = Boolean(telegramWebApp?.initData || appModeRequested);
@@ -98,6 +99,19 @@
     localStorage.setItem(demoKey, JSON.stringify(messages));
   }
 
+  function messageActionsMarkup(message) {
+    const id = escapeHtml(message.id || '');
+    const blockLabel = message.blocked ? 'Заблокирован' : 'Заблокировать';
+    const replyStatus = message.replyDelivery?.status === 'unavailable'
+      ? '<small class="reply-status">Ответ сохранён. Канал отправителю недоступен.</small>'
+      : message.replyDelivery?.status === 'delivered'
+        ? '<small class="reply-status">Ответ доставлен отправителю.</small>'
+        : message.reply
+          ? '<small class="reply-status">Ответ сохранён.</small>'
+          : '';
+    return `<div class="message-actions"><button type="button" data-reply data-message-id="${id}">Ответить</button><button type="button" data-reveal-sender data-message-id="${id}">Узнать кто · 7 ₽</button><button type="button" data-block data-message-id="${id}" ${message.blocked ? 'disabled' : ''}>${blockLabel}</button>${replyStatus}</div>`;
+  }
+
   function renderInbox() {
     const list = $('#inboxList');
     if (!list) return;
@@ -107,7 +121,7 @@
       list.innerHTML = messages.map((message) => `
         <article class="inbox-item ${message.unread ? 'unread' : ''}">
           <div class="message-avatar avatar-${message.mood || 'pink'}">${message.mood === 'yellow' ? '✦' : message.mood === 'lilac' ? '♡' : '?'}</div>
-          <div class="inbox-message"><div><strong>Анонимно</strong><time>${message.time}</time></div><p>${escapeHtml(message.text)}</p><div class="message-actions"><button type="button" data-reveal-sender data-message-id="${message.id || ''}">Узнать отправителя · 7 ₽</button><button type="button" data-save>Сохранить</button></div></div>
+          <div class="inbox-message"><div><strong>${message.sender?.username ? `@${escapeHtml(message.sender.username)}` : message.sender?.displayName ? escapeHtml(message.sender.displayName) : 'Анонимно'}</strong><time>${escapeHtml(message.time || '')}</time></div><p>${escapeHtml(message.text)}</p>${message.reply ? `<div class="message-reply"><strong>Ваш ответ:</strong><p>${escapeHtml(message.reply.text)}</p></div>` : ''}${messageActionsMarkup(message)}<div class="message-secondary-actions"><button type="button" data-save>Сохранить</button></div></div>
           ${message.unread ? '<span class="unread-dot"></span>' : ''}
         </article>`).join('');
     }
@@ -130,7 +144,7 @@
     list.innerHTML = messages.slice(0, 10).map((message) => `
       <article class="webapp-message ${message.unread ? 'unread' : ''}">
         <div class="message-avatar avatar-${message.mood || 'pink'}">${message.mood === 'yellow' ? '✦' : message.mood === 'lilac' ? '♡' : '?'}</div>
-        <div class="webapp-message-body"><div class="webapp-message-meta"><strong>Анонимно</strong><time>${escapeHtml(message.time || 'недавно')}</time></div><p>${escapeHtml(message.text)}</p></div>
+        <div class="webapp-message-body"><div class="webapp-message-meta"><strong>${message.sender?.username ? `@${escapeHtml(message.sender.username)}` : 'Анонимно'}</strong><time>${escapeHtml(message.time || 'недавно')}</time></div><p>${escapeHtml(message.text)}</p>${message.reply ? `<div class="message-reply"><strong>Ваш ответ:</strong><p>${escapeHtml(message.reply.text)}</p></div>` : ''}${messageActionsMarkup(message)}</div>
         ${message.unread ? '<span class="unread-dot"></span>' : ''}
       </article>`).join('');
   }
@@ -186,7 +200,7 @@
     }
     const result = await apiRequest(`/api/v1/links/${encodeURIComponent(recipientSlug)}/messages`, { method: 'POST', body: JSON.stringify({ text: cleanText, channel: 'web' }) });
     if (result?.__error) {
-      showToast(result.status === 404 ? 'Ссылка получателя не найдена' : 'Не удалось отправить. Попробуйте ещё раз');
+      showToast(result.status === 404 ? 'Ссылка получателя не найдена' : result.status === 403 ? 'Отправитель заблокирован владельцем ящика' : 'Не удалось отправить. Попробуйте ещё раз');
       return false;
     }
     if (result?.message) {
@@ -219,7 +233,7 @@
   }
 
   // All buttons that open a dialog use the same small event layer.
-  document.addEventListener('click', (event) => {
+  document.addEventListener('click', async (event) => {
     const openTrigger = event.target.closest('[data-open-dialog]');
     if (openTrigger) {
       event.preventDefault();
@@ -253,9 +267,31 @@
       openAuthFlow(pendingAuthProvider);
       return;
     }
-    if (event.target.matches('.message-actions button')) {
-      const button = event.target;
+    if (event.target.closest('.message-actions button, .message-secondary-actions button')) {
+      const button = event.target.closest('button');
       const item = button.closest('.inbox-item');
+      if (button.hasAttribute('data-reply')) {
+        activeMessageId = button.dataset.messageId || null;
+        $('#replyText').value = '';
+        $('#replyDeliveryHint').textContent = 'Если канал отправителя недоступен, ответ сохранится в карточке послания без обещания доставки.';
+        openDialog('replyDialog');
+        return;
+      }
+      if (button.hasAttribute('data-block')) {
+        const messageId = button.dataset.messageId || '';
+        const result = await apiRequest(`/api/v1/messages/${encodeURIComponent(messageId)}/block`, { method: 'POST', body: '{}' });
+        if (result?.blocked || result?.message?.blocked) {
+          const local = messages.find((message) => message.id === messageId);
+          if (local) local.blocked = true;
+          persistMessages();
+          renderInbox();
+          renderWebAppInbox();
+          showToast('Отправитель заблокирован');
+        } else {
+          showToast(result?.__error ? 'Не удалось заблокировать отправителя' : 'Для этого послания блокировка недоступна');
+        }
+        return;
+      }
       if (button.hasAttribute('data-reveal-sender')) {
         activeMessageId = button.dataset.messageId || null;
         openDialog('revealDialog');
@@ -361,6 +397,32 @@
     }, 4500);
   });
 
+  $('#replyForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = $('#replySubmitButton');
+    const text = $('#replyText').value.trim();
+    if (!activeMessageId || !text) {
+      showToast('Напишите ответ');
+      return;
+    }
+    button.disabled = true;
+    button.textContent = 'Отправляем…';
+    const result = await apiRequest(`/api/v1/messages/${encodeURIComponent(activeMessageId)}/reply`, { method: 'POST', body: JSON.stringify({ text }) });
+    button.disabled = false;
+    button.innerHTML = 'Отправить ответ <span>↗</span>';
+    if (result?.message) {
+      const index = messages.findIndex((message) => message.id === activeMessageId);
+      if (index >= 0) messages[index] = { ...messages[index], ...result.message };
+      persistMessages();
+      renderInbox();
+      renderWebAppInbox();
+      closeDialog($('#replyDialog'));
+      showToast(result.message.replyDelivery?.status === 'unavailable' ? 'Ответ сохранён: канал отправителю недоступен' : 'Ответ отправлен');
+      return;
+    }
+    showToast(result?.__error ? 'Не удалось отправить ответ' : 'Проверьте текст ответа');
+  });
+
   $('#fakePaymentButton')?.addEventListener('click', async () => {
     const button = $('#fakePaymentButton');
     button.disabled = true;
@@ -435,6 +497,10 @@
     await syncInbox();
     if (requestedPayment === 'reveal') openDialog('revealDialog');
     if (requestedPayment === 'vip') openDialog('paymentDialog');
+    if (requestedReply) {
+      $('#replyText').value = '';
+      openDialog('replyDialog');
+    }
   }
 
   $('#webappClose')?.addEventListener('click', () => {

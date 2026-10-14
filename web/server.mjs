@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { createHmac, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTelegramBot } from './telegram-bot.mjs';
@@ -38,6 +38,11 @@ const TELEGRAM_BOT_USERNAME = env('TELEGRAM_BOT_USERNAME', 'poslaniya_robot');
 const TELEGRAM_BOT_TOKEN = env('TELEGRAM_BOT_TOKEN');
 const TELEGRAM_ADMIN_IDS = env('TELEGRAM_ADMIN_IDS');
 const TELEGRAM_WEBHOOK_SECRET = env('TELEGRAM_WEBHOOK_SECRET');
+const TELEGRAM_GROUPS_ENABLED = env('TELEGRAM_GROUPS_ENABLED', 'true') === 'true';
+const TELEGRAM_GROUP_CHAT_IDS = env('TELEGRAM_GROUP_CHAT_IDS').split(',').map((id) => id.trim()).filter(Boolean);
+const TELEGRAM_STICKER_ID = env('TELEGRAM_STICKER_ID');
+const TELEGRAM_RECEIVED_STICKER_ID = env('TELEGRAM_RECEIVED_STICKER_ID', TELEGRAM_STICKER_ID);
+const TELEGRAM_SENT_STICKER_ID = env('TELEGRAM_SENT_STICKER_ID', TELEGRAM_STICKER_ID);
 const VK_GROUP_ID = env('VK_GROUP_ID', 'poslaniya_demo');
 const VK_GROUP_TOKEN = env('VK_GROUP_TOKEN');
 const VK_API_VERSION = env('VK_API_VERSION', '5.199');
@@ -65,6 +70,7 @@ const authResults = new Map();
 const sessions = new Map();
 const payments = new Map();
 const retentionSettings = new Map();
+const blockedSenders = new Map();
 const publicLinks = new Map();
 const messages = new Map();
 let persistenceTimer = null;
@@ -75,7 +81,8 @@ function currentSnapshot() {
     publicLinks: [...publicLinks.values()],
     messages: [...messages.values()],
     payments: [...payments.entries()],
-    retentionSettings: [...retentionSettings.entries()]
+    retentionSettings: [...retentionSettings.entries()],
+    blockedSenders: [...blockedSenders.entries()].map(([userId, fingerprints]) => [userId, [...fingerprints]])
   };
 }
 
@@ -110,6 +117,7 @@ async function loadState() {
     if (Array.isArray(snapshot.messages)) { messages.clear(); snapshot.messages.forEach((message) => messages.set(message.id, message)); }
     if (Array.isArray(snapshot.payments)) { payments.clear(); snapshot.payments.forEach(([id, payment]) => payments.set(id, payment)); }
     if (Array.isArray(snapshot.retentionSettings)) { retentionSettings.clear(); snapshot.retentionSettings.forEach(([id, settings]) => retentionSettings.set(id, settings)); }
+    if (Array.isArray(snapshot.blockedSenders)) { blockedSenders.clear(); snapshot.blockedSenders.forEach(([id, fingerprints]) => blockedSenders.set(id, new Set(fingerprints || []))); }
     for (const user of users.values()) ensurePublicLink(user);
     console.log(`[store] loaded ${users.size} users, ${messages.size} messages via ${devStore ? 'SQLite' : 'JSON'}`);
   } catch (error) {
@@ -194,6 +202,24 @@ async function readBody(req) {
 function getUserFromRequest(req) {
   const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   return token ? users.get(sessions.get(token)) : null;
+}
+
+function senderFingerprint(req) {
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  const address = forwarded || req.socket.remoteAddress || 'unknown';
+  const agent = String(req.headers['user-agent'] || 'unknown');
+  return createHash('sha256').update(`${address}|${agent}`).digest('hex');
+}
+
+function isSenderBlocked(userId, fingerprint) {
+  return Boolean(fingerprint && blockedSenders.get(userId)?.has(fingerprint));
+}
+
+function blockSender(userId, fingerprint) {
+  if (!fingerprint) return;
+  if (!blockedSenders.has(userId)) blockedSenders.set(userId, new Set());
+  blockedSenders.get(userId).add(fingerprint);
+  schedulePersist();
 }
 
 function verifyTelegramWebAppInitData(initData) {
@@ -364,6 +390,19 @@ async function sendTelegramMessage(chatId, text, options = true) {
   }
 }
 
+async function sendTelegramSticker(chatId, stickerId = TELEGRAM_STICKER_ID, options = false) {
+  if (!TELEGRAM_BOT_TOKEN || !chatId || !stickerId) return { skipped: true, reason: 'sticker is not configured' };
+  const payload = { chat_id: chatId, sticker: stickerId };
+  if (options?.reply_markup) payload.reply_markup = options.reply_markup;
+  try {
+    await telegramRequest('sendSticker', payload);
+    return { sent: true };
+  } catch (error) {
+    console.error('[telegram] sendSticker failed:', error.message);
+    return { sent: false, error: error.message };
+  }
+}
+
 async function sendTelegramPhoto(chatId, caption, options = true) {
   // Upload the local file instead of giving Telegram a URL. This works even when
   // the production site has a CDN, auth, redirect, or an unavailable /assets URL.
@@ -415,19 +454,54 @@ async function notifyUser(user, text) {
 function newMessageKeyboard(messageId) {
   return {
     inline_keyboard: [
-      [{ text: '🔎 Узнать отправителя · 7 ₽', web_app: { url: buildWebAppUrl({ payment: 'reveal', messageId }) } }],
+      [{ text: '↩ Ответить', web_app: { url: buildWebAppUrl({ replyMessageId: messageId }) } }],
+      [{ text: '🔎 Узнать отправителя · 7 ₽', web_app: { url: buildWebAppUrl({ payment: 'reveal', messageId }) } }, { text: '🚫 Заблокировать', callback_data: `block:${messageId}` }],
       [{ text: '💌 Открыть мой ящик', web_app: { url: buildWebAppUrl() } }]
     ]
   };
+}
+
+function messageForOwner(message, user) {
+  const revealed = Array.isArray(message.revealedFor) && message.revealedFor.includes(user.id);
+  const result = {
+    id: message.id,
+    publicLinkId: message.publicLinkId,
+    body: message.body,
+    text: message.text,
+    source: message.source,
+    senderAvailable: Boolean(message.senderAvailable),
+    unread: Boolean(message.unread),
+    saved: Boolean(message.saved),
+    createdAt: message.createdAt,
+    time: message.time,
+    mood: message.mood,
+    reply: message.reply || null,
+    replyDelivery: message.replyDelivery || null,
+    blocked: Boolean(message.sender?.fingerprint && isSenderBlocked(user.id, message.sender.fingerprint))
+  };
+  if (revealed && message.sender) {
+    result.sender = {
+      provider: message.sender.provider,
+      providerUserId: message.sender.providerUserId,
+      username: message.sender.username || null,
+      displayName: message.sender.displayName || null
+    };
+  }
+  return result;
 }
 
 async function notifyNewMessage(user, message) {
   const text = `💌 <b>Новое анонимное послание</b>\n\nТекст послания:\n«${escapeTelegramHtml(message.text)}»`;
   const deliveries = [];
   for (const identity of userIdentities(user)) {
-    deliveries.push(identity.provider === 'telegram'
-      ? sendTelegramMessage(identity.providerUserId, text, { reply_markup: newMessageKeyboard(message.id) })
-      : sendVkMessage(identity.providerUserId, text, true, buildWebAppUrl({ payment: 'reveal', messageId: message.id }), '🔎 Узнать отправителя · 7 ₽'));
+    if (identity.provider === 'telegram') {
+      deliveries.push((async () => {
+        await sendTelegramSticker(identity.providerUserId, TELEGRAM_RECEIVED_STICKER_ID);
+        return sendTelegramMessage(identity.providerUserId, text, { reply_markup: newMessageKeyboard(message.id) });
+      })());
+    } else {
+      deliveries.push(sendVkMessage(identity.providerUserId, text, true, buildWebAppUrl({ payment: 'reveal', messageId: message.id }), '🔎 Узнать отправителя · 7 ₽'));
+    }
   }
   return Promise.allSettled(deliveries);
 }
@@ -449,7 +523,7 @@ async function configureTelegramBot() {
   if (!TELEGRAM_BOT_TOKEN || !WEB_APP_URL.startsWith('https://')) return;
   const headers = { 'Content-Type': 'application/json' };
   const menuPayload = { menu_button: { type: 'web_app', text: 'Мой ящик 💌', web_app: { url: buildWebAppUrl() } } };
-  const commandsPayload = { commands: [{ command: 'start', description: 'Открыть Послания' }, { command: 'app', description: 'Открыть мой ящик' }, { command: 'settings', description: 'Настройки уведомлений' }] };
+  const commandsPayload = { commands: [{ command: 'start', description: 'Открыть Послания' }, { command: 'app', description: 'Открыть мой ящик' }, { command: 'link', description: 'Моя персональная ссылка' }, { command: 'daily', description: 'Послание дня' }, { command: 'help', description: 'Помощь' }, { command: 'settings', description: 'Настройки уведомлений' }] };
   await Promise.all([
     fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setChatMenuButton`, { method: 'POST', headers, body: JSON.stringify(menuPayload) }),
     fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setMyCommands`, { method: 'POST', headers, body: JSON.stringify(commandsPayload) })
@@ -697,6 +771,16 @@ async function handleTelegramCallback(callback) {
     await answerCallback(callback.id);
     return sendBotMenu(user, chatId);
   }
+  if (data.startsWith('block:')) {
+    const messageId = data.slice('block:'.length);
+    const message = messages.get(messageId);
+    const ownerLink = message && [...publicLinks.values()].find((link) => link.id === message.publicLinkId && link.userId === user.id);
+    if (!ownerLink) return answerCallback(callback.id, 'Послание не найдено');
+    if (!message.sender?.fingerprint) return answerCallback(callback.id, 'Для этого послания нет данных для блокировки');
+    blockSender(user.id, message.sender.fingerprint);
+    await answerCallback(callback.id, 'Отправитель заблокирован');
+    return sendTelegramMessage(chatId, '🚫 Отправитель заблокирован. Новые послания с этого устройства больше не будут приниматься.', { reply_markup: botMenuKeyboard(user.language) });
+  }
   if (data === 'pay:choose:reveal') {
     await answerCallback(callback.id);
     return sendRevealPicker(user, chatId);
@@ -731,10 +815,51 @@ async function handleTelegramCallback(callback) {
   return answerCallback(callback.id);
 }
 
+function isAllowedTelegramGroup(chatId) {
+  return TELEGRAM_GROUPS_ENABLED && (!TELEGRAM_GROUP_CHAT_IDS.length || TELEGRAM_GROUP_CHAT_IDS.includes(String(chatId)));
+}
+
+function telegramCommand(text) {
+  const match = String(text || '').trim().match(/^\/(start|app|link|daily|help)(?:@[^\s]+)?(?:\s|$)/i);
+  return match?.[1].toLowerCase() || null;
+}
+
+async function handleTelegramGroupMember(update) {
+  const change = update.my_chat_member;
+  const chat = change?.chat;
+  const status = change?.new_chat_member?.status;
+  const previousStatus = change?.old_chat_member?.status;
+  if (!chat || !['group', 'supergroup'].includes(chat.type) || !isAllowedTelegramGroup(chat.id)) return;
+  const joined = ['member', 'administrator'].includes(status) && !['member', 'administrator'].includes(previousStatus);
+  if (!joined) return;
+  return sendTelegramMessage(chat.id, `💌 <b>Послания здесь!</b>\n\nЯ помогу участникам делиться анонимными посланиями и открывать свой ящик. Используйте /app, /link, /daily или /help.`, { reply_markup: { inline_keyboard: [[{ text: 'Открыть Web App 💌', web_app: { url: buildWebAppUrl() } }]] } });
+}
+
+async function handleTelegramGroupMessage(message) {
+  const chatId = message.chat.id;
+  if (!isAllowedTelegramGroup(chatId)) return;
+  const command = telegramCommand(message.text);
+  if (!command) return;
+  const user = getTelegramUser(message);
+  if (command === 'daily') {
+    return sendTelegramMessage(chatId, `🎲 <b>${botText(user.language || 'ru', 'daily')}</b>\n\n${randomMessage(user.language || 'ru')}`, { reply_markup: { inline_keyboard: [[{ text: 'Открыть Web App 💌', web_app: { url: buildWebAppUrl() } }]] } });
+  }
+  if (command === 'link') {
+    const link = ensurePublicLink(user);
+    return sendTelegramMessage(chatId, `🔗 Ваша персональная ссылка:\n<a href="${escapeTelegramHtml(`${new URL(WEB_APP_URL).origin}/?ref=${encodeURIComponent(link.slug)}`)}">${escapeTelegramHtml(`${new URL(WEB_APP_URL).origin}/?ref=${encodeURIComponent(link.slug)}`)}</a>`, { reply_markup: { inline_keyboard: [[{ text: 'Открыть мой ящик 💌', web_app: { url: buildWebAppUrl({ ref: link.slug }) } }]] } });
+  }
+  if (command === 'help') {
+    return sendTelegramMessage(chatId, '💌 Команды группы:\n/start — приветствие\n/app — открыть Web App\n/link — получить персональную ссылку\n/daily — послание дня\n/help — эта справка', { reply_markup: { inline_keyboard: [[{ text: 'Открыть Web App 💌', web_app: { url: buildWebAppUrl() } }]] } });
+  }
+  return sendTelegramMessage(chatId, '💌 Откройте свой ящик в Web App.', { reply_markup: { inline_keyboard: [[{ text: 'Открыть Web App 💌', web_app: { url: buildWebAppUrl() } }]] } });
+}
+
 async function handleTelegramUpdate(update) {
+  if (update.my_chat_member) return handleTelegramGroupMember(update);
   if (update.callback_query) return handleTelegramCallback(update.callback_query);
   const message = update.message;
   if (!message?.chat) return;
+  if (['group', 'supergroup'].includes(message.chat.type)) return handleTelegramGroupMessage(message);
   const chatId = message.chat.id;
   const text = message.text || '';
   const user = getTelegramUser(message);
@@ -861,7 +986,10 @@ async function handleApi(req, res, url) {
     const user = getUserFromRequest(req);
     if (!user) return json(res, 401, { error: 'unauthorized' });
     const linkIds = new Set([...publicLinks.values()].filter((link) => link.userId === user.id).map((link) => link.id));
-    const inbox = [...messages.values()].filter((message) => linkIds.has(message.publicLinkId)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const inbox = [...messages.values()]
+      .filter((message) => linkIds.has(message.publicLinkId))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((message) => messageForOwner(message, user));
     return json(res, 200, { messages: inbox });
   }
   if (req.method === 'POST' && url.pathname === '/api/v1/links') {
@@ -885,31 +1013,79 @@ async function handleApi(req, res, url) {
     const cleanText = String(body.text || '').trim();
     if (!link || !link.isActive) return json(res, 404, { error: 'link_not_found' });
     if (cleanText.length < 3 || cleanText.length > 500) return json(res, 422, { error: 'message_length' });
-    const message = { id: randomUUID(), publicLinkId: link.id, body: cleanText, text: cleanText, source: body.channel || 'web', senderAvailable: false, unread: true, saved: false, createdAt: new Date().toISOString(), time: 'только что', mood: 'pink' };
+    const fingerprint = senderFingerprint(req);
+    if (isSenderBlocked(link.userId, fingerprint)) return json(res, 403, { error: 'sender_blocked' });
+    const telegramUser = verifyTelegramWebAppInitData(req.headers['x-telegram-init-data'] || body.initData);
+    const sender = {
+      fingerprint,
+      provider: telegramUser?.id ? 'telegram' : null,
+      providerUserId: telegramUser?.id ? String(telegramUser.id) : null,
+      displayName: telegramUser?.first_name ? [telegramUser.first_name, telegramUser.last_name].filter(Boolean).join(' ') : null,
+      username: telegramUser?.username || null
+    };
+    const message = {
+      id: randomUUID(), publicLinkId: link.id, body: cleanText, text: cleanText,
+      source: telegramUser?.id ? 'telegram-webapp' : (body.channel || 'web'),
+      senderAvailable: Boolean(telegramUser?.id), sender, unread: true, saved: false,
+      createdAt: new Date().toISOString(), time: 'только что', mood: 'pink'
+    };
     messages.set(message.id, message);
     schedulePersist();
     const owner = users.get(link.userId);
     if (owner) await notifyNewMessage(owner, message);
-    return json(res, 200, { message: 'Послание отправлено', id: message.id });
+    return json(res, 200, { message: 'Послание отправлено', id: message.id, delivery: telegramUser?.id ? 'reply_available' : 'anonymous_web' });
   }
   if (req.method === 'POST' && /^\/api\/v1\/messages\/[^/]+\/(read|save)$/.test(url.pathname)) {
     const user = getUserFromRequest(req);
-    const messageId = url.pathname.split('/')[5];
-    const action = url.pathname.split('/')[6];
+    const messageId = url.pathname.split('/')[4];
+    const action = url.pathname.split('/')[5];
     const message = messages.get(messageId);
     const ownerLink = message && [...publicLinks.values()].find((link) => link.id === message.publicLinkId && link.userId === user?.id);
     if (!ownerLink) return json(res, 404, { error: 'message_not_found' });
     if (action === 'read') message.unread = false;
     if (action === 'save') message.saved = true;
     schedulePersist();
-    return json(res, 200, { ok: true, message });
+    return json(res, 200, { ok: true, message: messageForOwner(message, user) });
+  }
+  if (req.method === 'POST' && /^\/api\/v1\/messages\/[^/]+\/(reply|block)$/.test(url.pathname)) {
+    const user = getUserFromRequest(req);
+    const messageId = url.pathname.split('/')[4];
+    const action = url.pathname.split('/')[5];
+    const message = messages.get(messageId);
+    const ownerLink = message && [...publicLinks.values()].find((link) => link.id === message.publicLinkId && link.userId === user?.id);
+    if (!ownerLink) return json(res, 404, { error: 'message_not_found' });
+    if (action === 'block') {
+      if (!message.sender?.fingerprint) return json(res, 422, { error: 'sender_fingerprint_unavailable' });
+      blockSender(user.id, message.sender.fingerprint);
+      return json(res, 200, { ok: true, blocked: true, message: messageForOwner(message, user) });
+    }
+    const body = await readBody(req);
+    const replyText = String(body.text || '').trim();
+    if (replyText.length < 1 || replyText.length > 500) return json(res, 422, { error: 'reply_length' });
+    message.reply = { text: replyText, createdAt: new Date().toISOString() };
+    if (message.sender?.provider === 'telegram' && message.sender.providerUserId) {
+      const deliveryText = `💌 <b>Ответ на ваше анонимное послание</b>\n\n${escapeTelegramHtml(replyText)}`;
+      const stickerResult = await sendTelegramSticker(message.sender.providerUserId, TELEGRAM_SENT_STICKER_ID);
+      const messageResult = await sendTelegramMessage(message.sender.providerUserId, deliveryText);
+      message.replyDelivery = { status: messageResult.sent ? 'delivered' : 'failed', channel: 'telegram', sticker: stickerResult.sent === true, updatedAt: new Date().toISOString() };
+    } else {
+      message.replyDelivery = { status: 'unavailable', reason: 'anonymous_web_sender_has_no_delivery_channel', updatedAt: new Date().toISOString() };
+    }
+    schedulePersist();
+    return json(res, 200, { ok: true, message: messageForOwner(message, user) });
   }
   if (req.method === 'POST' && /^\/api\/v1\/messages\/[^/]+\/reveal$/.test(url.pathname)) {
-    const messageId = url.pathname.split('/')[5];
-    // A real implementation checks that a successful 7 RUB payment is bound to this
-    // message and that the sender used a bot channel. The demo returns the same
-    // privacy-safe shape without exposing a fabricated identity.
-    return json(res, 200, { messageId, status: 'pending', amount: 7, currency: 'RUB', sender: null, reason: 'sender_consent_or_bot_identity_required' });
+    const user = getUserFromRequest(req);
+    const messageId = url.pathname.split('/')[4];
+    const message = messages.get(messageId);
+    const ownerLink = message && [...publicLinks.values()].find((link) => link.id === message.publicLinkId && link.userId === user?.id);
+    if (!ownerLink) return json(res, 404, { error: 'message_not_found' });
+    const revealed = Array.isArray(message.revealedFor) && message.revealedFor.includes(user.id);
+    return json(res, 200, {
+      messageId, status: revealed ? 'revealed' : 'pending', amount: 7, currency: 'RUB',
+      sender: revealed ? messageForOwner(message, user).sender || null : null,
+      reason: revealed ? null : (message.senderAvailable ? 'payment_confirmation_required' : 'sender_consent_or_bot_identity_required')
+    });
   }
   if (req.method === 'PUT' && url.pathname === '/api/v1/retention/settings') {
     const user = getUserFromRequest(req);
@@ -953,7 +1129,13 @@ async function handleApi(req, res, url) {
       const user = payment.userId && users.get(payment.userId);
       if (event === 'pay' && user && payment.plan === 'vip') user.vipUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
       if (event === 'pay' && user && payment.plan === 'reveal') {
-        user.revealCredits += 1;
+        user.revealCredits = (user.revealCredits || 0) + 1;
+        const revealedMessage = payment.messageId && messages.get(payment.messageId);
+        const ownerLink = revealedMessage && [...publicLinks.values()].find((link) => link.id === revealedMessage.publicLinkId && link.userId === user.id);
+        if (revealedMessage && ownerLink && revealedMessage.senderAvailable) {
+          revealedMessage.revealedFor = Array.isArray(revealedMessage.revealedFor) ? revealedMessage.revealedFor : [];
+          if (!revealedMessage.revealedFor.includes(user.id)) revealedMessage.revealedFor.push(user.id);
+        }
         // Daily teaser messages have no real sender. We are transparent about that
         // and turn the 7 RUB purchase into a 7-day VIP apology reward.
         if (!payment.messageId) await giftVipAfterReveal(user);

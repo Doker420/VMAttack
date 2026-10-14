@@ -38,7 +38,7 @@ export function createTelegramBot({ token, onUpdate, onError = console.error, po
         const updates = await request('getUpdates', {
           offset,
           timeout: pollTimeout,
-          allowed_updates: ['message', 'callback_query']
+          allowed_updates: ['message', 'callback_query', 'my_chat_member']
         }, (pollTimeout + 10) * 1000) || [];
 
         for (const update of updates) {
