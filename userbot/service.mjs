@@ -180,6 +180,25 @@ export function createTelegramUserbot({ enabled, apiId, apiHash, session, appUrl
     return { type: gift.type, title: selected.title, giftId: selected.id, giftStars: selected.stars, costStars: selected.stars, stars: selected.stars, recipient: { username: recipient.username } };
   }
 
+  async function sendStarsForm(invoice) {
+    if (!ready || !client) throw new Error('Telegram userbot is not ready');
+    // Star Gifts are paid from the userbot account through Telegram's
+    // payments flow. The invoice must first be converted into a payment form;
+    // calling an undefined helper here previously made every gift delivery
+    // fail after the recipient/price checks had succeeded.
+    const form = await withTimeout(
+      client.invoke(new Api.payments.GetPaymentForm({ invoice })),
+      15000,
+      'Telegram Star Gift payment form'
+    );
+    if (!form?.formId) throw new Error('Telegram did not return a Star Gift payment form');
+    return withTimeout(
+      client.invoke(new Api.payments.SendStarsForm({ formId: form.formId, invoice })),
+      30000,
+      'Telegram Star Gift payment'
+    );
+  }
+
   async function sendStarGift({ username, giftId, message, hideName = true }) {
     if (!ready || !client) throw new Error('Telegram userbot is not ready');
     const peer = await client.getInputEntity(String(username).replace(/^@+/, ''));
