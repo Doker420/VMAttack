@@ -575,6 +575,28 @@
     showToast(result?.__error ? 'Не удалось отправить ответ' : 'Проверьте текст ответа');
   });
 
+  async function watchPaymentStatus(paymentId, purpose, plan) {
+    if (!paymentId) return;
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      const result = await apiRequest(`/api/v1/payments/${encodeURIComponent(paymentId)}`);
+      if (result?.status === 'paid') {
+        const success = purpose === 'balance' ? $('#topupSuccess') : plan === 'reveal' ? $('#revealSuccess') : $('#paymentSuccess');
+        if (success) {
+          success.hidden = false;
+          success.textContent = purpose === 'balance' ? '✓ Пополнение подтверждено. Баланс обновлён.' : '✓ Оплата подтверждена';
+        }
+        await syncProfile();
+        showToast('Оплата подтверждена, баланс обновлён');
+        return;
+      }
+      if (['failed', 'rejected', 'expired', 'cancelled'].includes(result?.status)) {
+        showToast('Платёж не подтверждён. Проверьте статус и попробуйте ещё раз.');
+        return;
+      }
+    }
+  }
+
   async function startCheckout(providerButton) {
     const provider = providerButton.dataset.checkoutProvider;
     const purpose = providerButton.dataset.checkoutPurpose || 'plan';
@@ -601,6 +623,7 @@
       if (telegramWebApp?.openLink) telegramWebApp.openLink(result.paymentUrl);
       else window.open(result.paymentUrl, '_blank', 'noopener,noreferrer');
       showToast('Ссылка на оплату открыта');
+      void watchPaymentStatus(result.id || result.invoiceId, purpose, plan);
     } else if (result.status === 'paid') {
       const success = purpose === 'balance' ? $('#topupSuccess') : plan === 'reveal' ? $('#revealSuccess') : $('#paymentSuccess');
       if (success) { success.hidden = false; success.textContent = purpose === 'balance' ? `✓ Списано с баланса. Остаток: ${result.balance} ₽` : '✓ Оплата подтверждена'; }
@@ -614,6 +637,7 @@
         else window.open(result.botUrl, '_blank', 'noopener,noreferrer');
       }
       showToast('Заявка на СБП создана');
+      void watchPaymentStatus(result.id || result.invoiceId, purpose, plan);
     }
     if (purpose === 'balance' && result.balance !== undefined && $('#webappBalance')) $('#webappBalance').textContent = `${result.balance} ₽`;
   }

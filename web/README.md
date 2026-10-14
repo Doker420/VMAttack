@@ -111,6 +111,7 @@ YUMONEY_SUCCESS_URL=https://app.goago.club/?payment=success
 YUMONEY_TOKEN=
 CRYPTOBOT_API_TOKEN=
 CRYPTOBOT_API_URL=https://pay.crypt.bot/api
+CRYPTOBOT_WEBHOOK_SECRET= # optional; webhook is registered automatically on startup
 XROCKET_API_TOKEN= # именно Pay API token из приложения xRocket
 XROCKET_TESTNET=false
 XROCKET_API_URL=https://pay.api.xrocket.exchange
@@ -125,9 +126,9 @@ SBP_PAYMENT_DETAILS=
 TELEGRAM_ADMIN_IDS=123456789
 ```
 
-Для CryptoBot и xRocket callback направляется на `/webhooks/payments/cryptobot` или `/webhooks/payments/xrocket`; для ЮMoney доступен `/webhooks/payments/yoomoney`. Для актуального xRocket Pay callback создаётся вложенным объектом `callback` и обрабатываются события `invoice_status_changed` и `payment_status_changed`; при наличии `XROCKET_WEBHOOK_SECRET` дополнительно проверяется HMAC-подпись `v1`. Callback сверяет client invoice ID и сумму существующей заявки. При заданном `YUMONEY_RECEIVER` ссылка ЮMoney строится автоматически, получает `label`, `sum` и `successURL=https://app.goago.club/?payment=success`. `YUMONEY_TOKEN` нужен только если позже потребуется OAuth API.
+Для CryptoBot и xRocket callback направляется на `/webhooks/payments/cryptobot` или `/webhooks/payments/xrocket`; для ЮMoney доступен `/webhooks/payments/yoomoney`. При заданном `CRYPTOBOT_API_TOKEN` сервер автоматически вызывает CryptoBot `setWebhook` при старте и передаёт URL `${origin(WEB_APP_URL)}/webhooks/payments/cryptobot`. В production `WEB_APP_URL` должен быть публичным HTTPS-адресом, доступным от CryptoBot/xRocket; при недоступном URL проверьте DNS, reverse proxy, TLS, путь `/webhooks/payments/*`, токены и webhook secret. Для актуального xRocket Pay callback создаётся вложенным объектом `callback` и обрабатываются события `invoice_status_changed` и `payment_status_changed`; при наличии `XROCKET_WEBHOOK_SECRET` дополнительно проверяется HMAC-подпись `v1`. Callback сверяет client invoice ID или внешний invoice ID и сумму существующей заявки. Если callback потерян, авторизованный Web App polling статуса вызывает provider API через `GET /api/v1/payments/:id`, поэтому для CryptoBot/xRocket должны быть заполнены соответствующие API-токены. При заданном `YUMONEY_RECEIVER` ссылка ЮMoney строится автоматически, получает `label`, `sum` и `successURL=https://app.goago.club/?payment=success`. `YUMONEY_TOKEN` нужен только если позже потребуется OAuth API.
 
-СБП создаёт заявку `manual_pending`. Пользователь получает реквизиты и deep link в Telegram, отправляет боту фото или документ чека, а администратор получает копию чека с кнопками «Одобрить» и «Отклонить». После одобрения сумма зачисляется на баланс или активируется выбранная функция. Авторизованный пользователь также может оплатить VIP или раскрытие непосредственно с внутреннего баланса.
+СБП создаёт заявку `manual_pending`: без банковского API сервер не может автоматически доказать перевод по реквизитам. Пользователь получает реквизиты и deep link в Telegram, отправляет боту фото или документ чека, а администратор получает копию чека с кнопками «Одобрить» и «Отклонить». Web App также polling-ит заявку и сразу обновляет баланс после одобрения. После одобрения сумма зачисляется на баланс или активируется выбранная функция. Авторизованный пользователь также может оплатить VIP или раскрытие непосредственно с внутреннего баланса.
 
 ## Ответы, блокировка и стикеры
 

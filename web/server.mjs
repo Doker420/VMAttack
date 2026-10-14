@@ -83,6 +83,7 @@ const YUMONEY_PAYMENT_URL = env('YUMONEY_PAYMENT_URL');
 const YUMONEY_TOKEN = env('YUMONEY_TOKEN');
 const CRYPTOBOT_API_TOKEN = env('CRYPTOBOT_API_TOKEN');
 const CRYPTOBOT_API_URL = env('CRYPTOBOT_API_URL', 'https://pay.crypt.bot/api');
+const CRYPTOBOT_WEBHOOK_SECRET = env('CRYPTOBOT_WEBHOOK_SECRET');
 const XROCKET_API_TOKEN = env('XROCKET_API_TOKEN');
 const XROCKET_TESTNET = env('XROCKET_TESTNET', 'false').toLowerCase() === 'true';
 const XROCKET_API_URL = env('XROCKET_API_URL', XROCKET_TESTNET ? 'https://pay.api.testnet.xrocket.exchange' : 'https://pay.api.xrocket.exchange');
@@ -953,6 +954,21 @@ function yoomoneyPaymentUrl(payment) {
   }
 }
 
+async function configureCryptoBotWebhook() {
+  if (!CRYPTOBOT_API_TOKEN) return;
+  const response = await fetch(`${CRYPTOBOT_API_URL.replace(/\/$/, '')}/setWebhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Crypto-Pay-API-Token': CRYPTOBOT_API_TOKEN },
+    body: JSON.stringify({
+      url: `${new URL(WEB_APP_URL).origin}/webhooks/payments/cryptobot`,
+      ...(CRYPTOBOT_WEBHOOK_SECRET ? { secret_token: CRYPTOBOT_WEBHOOK_SECRET } : {})
+    })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) throw new Error(payload.error?.name || payload.error?.description || payload.error || `CryptoBot setWebhook ${response.status}`);
+  console.log('[payments] CryptoBot webhook configured');
+}
+
 async function createCryptoBotInvoice(payment) {
   const response = await fetch(`${CRYPTOBOT_API_URL.replace(/\/$/, '')}/createInvoice`, {
     method: 'POST',
@@ -1102,6 +1118,43 @@ function applyPaidPayment(payment) {
   }
   schedulePersist();
   return true;
+}
+
+async function reconcileExternalPayment(payment) {
+  if (!payment || payment.status !== 'pending' || !payment.externalId) return payment;
+  try {
+    if (payment.provider === 'cryptobot' && CRYPTOBOT_API_TOKEN) {
+      const response = await fetch(`${CRYPTOBOT_API_URL.replace(/\/$/, '')}/getInvoices`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Crypto-Pay-API-Token': CRYPTOBOT_API_TOKEN },
+        body: JSON.stringify({ invoice_ids: String(payment.externalId) })
+      });
+      const payload = await response.json().catch(() => ({}));
+      const invoice = payload.result?.items?.[0] || payload.result?.[0] || null;
+      if (invoice?.status === 'paid') applyPaidPayment(payment);
+      if (['expired', 'failed'].includes(invoice?.status)) {
+        payment.status = invoice.status;
+        schedulePersist();
+      }
+    } else if (payment.provider === 'xrocket' && xrocketAuthHeader()) {
+      const response = await fetch(`${XROCKET_API_URL.replace(/\/$/, '')}/api/v1/invoices/${encodeURIComponent(payment.externalId)}`, {
+        headers: { Accept: 'application/json', Authorization: xrocketAuthHeader() }
+      });
+      const payload = await response.json().catch(() => ({}));
+      const invoice = payload.result || payload.data || payload;
+      const status = String(invoice.status || '').toLowerCase();
+      const reportedAmount = invoice.priceAmount ?? invoice.price_amount;
+      const expectedAmount = payment.providerAmount ?? payment.amount;
+      if (['paid', 'completed'].includes(status) && (reportedAmount === undefined || Number(reportedAmount) === Number(expectedAmount))) applyPaidPayment(payment);
+      if (['expired', 'failed', 'cancelled'].includes(status)) {
+        payment.status = status;
+        schedulePersist();
+      }
+    }
+  } catch (error) {
+    console.warn(`[payments] reconciliation failed for ${payment.id}:`, error.message);
+  }
+  return payment;
 }
 
 function topupAmountKeyboard() {
@@ -2378,6 +2431,7 @@ async function handleApi(req, res, url) {
     const user = getUserFromRequest(req);
     const payment = payments.get(decodeURIComponent(paymentStatusMatch[1]));
     if (!payment || (payment.userId && payment.userId !== user?.id)) return json(res, 404, { error: 'payment_not_found' });
+    await reconcileExternalPayment(payment);
     return json(res, 200, { id: payment.id, status: payment.status, provider: payment.provider, purpose: payment.purpose, amount: payment.amount, currency: payment.currency, paidAt: payment.paidAt || null, error: payment.error || null });
   }
   if (req.method === 'POST' && url.pathname === '/api/v1/payments/checkout') {
@@ -2425,6 +2479,11 @@ async function handleApi(req, res, url) {
     const raw = await readRawBody(req);
     let body = {};
     try { body = raw.length ? JSON.parse(raw.toString('utf8')) : {}; } catch { return json(res, 400, { error: 'invalid_json' }); }
+    if (provider === 'cryptobot' && CRYPTOBOT_WEBHOOK_SECRET) {
+      const signature = String(req.headers['crypto-pay-api-signature'] || '');
+      const expected = createHmac('sha256', CRYPTOBOT_WEBHOOK_SECRET).update(raw).digest('hex');
+      if (!signature || signature !== expected) return json(res, 401, { error: 'invalid_cryptobot_signature' });
+    }
     if (provider === 'xrocket' && XROCKET_WEBHOOK_SECRET) {
       const timestamp = String(req.headers['signature-timestamp'] || '');
       const version = String(req.headers['signature-version'] || '');
@@ -2432,23 +2491,32 @@ async function handleApi(req, res, url) {
       const expected = createHmac('sha256', XROCKET_WEBHOOK_SECRET).update(`${timestamp}.${raw.toString('utf8')}`).digest('hex');
       if (version !== 'v1' || !timestamp || !signature || signature !== expected) return json(res, 401, { error: 'invalid_xrocket_signature' });
     }
-    const event = body.update_type || body.status || body.event || body.type || body.data?.event || '';
+    const event = body.update_type || body.status || body.event || body.type || body.name || body.data?.event || body.data?.type || '';
     const payload = body.payload || body.data || body.invoice || body;
     const invoice = body.data?.invoice || body.invoice || payload.invoice || {};
     const paymentData = body.data?.payment || payload.payment || {};
-    const paymentId = invoice.clientInvoiceId || invoice.client_invoice_id || paymentData.clientInvoiceId || body.clientInvoiceId || payload.payload?.paymentId || payload.payload || payload.payment_id || payload.paymentId || payload.clientInvoiceId || payload.label || payload.metadata?.paymentId;
+    const nestedPayload = payload && typeof payload.payload === 'object' ? payload.payload : {};
+    const payloadPaymentId = typeof payload?.payload === 'string' ? payload.payload : null;
+    const paymentId = invoice.clientInvoiceId || invoice.client_invoice_id
+      || paymentData.clientInvoiceId || paymentData.client_invoice_id
+      || body.clientInvoiceId || body.client_invoice_id
+      || nestedPayload.paymentId || nestedPayload.payment_id || payloadPaymentId
+      || payload.payment_id || payload.paymentId || payload.clientInvoiceId || payload.client_invoice_id
+      || payload.label || payload.metadata?.paymentId;
     let payment = paymentId && payments.get(String(paymentId));
-    if (!payment && provider === 'xrocket' && invoice.id) payment = [...payments.values()].find((candidate) => candidate.externalId && String(candidate.externalId) === String(invoice.id));
+    const externalId = invoice.id || invoice.invoice_id || payload.invoice_id || payload.invoiceId || body.invoice_id || body.invoiceId;
+    if (!payment && externalId) payment = [...payments.values()].find((candidate) => candidate.externalId && String(candidate.externalId) === String(externalId));
     const normalizedEvent = String(event || '').toLowerCase();
+    const normalizedPayloadStatus = String(payload.status || invoice.status || paymentData.status || body.status || '').toLowerCase();
     const paid = provider === 'cryptobot'
-      ? event === 'invoice_paid' || payload.status === 'paid'
+      ? ['invoice_paid', 'paid', 'invoice.completed', 'invoice_paid_successfully'].includes(normalizedEvent) || normalizedPayloadStatus === 'paid'
       : provider === 'yoomoney'
-        ? ['paid', 'success', 'completed'].includes(String(event || payload.status).toLowerCase()) || payload.paid === true
+        ? ['paid', 'success', 'completed'].includes(normalizedEvent) || payload.paid === true
         : provider === 'xrocket'
-          ? (normalizedEvent === 'invoice_status_changed' && String(invoice.status).toLowerCase() === 'paid') || (normalizedEvent === 'payment_status_changed' && String(paymentData.status).toLowerCase() === 'paid')
+          ? ['paid', 'completed'].includes(normalizedPayloadStatus) || (normalizedEvent === 'invoice_status_changed' && normalizedPayloadStatus === 'paid') || (normalizedEvent === 'payment_status_changed' && normalizedPayloadStatus === 'paid')
           : ['paid', 'success', 'completed'].includes(normalizedEvent) || payload.paid === true;
     const reportedAmount = provider === 'xrocket'
-      ? (invoice.priceAmount ?? invoice.price_amount)
+      ? (invoice.priceAmount ?? invoice.price_amount ?? payload.priceAmount ?? payload.price_amount)
       : (payload.amount ?? payload.invoice_amount ?? payload.sum);
     const expectedProviderAmount = payment?.providerAmount ?? payment?.amount;
     const amountMatches = reportedAmount === undefined || Number(reportedAmount) === Number(expectedProviderAmount);
@@ -2588,6 +2656,7 @@ async function bootstrap() {
     console.log(`Telegram Web App: ${WEB_APP_URL}`);
     console.log(`Daily anonymous messages: every ${Math.round(RETENTION_INTERVAL_MS / 1000)}s, all active users unless disabled`);
     await configureTelegramBot();
+    await configureCryptoBotWebhook().catch((error) => console.error('[payments] CryptoBot webhook setup failed:', error.message));
     if (TELEGRAM_MODE === 'polling') telegramBot.start();
     else console.log(`[telegram] mode=${TELEGRAM_MODE}; polling is disabled`);
   });
