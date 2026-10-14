@@ -81,15 +81,9 @@ const MYSTARS_BALANCE_PREMIUM_12_RUB = Number(env('MYSTARS_BALANCE_PREMIUM_12_RU
 const YUMONEY_RECEIVER = env('YUMONEY_RECEIVER');
 const YUMONEY_PAYMENT_URL = env('YUMONEY_PAYMENT_URL');
 const YUMONEY_TOKEN = env('YUMONEY_TOKEN');
+const YUMONEY_API_URL = env('YUMONEY_API_URL', 'https://yoomoney.ru/api');
 const CRYPTOBOT_API_TOKEN = env('CRYPTOBOT_API_TOKEN');
 const CRYPTOBOT_API_URL = env('CRYPTOBOT_API_URL', 'https://pay.crypt.bot/api');
-const configuredCryptoBotWebhookSecret = env('CRYPTOBOT_WEBHOOK_SECRET');
-// Crypto Pay does not issue this secret in a dashboard: the merchant chooses it
-// when calling setWebhook. Keep webhook verification on by deriving a stable
-// secret when the optional env value is not provided.
-const CRYPTOBOT_WEBHOOK_SECRET = configuredCryptoBotWebhookSecret || (CRYPTOBOT_API_TOKEN
-  ? createHash('sha256').update(`poslaniya:cryptobot-webhook:${CRYPTOBOT_API_TOKEN}:${env('WEB_APP_URL', 'https://app.goago.club')}`).digest('hex')
-  : '');
 const XROCKET_API_TOKEN = env('XROCKET_API_TOKEN');
 const XROCKET_TESTNET = env('XROCKET_TESTNET', 'false').toLowerCase() === 'true';
 const XROCKET_API_URL = env('XROCKET_API_URL', XROCKET_TESTNET ? 'https://pay.api.testnet.xrocket.exchange' : 'https://pay.api.xrocket.exchange');
@@ -124,7 +118,6 @@ const VK_API_VERSION = env('VK_API_VERSION', '5.199');
 const VK_CONFIRMATION_TOKEN = env('VK_CONFIRMATION_TOKEN');
 const CLOUDPAYMENTS_API_SECRET = env('CLOUDPAYMENTS_API_SECRET');
 const WEB_APP_URL = env('WEB_APP_URL', 'https://app.goago.club');
-const YUMONEY_SUCCESS_URL = env('YUMONEY_SUCCESS_URL', `${new URL(WEB_APP_URL).origin}/?payment=success`);
 const DEFAULT_RECIPIENT_SLUG = env('DEFAULT_RECIPIENT_SLUG', 'anya');
 const DEMO_RECIPIENT_ID = env('DEMO_RECIPIENT_ID', 'demo_recipient');
 const DEMO_RECIPIENT_NAME = env('DEMO_RECIPIENT_NAME', 'Аня');
@@ -907,7 +900,10 @@ function xrocketAuthHeader() {
 }
 
 function paymentMethodIsConfigured(provider) {
-  if (provider === 'yoomoney') return Boolean(YUMONEY_PAYMENT_URL || YUMONEY_RECEIVER);
+  // A YooMoney quickpay link alone cannot confirm an incoming transfer.
+  // Require an OAuth token with operation-history scope so the balance is
+  // credited automatically instead of leaving an unverified payment pending.
+  if (provider === 'yoomoney') return Boolean((YUMONEY_PAYMENT_URL || YUMONEY_RECEIVER) && YUMONEY_TOKEN);
   if (provider === 'xrocket') return Boolean(XROCKET_API_TOKEN);
   if (provider === 'cryptobot') return Boolean(CRYPTOBOT_API_TOKEN);
   return provider === 'sbp' && sbpDetailsConfigured();
@@ -950,7 +946,8 @@ function yoomoneyPaymentUrl(payment) {
     if (YUMONEY_RECEIVER) url.searchParams.set('receiver', YUMONEY_RECEIVER);
     url.searchParams.set('quickpay-form', url.searchParams.get('quickpay-form') || 'shop');
     url.searchParams.set('targets', paymentDescription(payment));
-    url.searchParams.set('successURL', YUMONEY_SUCCESS_URL);
+    // successURL is intentionally omitted: the server confirms the payment
+    // through YooMoney operation-history polling, not a browser redirect.
     url.searchParams.set('label', payment.id);
     url.searchParams.set('sum', String(payment.amount));
     url.searchParams.set('currency', payment.currency || 'RUB');
@@ -960,19 +957,9 @@ function yoomoneyPaymentUrl(payment) {
   }
 }
 
-async function configureCryptoBotWebhook() {
+function announceCryptoBotWebhook() {
   if (!CRYPTOBOT_API_TOKEN) return;
-  const response = await fetch(`${CRYPTOBOT_API_URL.replace(/\/$/, '')}/setWebhook`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Crypto-Pay-API-Token': CRYPTOBOT_API_TOKEN },
-    body: JSON.stringify({
-      url: `${new URL(WEB_APP_URL).origin}/webhooks/payments/cryptobot`,
-      ...(CRYPTOBOT_WEBHOOK_SECRET ? { secret_token: CRYPTOBOT_WEBHOOK_SECRET } : {})
-    })
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload.ok === false) throw new Error(payload.error?.name || payload.error?.description || payload.error || `CryptoBot setWebhook ${response.status}`);
-  console.log('[payments] CryptoBot webhook configured');
+  console.log(`[payments] CryptoBot webhook URL: ${new URL(WEB_APP_URL).origin}/webhooks/payments/cryptobot (set it in @CryptoBot → My Apps → Webhooks)`);
 }
 
 async function createCryptoBotInvoice(payment) {
@@ -1039,7 +1026,7 @@ async function createXRocketPaymentLink(payment) {
         callbackUrl: `${new URL(WEB_APP_URL).origin}/webhooks/payments/xrocket`,
         payload: { paymentId: payment.id }
       },
-      url: { successUrl: YUMONEY_SUCCESS_URL, cancelUrl: `${new URL(WEB_APP_URL).origin}/?payment=cancel` }
+      url: { successUrl: `${new URL(WEB_APP_URL).origin}/?payment=success`, cancelUrl: `${new URL(WEB_APP_URL).origin}/?payment=cancel` }
     })
   });
   const payload = await response.json().catch(() => ({}));
@@ -1071,6 +1058,7 @@ async function createPaymentCheckout(user, { provider, purpose, plan = null, amo
   try {
     if (provider === 'yoomoney') {
       if (!YUMONEY_PAYMENT_URL && !YUMONEY_RECEIVER) throw new Error('YUMONEY_RECEIVER or YUMONEY_PAYMENT_URL is not configured');
+      if (!YUMONEY_TOKEN) throw new Error('YUMONEY_TOKEN with operation-history scope is not configured');
       payment.paymentUrl = yoomoneyPaymentUrl(payment);
     } else if (provider === 'cryptobot') {
       if (!CRYPTOBOT_API_TOKEN) throw new Error('CRYPTOBOT_API_TOKEN is not configured');
@@ -1127,9 +1115,32 @@ function applyPaidPayment(payment) {
 }
 
 async function reconcileExternalPayment(payment) {
-  if (!payment || payment.status !== 'pending' || !payment.externalId) return payment;
+  if (!payment || payment.status !== 'pending') return payment;
+  if (payment.provider !== 'yoomoney' && !payment.externalId) return payment;
   try {
-    if (payment.provider === 'cryptobot' && CRYPTOBOT_API_TOKEN) {
+    if (payment.provider === 'yoomoney' && YUMONEY_TOKEN) {
+      const url = new URL(`${YUMONEY_API_URL.replace(/\/$/, '')}/operation-history`);
+      const form = new URLSearchParams({ records: '100', label: payment.id });
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Authorization: `Bearer ${YUMONEY_TOKEN}`
+        },
+        body: form
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || `YooMoney operation-history ${response.status}`);
+      const operation = (Array.isArray(payload.operations) ? payload.operations : []).find((candidate) => {
+        const direction = String(candidate.direction || '').toLowerCase();
+        return String(candidate.label || '') === String(payment.id)
+          && String(candidate.status || '').toLowerCase() === 'success'
+          && (!direction || direction === 'in' || direction === 'incoming')
+          && Number(candidate.amount) === Number(payment.amount);
+      });
+      if (operation) applyPaidPayment(payment);
+    } else if (payment.provider === 'cryptobot' && CRYPTOBOT_API_TOKEN) {
       const response = await fetch(`${CRYPTOBOT_API_URL.replace(/\/$/, '')}/getInvoices`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Crypto-Pay-API-Token': CRYPTOBOT_API_TOKEN },
@@ -1143,7 +1154,11 @@ async function reconcileExternalPayment(payment) {
         schedulePersist();
       }
     } else if (payment.provider === 'xrocket' && xrocketAuthHeader()) {
-      const response = await fetch(`${XROCKET_API_URL.replace(/\/$/, '')}/api/v1/invoices/${encodeURIComponent(payment.externalId)}`, {
+      // The current xRocket Pay API reads an invoice by query parameter
+      // GET /api/v1/invoice?invoiceId=..., not /invoices/:id.
+      const url = new URL(`${XROCKET_API_URL.replace(/\/$/, '')}/api/v1/invoice`);
+      url.searchParams.set('invoiceId', String(payment.externalId));
+      const response = await fetch(url, {
         headers: { Accept: 'application/json', Authorization: xrocketAuthHeader() }
       });
       const payload = await response.json().catch(() => ({}));
@@ -2485,9 +2500,14 @@ async function handleApi(req, res, url) {
     const raw = await readRawBody(req);
     let body = {};
     try { body = raw.length ? JSON.parse(raw.toString('utf8')) : {}; } catch { return json(res, 400, { error: 'invalid_json' }); }
-    if (provider === 'cryptobot' && CRYPTOBOT_WEBHOOK_SECRET) {
+    if (provider === 'cryptobot') {
+      // Crypto Pay has no separate webhook secret. Its signature key is the
+      // SHA-256 digest of the app token, and the signed string is the compact
+      // JSON representation of the update.
+      if (!CRYPTOBOT_API_TOKEN) return json(res, 503, { error: 'cryptobot_api_token_missing' });
       const signature = String(req.headers['crypto-pay-api-signature'] || '');
-      const expected = createHmac('sha256', CRYPTOBOT_WEBHOOK_SECRET).update(raw).digest('hex');
+      const signatureKey = createHash('sha256').update(CRYPTOBOT_API_TOKEN).digest();
+      const expected = createHmac('sha256', signatureKey).update(JSON.stringify(body)).digest('hex');
       if (!signature || signature !== expected) return json(res, 401, { error: 'invalid_cryptobot_signature' });
     }
     if (provider === 'xrocket' && XROCKET_WEBHOOK_SECRET) {
@@ -2662,7 +2682,7 @@ async function bootstrap() {
     console.log(`Telegram Web App: ${WEB_APP_URL}`);
     console.log(`Daily anonymous messages: every ${Math.round(RETENTION_INTERVAL_MS / 1000)}s, all active users unless disabled`);
     await configureTelegramBot();
-    await configureCryptoBotWebhook().catch((error) => console.error('[payments] CryptoBot webhook setup failed:', error.message));
+    announceCryptoBotWebhook();
     if (TELEGRAM_MODE === 'polling') telegramBot.start();
     else console.log(`[telegram] mode=${TELEGRAM_MODE}; polling is disabled`);
   });

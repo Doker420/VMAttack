@@ -107,13 +107,13 @@ TELEGRAM_USERBOT_GIFT_PROMO=
 ```dotenv
 YUMONEY_RECEIVER=4100118715887132
 YUMONEY_PAYMENT_URL=https://yoomoney.ru/quickpay/confirm.xml?... # optional override
-YUMONEY_SUCCESS_URL=https://app.goago.club/?payment=success
+# OAuth token with operation-history scope; used to confirm incoming payments by label.
 YUMONEY_TOKEN=
+YUMONEY_API_URL=https://yoomoney.ru/api
+# Crypto Pay API token. CryptoBot webhook signatures are derived from this token;
+# there is no separate CryptoBot webhook secret to configure.
 CRYPTOBOT_API_TOKEN=
 CRYPTOBOT_API_URL=https://pay.crypt.bot/api
-# CryptoBot does not issue this in a dashboard; empty means a stable server-derived secret.
-CRYPTOBOT_WEBHOOK_SECRET=
-# The server registers the webhook and its secret automatically on startup.
 XROCKET_API_TOKEN= # именно Pay API token из приложения xRocket
 XROCKET_TESTNET=false
 XROCKET_API_URL=https://pay.api.xrocket.exchange
@@ -128,7 +128,9 @@ SBP_PAYMENT_DETAILS=
 TELEGRAM_ADMIN_IDS=123456789
 ```
 
-Для CryptoBot и xRocket callback направляется на `/webhooks/payments/cryptobot` или `/webhooks/payments/xrocket`; для ЮMoney доступен `/webhooks/payments/yoomoney`. При заданном `CRYPTOBOT_API_TOKEN` сервер автоматически вызывает CryptoBot `setWebhook` при старте и передаёт URL `${origin(WEB_APP_URL)}/webhooks/payments/cryptobot`. В production `WEB_APP_URL` должен быть публичным HTTPS-адресом, доступным от CryptoBot/xRocket; при недоступном URL проверьте DNS, reverse proxy, TLS, путь `/webhooks/payments/*`, токены и webhook secret. Для актуального xRocket Pay callback создаётся вложенным объектом `callback` и обрабатываются события `invoice_status_changed` и `payment_status_changed`; при наличии `XROCKET_WEBHOOK_SECRET` дополнительно проверяется HMAC-подпись `v1`. Callback сверяет client invoice ID или внешний invoice ID и сумму существующей заявки. Если callback потерян, авторизованный Web App polling статуса вызывает provider API через `GET /api/v1/payments/:id`, поэтому для CryptoBot/xRocket должны быть заполнены соответствующие API-токены. При заданном `YUMONEY_RECEIVER` ссылка ЮMoney строится автоматически, получает `label`, `sum` и `successURL=https://app.goago.club/?payment=success`. `YUMONEY_TOKEN` нужен только если позже потребуется OAuth API.
+Для CryptoBot callback URL нужно один раз указать в `@CryptoBot` → приложение → `Webhooks`: `${origin(WEB_APP_URL)}/webhooks/payments/cryptobot`. Crypto Pay не использует отдельный webhook secret: `Crypto-Pay-API-Signature` проверяется через SHA-256 от `CRYPTOBOT_API_TOKEN` как HMAC-ключ. В production `WEB_APP_URL` должен быть публичным HTTPS-адресом, доступным от CryptoBot/xRocket; проверьте DNS, reverse proxy, TLS, путь `/webhooks/payments/*` и токены. Для актуального xRocket Pay callback создаётся вложенным объектом `callback`, а server принимает documented envelope `type=invoice`, `data.event=invoice_status_changed|payment_status_changed`; при наличии `XROCKET_WEBHOOK_SECRET` дополнительно проверяется HMAC-подпись `v1`. Callback сверяет client invoice ID или внешний invoice ID и сумму существующей заявки. Если callback потерян, авторизованный Web App polling статуса вызывает provider API через `GET /api/v1/payments/:id`, поэтому для CryptoBot и xRocket должны быть заполнены соответствующие API-токены.
+
+ЮMoney не требует `successURL` для этого сценария: ссылка содержит только `receiver`, `sum`, `targets` и уникальный `label`. Сервер подтверждает поступление через `POST /api/operation-history` с form-параметрами `label` и `records`, OAuth `YUMONEY_TOKEN` (scope `operation-history`), проверяя `label`, `status=success`, входящее направление и точную сумму. Поэтому ЮMoney показывается как способ оплаты только при наличии OAuth token; после оплаты Web App polling автоматически обновляет баланс. `/webhooks/payments/yoomoney` оставлен для совместимости, но основная надёжная проверка — через историю операций.
 
 СБП создаёт заявку `manual_pending`: без банковского API сервер не может автоматически доказать перевод по реквизитам. Пользователь получает реквизиты и deep link в Telegram, отправляет боту фото или документ чека, а администратор получает копию чека с кнопками «Одобрить» и «Отклонить». Web App также polling-ит заявку и сразу обновляет баланс после одобрения. После одобрения сумма зачисляется на баланс или активируется выбранная функция. Авторизованный пользователь также может оплатить VIP или раскрытие непосредственно с внутреннего баланса.
 
