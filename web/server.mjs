@@ -44,6 +44,7 @@ const SQLITE_FILE = resolveProjectPath(env('SQLITE_FILE', 'data/dev.sqlite'));
 const DAILY_RU_FILE = resolveProjectPath(env('DAILY_RU_FILE', 'content/daily/ru.txt'));
 const DAILY_EN_FILE = resolveProjectPath(env('DAILY_EN_FILE', 'content/daily/en.txt'));
 const START_BANNER_URL = env('TELEGRAM_START_BANNER_URL');
+const USE_START_BANNER = env('TELEGRAM_USE_START_BANNER', 'false') === 'true';
 const CORS_ORIGIN = env('CORS_ORIGIN', WEB_APP_URL);
 const devStore = DB_DRIVER === 'json' ? null : await createSqliteStore(SQLITE_FILE);
 
@@ -277,6 +278,7 @@ for (const [text, hoursAgo, mood] of [
 
 function buildWebAppUrl(query = {}) {
   const url = new URL(WEB_APP_URL);
+  url.searchParams.set('app', '1');
   Object.entries(query).forEach(([key, value]) => url.searchParams.set(key, value));
   return url.toString();
 }
@@ -285,8 +287,8 @@ function telegramAppKeyboard() {
   return { inline_keyboard: [[{ text: 'Открыть мой ящик 💌', web_app: { url: buildWebAppUrl() } }]] };
 }
 
-function vkAppKeyboard() {
-  return { inline: true, buttons: [[{ action: { type: 'open_link', label: 'Открыть мой ящик 💌', link: WEB_APP_URL } }]] };
+function vkAppKeyboard(appUrl = buildWebAppUrl()) {
+  return { inline: true, buttons: [[{ action: { type: 'open_link', label: 'Открыть мой ящик 💌', link: appUrl } }]] };
 }
 
 async function telegramRequest(method, body = {}, timeoutMs = 15000) {
@@ -318,7 +320,9 @@ async function sendTelegramMessage(chatId, text, options = true) {
 }
 
 async function sendTelegramPhoto(chatId, caption, options = true) {
-  if (!START_BANNER_URL || !TELEGRAM_BOT_TOKEN || !chatId) return sendTelegramMessage(chatId, caption, options);
+  // A remote image must be publicly reachable by Telegram. Keep text delivery as
+  // the reliable default so /start and referral flows never fail on a bad banner URL.
+  if (!USE_START_BANNER || !START_BANNER_URL || !TELEGRAM_BOT_TOKEN || !chatId) return sendTelegramMessage(chatId, caption, options);
   const payload = { chat_id: chatId, photo: START_BANNER_URL, caption };
   if (options === true) payload.reply_markup = telegramAppKeyboard();
   if (options?.reply_markup) payload.reply_markup = options.reply_markup;
@@ -331,10 +335,10 @@ async function sendTelegramPhoto(chatId, caption, options = true) {
   }
 }
 
-async function sendVkMessage(userId, text, withApp = true) {
+async function sendVkMessage(userId, text, withApp = true, appUrl = buildWebAppUrl()) {
   if (!VK_GROUP_TOKEN || !userId) return { skipped: true, reason: 'VK_GROUP_TOKEN is not configured' };
   const payload = { user_id: String(userId), random_id: String(Date.now()), message: text, access_token: VK_GROUP_TOKEN, v: VK_API_VERSION };
-  if (withApp) payload.keyboard = JSON.stringify(vkAppKeyboard());
+  if (withApp) payload.keyboard = JSON.stringify(vkAppKeyboard(appUrl));
   const params = new URLSearchParams(payload);
   const response = await fetch(`https://api.vk.com/method/messages.send?${params}`);
   return { sent: response.ok, status: response.status };
@@ -438,11 +442,19 @@ function platformLinks(user = null) {
   };
 }
 
-function profileInstructions(language = 'ru', user = null) {
+function profileInstructions(language = 'ru', user = null, channel = 'telegram') {
   const links = platformLinks(user);
-  const link = links.siteReferral;
-  if (language === 'en') return `📌 How to add your link to a profile\n\n1. Telegram — add this link to your bio: ${links.telegram}\n2. VK — add this link to your profile: ${links.vk}\n3. Website — add the site to your profile: ${links.site}\n\nReferral links that open your inbox directly:\nTelegram: ${links.telegramReferral}\nVK: ${links.vkReferral}\nWebsite: ${links.siteReferral}\n\nReady-to-post text:\n“Send me an anonymous message 💌\nLeave it here: ${links.siteReferral}”\n\nAfter adding it, your followers can open the bot or site and send you anonymous messages.`;
-  return `📌 Как поставить ссылку в профиль\n\n1. Telegram — добавьте в описание профиля: ${links.telegram}\n2. ВКонтакте — добавьте в профиль ссылку: ${links.vk}\n3. Сайт — добавьте сайт в профиль: ${links.site}\n\nРеферальные ссылки, которые сразу ведут к вашему ящику:\nTelegram: ${links.telegramReferral}\nВКонтакте: ${links.vkReferral}\nСайт: ${links.siteReferral}\n\nГотовый текст для профиля:\n«Напиши мне анонимно 💌\nОставь послание здесь: ${links.siteReferral}»\n\nПосле этого подписчики смогут открыть бота или сайт и отправить вам анонимное послание.`;
+  const isVk = channel === 'vk';
+  if (language === 'en') {
+    const platform = isVk ? 'VK' : 'Telegram';
+    const platformLink = isVk ? links.vk : links.telegram;
+    const referralLink = isVk ? links.vkReferral : links.telegramReferral;
+    return `📌 ${platform} profile link\n\nAdd this link to your ${platform} profile:\n${platformLink}\n\n🔗 Your personal referral link:\n${referralLink}\n\n🌐 Website link:\n${links.site}\n\nReady-to-post text:\n“Send me an anonymous message 💌\nLeave it here: ${links.siteReferral}”\n\nPeople can open your link and send you an anonymous message right away.`;
+  }
+  const platform = isVk ? 'ВКонтакте' : 'Telegram';
+  const platformLink = isVk ? links.vk : links.telegram;
+  const referralLink = isVk ? links.vkReferral : links.telegramReferral;
+  return `📌 Ссылка для профиля: ${platform}\n\nДобавьте эту ссылку в свой профиль:\n${platformLink}\n\n🔗 Ваша персональная реферальная ссылка:\n${referralLink}\n\n🌐 Ссылка на сайт:\n${links.site}\n\nГотовый текст для профиля:\n«Напиши мне анонимно 💌\nОставь послание здесь: ${links.siteReferral}»\n\nПо этой ссылке сразу можно открыть ящик и отправить вам послание.`;
 }
 
 function languageKeyboard() {
@@ -546,11 +558,11 @@ async function handleTelegramCallback(callback) {
   if (data === 'menu:link') {
     const link = ensurePublicLink(user);
     await answerCallback(callback.id);
-    return sendTelegramMessage(chatId, `${botText(user.language, 'myLink')}:\n${new URL(WEB_APP_URL).origin}/?ref=${encodeURIComponent(link.slug)}\n\n${profileInstructions(user.language, user)}`,  { reply_markup: { inline_keyboard: [[{ text: `💌 ${botText(user.language, 'openApp')}`, web_app: { url: buildWebAppUrl({ ref: link.slug }) } }], [{ text: '← Меню', callback_data: 'menu:home' }]] } });
+    return sendTelegramMessage(chatId, `${botText(user.language, 'myLink')}:\n${new URL(WEB_APP_URL).origin}/?ref=${encodeURIComponent(link.slug)}\n\n${profileInstructions(user.language, user, 'telegram')}`,  { reply_markup: { inline_keyboard: [[{ text: `💌 ${botText(user.language, 'openApp')}`, web_app: { url: buildWebAppUrl({ ref: link.slug }) } }], [{ text: '← Меню', callback_data: 'menu:home' }]] } });
   }
   if (data === 'menu:instructions') {
     await answerCallback(callback.id);
-    return sendTelegramMessage(chatId, profileInstructions(user.language, user), { reply_markup: { inline_keyboard: [[{ text: `🔗 ${botText(user.language, 'myLink')}`, callback_data: 'menu:link' }], [{ text: '← Меню', callback_data: 'menu:home' }]] } });
+    return sendTelegramMessage(chatId, profileInstructions(user.language, user, 'telegram'), { reply_markup: { inline_keyboard: [[{ text: `🔗 ${botText(user.language, 'myLink')}`, callback_data: 'menu:link' }], [{ text: '← Меню', callback_data: 'menu:home' }]] } });
   }
   if (data === 'menu:daily') {
     const text = randomMessage(user.language);
@@ -728,7 +740,7 @@ async function handleApi(req, res, url) {
     const body = await readBody(req);
     const telegramUser = verifyTelegramWebAppInitData(body.initData || req.headers['x-telegram-init-data']);
     if (!telegramUser?.id) return json(res, 401, { error: 'invalid_telegram_webapp_data' });
-    const result = completeAuth('telegram', telegramUser.id, { displayName: [telegramUser.first_name, telegramUser.last_name].filter(Boolean).join(' ') || 'Telegram user', username: telegramUser.username || null });
+    const result = completeAuth('telegram', telegramUser.id, { displayName: [telegramUser.first_name, telegramUser.last_name].filter(Boolean).join(' ') || 'Telegram user', username: telegramUser.username || null, photoUrl: telegramUser.photo_url || null });
     return json(res, 200, result);
   }
   if (req.method === 'GET' && url.pathname === '/api/v1/me') {
@@ -856,9 +868,11 @@ async function handleApi(req, res, url) {
     const object = body.object || {};
     const text = object.text || '';
     if (text === '/start' || text === '/app' || text === '/settings') {
-      completeAuth('vk', object.from_id || object.peer_id, { displayName: 'VK user' });
-      const intro = text === '/settings' ? 'Настройки уведомлений и ежедневных посланий доступны в приложении:' : 'Добро пожаловать в «Послания» 💌\n\nОткройте общий ящик в приложении:';
-      await sendVkMessage(object.from_id || object.peer_id, intro);
+      const user = completeAuth('vk', object.from_id || object.peer_id, { displayName: 'VK user' }).user;
+      const intro = text === '/settings'
+        ? `Настройки уведомлений и ежедневных посланий доступны в приложении:\n\n${profileInstructions(user.language || 'ru', user, 'vk')}`
+        : `Добро пожаловать в «Послания» 💌\n\nОткройте общий ящик в приложении:\n\n${profileInstructions(user.language || 'ru', user, 'vk')}`;
+      await sendVkMessage(object.from_id || object.peer_id, intro, true, buildWebAppUrl({ ref: ensurePublicLink(user).slug }));
       return json(res, 200, { ok: true });
     }
     const match = text.match(/^auth_([a-z0-9]+)$/i);

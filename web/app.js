@@ -19,7 +19,8 @@
   let pendingAuthChallenge = null;
   let activeMessageId = null;
   const telegramWebApp = window.Telegram?.WebApp || null;
-  const isTelegramWebApp = Boolean(telegramWebApp?.initData);
+  const appModeRequested = new URLSearchParams(window.location.search).get('app') === '1';
+  const isTelegramWebApp = Boolean(telegramWebApp?.initData || appModeRequested);
   const queryRef = new URLSearchParams(window.location.search).get('ref') || '';
   let recipientSlug = queryRef.replace(/^ref[_-]/i, '').trim();
   const appConfig = {
@@ -155,6 +156,7 @@
 
   async function syncProfile() {
     const result = await apiRequest('/api/v1/me');
+    if (result?.user) renderWebAppProfile(result.user);
     if (!result?.link?.slug) return result;
     profileSlug = result.link.slug;
     const link = personalLink();
@@ -396,16 +398,36 @@
     toggle.setAttribute('aria-expanded', String(open));
   });
 
+  function renderWebAppProfile(user) {
+    if (!user) return;
+    if ($('#webappUserLine')) $('#webappUserLine').textContent = `${user.displayName || 'Ваш ящик'}${user.username ? ` · @${user.username}` : ''}`;
+    const avatar = $('#webappAvatar');
+    const fallback = $('#webappAvatarFallback');
+    const photoUrl = user.photoUrl || user.photo_url;
+    if (avatar && photoUrl) {
+      avatar.src = photoUrl;
+      avatar.hidden = false;
+      if (fallback) fallback.hidden = true;
+    } else if (fallback) {
+      fallback.textContent = String(user.displayName || '?').trim().charAt(0).toUpperCase() || '?';
+      fallback.hidden = false;
+    }
+  }
+
   async function initializeTelegramWebApp() {
     if (!isTelegramWebApp) return;
     document.body.classList.add('telegram-webapp');
     $('#webappPanel')?.removeAttribute('hidden');
-    telegramWebApp.ready();
-    telegramWebApp.expand();
-    const result = await apiRequest('/api/v1/auth/telegram/webapp', { method: 'POST', body: JSON.stringify({ initData: telegramWebApp.initData }) });
+    telegramWebApp?.ready?.();
+    telegramWebApp?.expand?.();
+    const result = telegramWebApp?.initData
+      ? await apiRequest('/api/v1/auth/telegram/webapp', { method: 'POST', body: JSON.stringify({ initData: telegramWebApp.initData }) })
+      : null;
     if (result?.token) {
       localStorage.setItem(authKey, JSON.stringify({ provider: 'telegram', loggedInAt: Date.now(), ...result }));
-      if ($('#webappUserLine') && result.user) $('#webappUserLine').textContent = `${result.user.displayName || 'Ваш ящик'} · Telegram подключён`;
+      renderWebAppProfile(result.user);
+    } else if (result?.user) {
+      renderWebAppProfile(result.user);
     }
     await syncProfile();
     await syncInbox();
