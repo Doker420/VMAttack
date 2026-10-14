@@ -239,7 +239,7 @@ function ensurePublicLink(user, requestedSlug = null) {
   const username = user.username && user.username !== TELEGRAM_BOT_USERNAME ? user.username : identityUsername;
   // Repair links created by an old demo/default configuration. A real Telegram
   // username must never turn into the bot username or a global demo slug.
-  const preferredName = username || user.displayName;
+  const preferredName = user.id === DEMO_RECIPIENT_ID ? demoSlug() : (username || user.displayName);
   const needsRepair = existing && !requestedSlug &&
     (existing.slug === TELEGRAM_BOT_USERNAME || existing.slug === DEFAULT_RECIPIENT_SLUG) &&
     slugify(preferredName, '') !== existing.slug;
