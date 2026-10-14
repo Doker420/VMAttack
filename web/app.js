@@ -20,11 +20,21 @@
   let activeMessageId = null;
   const telegramWebApp = window.Telegram?.WebApp || null;
   const isTelegramWebApp = Boolean(telegramWebApp?.initData);
-  const queryRef = new URLSearchParams(window.location.search).get('ref') || 'anya';
-  const recipientSlug = queryRef.replace(/^ref[_-]/i, '').trim() || 'anya';
-  const publicSiteOrigin = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? window.location.origin : 'https://app.gogoa.club';
+  const queryRef = new URLSearchParams(window.location.search).get('ref') || '';
+  let recipientSlug = queryRef.replace(/^ref[_-]/i, '').trim();
+  const appConfig = {
+    siteUrl: window.location.origin,
+    webAppUrl: window.location.origin,
+    telegramUsername: '',
+    telegramUrl: '',
+    vkGroupId: '',
+    vkUrl: ''
+  };
   let profileSlug = recipientSlug;
-  const personalLink = (slug = profileSlug) => `${publicSiteOrigin}/?ref=${encodeURIComponent(slug)}`;
+  const publicSiteOrigin = () => {
+    try { return new URL(appConfig.siteUrl || window.location.origin).origin; } catch { return window.location.origin; }
+  };
+  const personalLink = (slug = profileSlug) => `${publicSiteOrigin()}/?ref=${encodeURIComponent(slug)}`;
 
   async function apiRequest(path, options = {}) {
     try {
@@ -36,8 +46,15 @@
       if (!response.ok) return { __error: true, status: response.status };
       return await response.json();
     } catch {
-      return null;
+      return { __error: true, status: 0 };
     }
+  }
+
+  async function loadAppConfig() {
+    const result = await apiRequest('/api/v1/config');
+    if (!result?.__error) Object.assign(appConfig, result);
+    if (!recipientSlug) recipientSlug = appConfig.defaultRecipientSlug || '';
+    return appConfig;
   }
 
   function showToast(text) {
@@ -144,8 +161,8 @@
     const shortLink = link.replace(/^https?:\/\//, '');
     ['webappPersonalLink', 'dashboardPersonalLink'].forEach((id) => { if ($(`#${id}`)) $(`#${id}`).textContent = shortLink; });
     ['webappReferralText', 'profileReferralText'].forEach((id) => { if ($(`#${id}`)) $(`#${id}`).innerHTML = `Напиши мне анонимно 💌<br />Оставь послание здесь: ${escapeHtml(shortLink)}`; });
-    if ($('#webappTelegramReferral')) $('#webappTelegramReferral').href = `https://t.me/poslaniya_robot?start=ref_${encodeURIComponent(profileSlug)}`;
-    if ($('#webappVkReferral')) $('#webappVkReferral').href = `https://vk.me/poslaniya_demo?ref=ref_${encodeURIComponent(profileSlug)}`;
+    if ($('#webappTelegramReferral')) $('#webappTelegramReferral').href = `${appConfig.telegramUrl}?start=ref_${encodeURIComponent(profileSlug)}`;
+    if ($('#webappVkReferral')) $('#webappVkReferral').href = `${appConfig.vkUrl}?ref=ref_${encodeURIComponent(profileSlug)}`;
     return result;
   }
 
@@ -159,20 +176,22 @@
       showToast('Напишите хотя бы несколько слов');
       return false;
     }
-    const result = await apiRequest(`/api/v1/links/${encodeURIComponent(recipientSlug)}/messages`, { method: 'POST', body: JSON.stringify({ text: cleanText, channel: 'web' }) });
-    if (result?.__error && result.status >= 500) {
-      showToast('Не удалось отправить. Попробуйте ещё раз');
+    if (!recipientSlug) {
+      showToast('Ссылка получателя не указана');
       return false;
     }
-    if (!result?.__error && result?.message) {
-      await syncInbox();
-    } else {
-      messages.unshift({ id: `local-${Date.now()}`, text: cleanText, time: 'только что', mood: 'pink', unread: true });
-      persistMessages();
-      renderInbox();
-      renderWebAppInbox();
+    const result = await apiRequest(`/api/v1/links/${encodeURIComponent(recipientSlug)}/messages`, { method: 'POST', body: JSON.stringify({ text: cleanText, channel: 'web' }) });
+    if (result?.__error) {
+      showToast(result.status === 404 ? 'Ссылка получателя не найдена' : 'Не удалось отправить. Попробуйте ещё раз');
+      return false;
     }
-    return true;
+    if (result?.message) {
+      showToast('Послание отправлено');
+      await syncInbox();
+      return true;
+    }
+    showToast('Не удалось отправить. Попробуйте ещё раз');
+    return false;
   }
 
   async function openAuthFlow(provider) {
@@ -185,7 +204,7 @@
     const isTelegram = provider === 'telegram';
     title.textContent = isTelegram ? 'Откройте Telegram-бота' : 'Откройте VK-бота';
     text.textContent = isTelegram ? 'Нажмите «Старт» в боте. После этого вернитесь сюда.' : 'Нажмите «Начать» в боте сообщества. После этого вернитесь сюда.';
-    botLink.href = isTelegram ? 'https://t.me/poslaniya_robot?start=auth_demo' : 'https://vk.me/poslaniya_demo';
+    botLink.href = isTelegram ? `${appConfig.telegramUrl}?start=auth_demo` : appConfig.vkUrl;
     botLink.innerHTML = isTelegram ? 'Открыть Telegram-бота <span>↗</span>' : 'Открыть VK-бота <span>↗</span>';
     $('.auth-options')?.setAttribute('hidden', '');
     pending.hidden = false;
@@ -421,9 +440,12 @@
   $('#webappCopyReferral')?.addEventListener('click', copyReferralText);
   $('#profileCopyReferral')?.addEventListener('click', copyReferralText);
 
-  // Keep the demo dashboard counters in sync after a sent message.
-  renderInbox();
-  renderWebAppInbox();
-  loadRecipient();
-  initializeTelegramWebApp();
+  // Load server configuration before resolving the referral and opening the Web App.
+  (async () => {
+    await loadAppConfig();
+    renderInbox();
+    renderWebAppInbox();
+    await loadRecipient();
+    await initializeTelegramWebApp();
+  })();
 })();

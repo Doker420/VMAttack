@@ -402,4 +402,5 @@ FodyWeavers.xsd
 .env
 .env.*
 !.env.example
+data/
 web/data/

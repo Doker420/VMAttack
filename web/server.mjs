@@ -1,25 +1,50 @@
+import 'dotenv/config';
 import { createServer } from 'node:http';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHmac, randomUUID } from 'node:crypto';
-import { extname, join, normalize, sep } from 'node:path';
+import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTelegramBot } from './telegram-bot.mjs';
 import { createSqliteStore } from './sqlite-store.mjs';
 
-const ROOT = fileURLToPath(new URL('.', import.meta.url));
-const PORT = Number(process.env.PORT || 4173);
-const RETENTION_INTERVAL_MS = Number(process.env.RETENTION_INTERVAL_MS || 24 * 60 * 60 * 1000);
-const TELEGRAM_BOT_USERNAME = process.env.TELEGRAM_BOT_USERNAME || 'poslaniya_robot';
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
-const VK_GROUP_ID = process.env.VK_GROUP_ID || 'poslaniya_demo';
-const VK_GROUP_TOKEN = process.env.VK_GROUP_TOKEN || '';
-const VK_CONFIRMATION_TOKEN = process.env.VK_CONFIRMATION_TOKEN || '';
-const WEB_APP_URL = process.env.WEB_APP_URL || 'https://app.gogoa.club';
-const DATA_FILE = process.env.DATA_FILE || join(ROOT, 'data', 'store.json');
-const DB_DRIVER = process.env.DB_DRIVER || 'sqlite';
-const SQLITE_FILE = process.env.SQLITE_FILE || join(ROOT, 'data', 'dev.sqlite');
+const WEB_ROOT = fileURLToPath(new URL('.', import.meta.url));
+const PROJECT_ROOT = resolve(WEB_ROOT, '..');
+
+function requiredEnv(name) {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`Missing ${name}. Copy .env.example to .env and set the application configuration.`);
+  return value;
+}
+
+function resolveProjectPath(value) {
+  return value.startsWith('/') ? value : join(PROJECT_ROOT, value);
+}
+
+const PORT = Number(requiredEnv('PORT'));
+const RETENTION_INTERVAL_MS = Number(requiredEnv('RETENTION_INTERVAL_MS'));
+const DEMO_MODE = requiredEnv('DEMO_MODE') === 'true';
+const TELEGRAM_MODE = requiredEnv('TELEGRAM_MODE');
+const TELEGRAM_BOT_USERNAME = requiredEnv('TELEGRAM_BOT_USERNAME');
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN?.trim() || '';
+const TELEGRAM_ADMIN_IDS = process.env.TELEGRAM_ADMIN_IDS?.trim() || '';
+const TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET?.trim() || '';
+const VK_GROUP_ID = requiredEnv('VK_GROUP_ID');
+const VK_GROUP_TOKEN = process.env.VK_GROUP_TOKEN?.trim() || '';
+const VK_API_VERSION = requiredEnv('VK_API_VERSION');
+const VK_CONFIRMATION_TOKEN = process.env.VK_CONFIRMATION_TOKEN?.trim() || '';
+const CLOUDPAYMENTS_API_SECRET = process.env.CLOUDPAYMENTS_API_SECRET?.trim() || '';
+const WEB_APP_URL = requiredEnv('WEB_APP_URL');
+const DEFAULT_RECIPIENT_SLUG = requiredEnv('DEFAULT_RECIPIENT_SLUG');
+const DEMO_RECIPIENT_ID = requiredEnv('DEMO_RECIPIENT_ID');
+const DEMO_RECIPIENT_NAME = requiredEnv('DEMO_RECIPIENT_NAME');
+const DATA_FILE = resolveProjectPath(requiredEnv('DATA_FILE'));
+const DB_DRIVER = requiredEnv('DB_DRIVER');
+const SQLITE_FILE = resolveProjectPath(requiredEnv('SQLITE_FILE'));
+const DAILY_RU_FILE = resolveProjectPath(requiredEnv('DAILY_RU_FILE'));
+const DAILY_EN_FILE = resolveProjectPath(requiredEnv('DAILY_EN_FILE'));
+const START_BANNER_URL = process.env.TELEGRAM_START_BANNER_URL?.trim() || '';
+const CORS_ORIGIN = requiredEnv('CORS_ORIGIN');
 const devStore = DB_DRIVER === 'json' ? null : await createSqliteStore(SQLITE_FILE);
-const START_BANNER_URL = process.env.TELEGRAM_START_BANNER_URL || (WEB_APP_URL.startsWith('https://') ? `${WEB_APP_URL.replace(/\/$/, '')}/assets/start-banner.png` : '');
 
 // In-memory stores keep this starter runnable without a database. Replace them with
 // PostgreSQL + Redis before production; the API shape is intentionally stable.
@@ -48,7 +73,7 @@ async function persistState() {
     const snapshot = currentSnapshot();
     if (devStore) devStore.save(snapshot);
     else {
-      await mkdir(join(ROOT, 'data'), { recursive: true });
+      await mkdir(join(PROJECT_ROOT, 'data'), { recursive: true });
       await writeFile(DATA_FILE, JSON.stringify(snapshot, null, 2));
     }
   } catch (error) {
@@ -81,17 +106,30 @@ async function loadState() {
   }
 }
 
-const randomMessages = [
-  { ru: 'Небольшое напоминание: вы уже справились со многим. Берегите себя сегодня 🤍', en: 'A little reminder: you have already made it through so much. Be kind to yourself today 🤍' },
-  { ru: 'Напишите сегодня тому, о ком давно думаете. Иногда одного «привет» достаточно.', en: 'Message someone you have been thinking about. Sometimes one “hello” is enough.' },
-  { ru: 'Ваши слова важны. Оставьте кому-нибудь тёплое послание — просто так.', en: 'Your words matter. Leave someone a warm message today, just because.' },
-  { ru: 'Пауза тоже часть пути. Сделайте вдох и найдите пять минут для себя ✦', en: 'A pause is part of the journey too. Take a breath and find five minutes for yourself ✦' },
-  { ru: 'Кому сегодня можно сказать спасибо? Отправьте это послание, пока мысль рядом.', en: 'Who could you thank today? Send the message while the thought is still with you.' }
-];
+const fallbackDailyMessages = {
+  ru: ['Небольшое напоминание: вы уже справились со многим. Берегите себя сегодня 🤍'],
+  en: ['A little reminder: you have already made it through so much. Be kind to yourself today 🤍']
+};
+let dailyMessages = { ru: [], en: [] };
+
+async function loadDailyMessages() {
+  const files = { ru: DAILY_RU_FILE, en: DAILY_EN_FILE };
+  for (const [language, filePath] of Object.entries(files)) {
+    try {
+      const content = await readFile(filePath, 'utf8');
+      const messagesFromFile = content.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      dailyMessages[language] = messagesFromFile.length ? messagesFromFile : fallbackDailyMessages[language];
+      console.log(`[daily] loaded ${dailyMessages[language].length} ${language} messages from ${filePath}`);
+    } catch (error) {
+      dailyMessages[language] = fallbackDailyMessages[language];
+      console.warn(`[daily] could not read ${filePath}: ${error.message}`);
+    }
+  }
+}
 
 function randomMessage(language = 'ru') {
-  const message = randomMessages[Math.floor(Math.random() * randomMessages.length)];
-  return message[language === 'en' ? 'en' : 'ru'];
+  const messagesForLanguage = dailyMessages[language === 'en' ? 'en' : 'ru'];
+  return messagesForLanguage[Math.floor(Math.random() * messagesForLanguage.length)] || fallbackDailyMessages.ru[0];
 }
 
 const mimeTypes = {
@@ -110,7 +148,7 @@ function json(res, status, body) {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
-    'Access-Control-Allow-Origin': process.env.CORS_ORIGIN || '*',
+    'Access-Control-Allow-Origin': CORS_ORIGIN,
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Telegram-Init-Data',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS'
   });
@@ -225,8 +263,8 @@ function completeAuth(provider, providerUserId, profile = {}) {
 
 // A small shared fixture makes the Web App and public page demonstrable before
 // credentials/database are configured. Production starts with an empty database.
-const demoAccount = completeAuth('telegram', 'demo_recipient', { displayName: 'Аня', username: 'anya' }).user;
-const demoLink = ensurePublicLink(demoAccount, 'anya');
+const demoAccount = completeAuth('telegram', DEMO_RECIPIENT_ID, { displayName: DEMO_RECIPIENT_NAME, username: DEFAULT_RECIPIENT_SLUG }).user;
+const demoLink = ensurePublicLink(demoAccount, DEFAULT_RECIPIENT_SLUG);
 for (const [text, hoursAgo, mood] of [
   ['Ты очень классно справляешься. Просто хотела, чтобы ты это знала 🤍', 2, 'pink'],
   ['Кажется, ты мне нравишься. Давно хотел сказать.', 8, 'yellow'],
@@ -236,8 +274,14 @@ for (const [text, hoursAgo, mood] of [
   messages.set(id, { id, publicLinkId: demoLink.id, body: text, text, source: 'telegram', senderAvailable: false, unread: hoursAgo < 24, saved: false, createdAt: new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString(), time: hoursAgo < 24 ? 'сегодня, 12:44' : hoursAgo < 48 ? 'вчера, 20:18' : '12 марта, 09:02', mood });
 }
 
+function buildWebAppUrl(query = {}) {
+  const url = new URL(WEB_APP_URL);
+  Object.entries(query).forEach(([key, value]) => url.searchParams.set(key, value));
+  return url.toString();
+}
+
 function telegramAppKeyboard() {
-  return { inline_keyboard: [[{ text: 'Открыть мой ящик 💌', web_app: { url: WEB_APP_URL } }]] };
+  return { inline_keyboard: [[{ text: 'Открыть мой ящик 💌', web_app: { url: buildWebAppUrl() } }]] };
 }
 
 function vkAppKeyboard() {
@@ -288,7 +332,7 @@ async function sendTelegramPhoto(chatId, caption, options = true) {
 
 async function sendVkMessage(userId, text, withApp = true) {
   if (!VK_GROUP_TOKEN || !userId) return { skipped: true, reason: 'VK_GROUP_TOKEN is not configured' };
-  const payload = { user_id: String(userId), random_id: String(Date.now()), message: text, access_token: VK_GROUP_TOKEN, v: '5.199' };
+  const payload = { user_id: String(userId), random_id: String(Date.now()), message: text, access_token: VK_GROUP_TOKEN, v: VK_API_VERSION };
   if (withApp) payload.keyboard = JSON.stringify(vkAppKeyboard());
   const params = new URLSearchParams(payload);
   const response = await fetch(`https://api.vk.com/method/messages.send?${params}`);
@@ -321,7 +365,7 @@ async function giftVipAfterReveal(user) {
 async function configureTelegramBot() {
   if (!TELEGRAM_BOT_TOKEN || !WEB_APP_URL.startsWith('https://')) return;
   const headers = { 'Content-Type': 'application/json' };
-  const menuPayload = { menu_button: { type: 'web_app', text: 'Мой ящик 💌', web_app: { url: WEB_APP_URL } } };
+  const menuPayload = { menu_button: { type: 'web_app', text: 'Мой ящик 💌', web_app: { url: buildWebAppUrl() } } };
   const commandsPayload = { commands: [{ command: 'start', description: 'Открыть Послания' }, { command: 'app', description: 'Открыть мой ящик' }, { command: 'settings', description: 'Настройки уведомлений' }] };
   await Promise.all([
     fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setChatMenuButton`, { method: 'POST', headers, body: JSON.stringify(menuPayload) }),
@@ -382,7 +426,7 @@ function botText(language, key) {
 
 function platformLinks(user = null) {
   const site = new URL(WEB_APP_URL).origin;
-  const slug = user ? ensurePublicLink(user).slug : 'anya';
+  const slug = user ? ensurePublicLink(user).slug : DEFAULT_RECIPIENT_SLUG;
   return {
     telegram: `https://t.me/${TELEGRAM_BOT_USERNAME}`,
     telegramReferral: `https://t.me/${TELEGRAM_BOT_USERNAME}?start=ref_${encodeURIComponent(slug)}`,
@@ -405,7 +449,7 @@ function languageKeyboard() {
 }
 
 function botMenuKeyboard(language, recipientSlug = null) {
-  const appUrl = recipientSlug ? `${WEB_APP_URL}?ref=${encodeURIComponent(recipientSlug)}` : WEB_APP_URL;
+  const appUrl = recipientSlug ? buildWebAppUrl({ ref: recipientSlug }) : buildWebAppUrl();
   return { inline_keyboard: [
     [{ text: `💌 ${botText(language, 'openApp')}`, web_app: { url: appUrl } }],
     [{ text: `🔗 ${botText(language, 'myLink')}`, callback_data: 'menu:link' }, { text: `✦ ${botText(language, 'daily')}`, callback_data: 'menu:daily' }],
@@ -418,7 +462,7 @@ function botMenuKeyboard(language, recipientSlug = null) {
 function paymentKeyboard(language, plan) {
   const label = plan === 'vip' ? botText(language, 'vip') : botText(language, 'reveal');
   return { inline_keyboard: [
-    [{ text: `💳 ${label}`, web_app: { url: `${WEB_APP_URL}?payment=${plan}` } }],
+    [{ text: `💳 ${label}`, web_app: { url: buildWebAppUrl({ payment: plan }) } }],
     [{ text: 'СБП / SBP — скоро', callback_data: `pay:stub:sbp:${plan}` }],
     [{ text: 'ЮMoney — заглушка', callback_data: `pay:stub:yoomoney:${plan}` }, { text: 'CryptoBot — заглушка', callback_data: `pay:stub:crypto:${plan}` }]
   ] };
@@ -427,12 +471,12 @@ function paymentKeyboard(language, plan) {
 function dailyKeyboard(language) {
   return { inline_keyboard: [
     [{ text: `🔓 ${botText(language, 'reveal')}`, callback_data: 'pay:choose:reveal' }, { text: `♛ ${botText(language, 'vip')}`, callback_data: 'pay:choose:vip' }],
-    [{ text: `💌 ${botText(language, 'openApp')}`, web_app: { url: WEB_APP_URL } }]
+    [{ text: `💌 ${botText(language, 'openApp')}`, web_app: { url: buildWebAppUrl() } }]
   ] };
 }
 
 function isTelegramAdmin(chatId) {
-  const admins = new Set((process.env.TELEGRAM_ADMIN_IDS || '').split(',').map((id) => id.trim()).filter(Boolean));
+  const admins = new Set(TELEGRAM_ADMIN_IDS.split(',').map((id) => id.trim()).filter(Boolean));
   return admins.has(String(chatId));
 }
 
@@ -501,7 +545,7 @@ async function handleTelegramCallback(callback) {
   if (data === 'menu:link') {
     const link = ensurePublicLink(user);
     await answerCallback(callback.id);
-    return sendTelegramMessage(chatId, `${botText(user.language, 'myLink')}:\n${new URL(WEB_APP_URL).origin}/?ref=${encodeURIComponent(link.slug)}\n\n${profileInstructions(user.language, user)}`,  { reply_markup: { inline_keyboard: [[{ text: `💌 ${botText(user.language, 'openApp')}`, web_app: { url: WEB_APP_URL } }], [{ text: '← Меню', callback_data: 'menu:home' }]] } });
+    return sendTelegramMessage(chatId, `${botText(user.language, 'myLink')}:\n${new URL(WEB_APP_URL).origin}/?ref=${encodeURIComponent(link.slug)}\n\n${profileInstructions(user.language, user)}`,  { reply_markup: { inline_keyboard: [[{ text: `💌 ${botText(user.language, 'openApp')}`, web_app: { url: buildWebAppUrl({ ref: link.slug }) } }], [{ text: '← Меню', callback_data: 'menu:home' }]] } });
   }
   if (data === 'menu:instructions') {
     await answerCallback(callback.id);
@@ -581,9 +625,11 @@ async function handleTelegramUpdate(update) {
     }
     return;
   }
-  const referralMatch = text.match(/^\/start\s+ref[_-]([a-z0-9_-]+)$/i);
+  const referralMatch = text.match(/^\/start\s+ref[_-]([^\s]+)$/i);
   if (referralMatch) {
-    user.activeRecipientSlug = referralMatch[1].toLowerCase();
+    const referralSlug = referralMatch[1].toLowerCase().replace(/[^a-zа-яё0-9_-]/gi, '');
+    if (!referralSlug) return sendBotMenu(user, chatId);
+    user.activeRecipientSlug = referralSlug;
     schedulePersist();
     if (!user.language) return sendStartLanguage(chatId);
     return sendBotMenu(user, chatId, user.language === 'en' ? 'You opened a personal message link. Send an anonymous message in the Web App 💌' : 'Вы открыли персональную ссылку. Отправьте анонимное послание в Web App 💌', { withBanner: true, recipientSlug: user.activeRecipientSlug });
@@ -633,8 +679,24 @@ async function runDailyRetentionBroadcast() {
   return { targets: targets.length, delivered };
 }
 
+function publicConfig() {
+  const site = new URL(WEB_APP_URL).origin;
+  return {
+    siteUrl: site,
+    webAppUrl: WEB_APP_URL,
+    telegramUsername: TELEGRAM_BOT_USERNAME,
+    telegramUrl: `https://t.me/${TELEGRAM_BOT_USERNAME}`,
+    vkGroupId: VK_GROUP_ID,
+    vkUrl: `https://vk.me/${VK_GROUP_ID}`,
+    defaultRecipientSlug: DEFAULT_RECIPIENT_SLUG
+  };
+}
+
 async function handleApi(req, res, url) {
   if (req.method === 'OPTIONS') return json(res, 204, {});
+  if (req.method === 'GET' && url.pathname === '/api/v1/config') {
+    return json(res, 200, publicConfig());
+  }
   if (req.method === 'GET' && url.pathname === '/api/v1/plans') {
     return json(res, 200, { plans: [{ id: 'vip', amount: 20, currency: 'RUB', durationDays: 7 }, { id: 'reveal', amount: 7, currency: 'RUB', durationDays: 0 }] });
   }
@@ -657,7 +719,7 @@ async function handleApi(req, res, url) {
     if (authorized) return json(res, 200, authorized);
     // `demo: true` makes the UI preview useful without bot credentials. Disable this
     // fallback in production with DEMO_MODE=false; real users complete via webhook.
-    if (body.demo !== true || process.env.DEMO_MODE === 'false') return json(res, 409, { error: 'waiting_for_bot_confirmation' });
+    if (body.demo !== true || !DEMO_MODE) return json(res, 409, { error: 'waiting_for_bot_confirmation' });
     const result = completeAuth(provider, body.providerUserId || (provider === 'telegram' ? 'demo_recipient' : 'demo_vk_recipient'), { displayName: provider === 'telegram' ? 'Аня' : (body.displayName || 'VK user'), username: provider === 'telegram' ? 'anya' : null });
     return json(res, 200, result);
   }
@@ -698,7 +760,7 @@ async function handleApi(req, res, url) {
     const link = publicLinks.get(decodeURIComponent(publicMessageMatch[1]));
     const body = await readBody(req);
     const cleanText = String(body.text || '').trim();
-    if (!link || !link.isActive) return json(res, 200, { message: 'Послание отправлено' });
+    if (!link || !link.isActive) return json(res, 404, { error: 'link_not_found' });
     if (cleanText.length < 3 || cleanText.length > 500) return json(res, 422, { error: 'message_length' });
     const message = { id: randomUUID(), publicLinkId: link.id, body: cleanText, text: cleanText, source: body.channel || 'web', senderAvailable: false, unread: true, saved: false, createdAt: new Date().toISOString(), time: 'только что', mood: 'pink' };
     messages.set(message.id, message);
@@ -754,8 +816,8 @@ async function handleApi(req, res, url) {
   if (req.method === 'POST' && url.pathname.startsWith('/webhooks/cloudpayments/')) {
     const raw = await readRawBody(req);
     const signature = req.headers['x-content-hmac'];
-    if (process.env.CLOUDPAYMENTS_API_SECRET) {
-      const expected = createHmac('sha256', process.env.CLOUDPAYMENTS_API_SECRET).update(raw).digest('base64');
+    if (CLOUDPAYMENTS_API_SECRET) {
+      const expected = createHmac('sha256', CLOUDPAYMENTS_API_SECRET).update(raw).digest('base64');
       if (!signature || signature !== expected) return json(res, 401, { code: 13, error: 'invalid_signature' });
     }
     let body = {};
@@ -779,8 +841,7 @@ async function handleApi(req, res, url) {
     return json(res, 200, { code: 0 });
   }
   if (req.method === 'POST' && url.pathname.startsWith('/webhooks/telegram')) {
-    const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
-    if (webhookSecret && req.headers['x-telegram-bot-api-secret-token'] !== webhookSecret) return json(res, 403, { error: 'invalid_telegram_secret' });
+    if (TELEGRAM_WEBHOOK_SECRET && req.headers['x-telegram-bot-api-secret-token'] !== TELEGRAM_WEBHOOK_SECRET) return json(res, 403, { error: 'invalid_telegram_secret' });
     const body = await readBody(req);
     await handleTelegramUpdate(body);
     return json(res, 200, { ok: true });
@@ -813,13 +874,31 @@ async function handleApi(req, res, url) {
   return json(res, 404, { error: 'not_found' });
 }
 
+function escapeHtml(value) {
+  return String(value).replace(/[&<>\"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#039;' }[character]));
+}
+
+function renderIndexTemplate(content) {
+  const links = platformLinks();
+  const replacements = {
+    __TELEGRAM_URL__: links.telegram,
+    __TELEGRAM_REFERRAL_URL__: links.telegramReferral,
+    __VK_URL__: links.vk,
+    __VK_REFERRAL_URL__: links.vkReferral,
+    __SITE_URL__: links.site,
+    __SITE_REFERRAL_URL__: links.siteReferral
+  };
+  return Object.entries(replacements).reduce((html, [token, value]) => html.replaceAll(token, escapeHtml(value)), content);
+}
+
 async function serveStatic(req, res, url) {
   const requested = url.pathname === '/' ? 'index.html' : url.pathname.replace(/^\//, '');
-  const rootPath = normalize(ROOT).replace(/[\/]$/, '');
+  const rootPath = normalize(WEB_ROOT).replace(/[\\/]$/, '');
   const filePath = normalize(join(rootPath, requested));
   if (!(filePath === rootPath || filePath.startsWith(rootPath + sep))) return res.writeHead(403).end('Forbidden');
   try {
-    const content = await readFile(filePath);
+    let content = await readFile(filePath);
+    if (requested === 'index.html') content = Buffer.from(renderIndexTemplate(content.toString('utf8')));
     res.writeHead(200, { 'Content-Type': mimeTypes[extname(filePath)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
     res.end(content);
   } catch {
@@ -847,6 +926,7 @@ const telegramBot = createTelegramBot({
 });
 
 async function bootstrap() {
+  await loadDailyMessages();
   await loadState();
   setInterval(runDailyRetentionBroadcast, RETENTION_INTERVAL_MS).unref();
   server.listen(PORT, '0.0.0.0', () => {
@@ -854,7 +934,8 @@ async function bootstrap() {
     console.log(`Telegram Web App: ${WEB_APP_URL}`);
     console.log(`Daily retention scheduler: every ${Math.round(RETENTION_INTERVAL_MS / 1000)}s, only opted-in users`);
     configureTelegramBot();
-    telegramBot.start();
+    if (TELEGRAM_MODE === 'polling') telegramBot.start();
+    else console.log(`[telegram] mode=${TELEGRAM_MODE}; polling is disabled`);
   });
 }
 

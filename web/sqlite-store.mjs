@@ -30,21 +30,30 @@ export async function createSqliteStore(filePath) {
     return null;
   }
 
-  const db = new driver.Database(filePath);
-  if (driver.type === 'better') db.pragma('journal_mode = WAL');
-  else db.exec('PRAGMA journal_mode = WAL;');
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS app_state (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-  `);
-  const read = db.prepare('SELECT value FROM app_state WHERE key = ?');
-  const write = db.prepare(`
-    INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, ?)
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-  `);
+  let db;
+  let read;
+  let write;
+  try {
+    db = new driver.Database(filePath);
+    if (driver.type === 'better') db.pragma('journal_mode = WAL');
+    else db.exec('PRAGMA journal_mode = WAL;');
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS app_state (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    read = db.prepare('SELECT value FROM app_state WHERE key = ?');
+    write = db.prepare(`
+      INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `);
+  } catch (error) {
+    try { db?.close(); } catch {}
+    console.warn(`[store] SQLite driver failed to open; using JSON fallback: ${error.message}`);
+    return null;
+  }
 
   return {
     load() {

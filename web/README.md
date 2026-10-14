@@ -1,82 +1,55 @@
-# Послания — единый Web + Bot MVP
+# Послания — Web App и боты
 
-Интерактивный сервис анонимных посланий, где сайт, Telegram Web App, Telegram-бот и VK-бот используют общий API, аккаунт, ящик, тарифы и настройки рассылок.
+`web/` содержит готовый Web App, HTTP API и Telegram long polling transport. Запуск выполняется из корня репозитория; отдельный запуск из старого проекта или перенос базы из `web/data` не нужен.
 
-## Запуск
-
-Из корня репозитория:
+## Запуск из корня
 
 ```bash
-# Node 20: ставим SQLite-драйвер
+cp .env.example .env
 npm install
-node web/server.mjs
+npm start
 ```
 
-На Node.js 22+ встроенный `node:sqlite` используется автоматически. На Node.js 20 используется `better-sqlite3` из `package.json`.
+После запуска откройте значение `WEB_APP_URL` из `.env` или локально `http://localhost:4173`.
 
-Откройте `http://localhost:4173`.
+Все настройки приложения загружаются из корневого `.env`. Секреты в Git не добавляются. На Node.js 20 используется `better-sqlite3`, на Node.js 22+ — встроенный `node:sqlite`. Если SQLite-драйвер недоступен, включается JSON fallback с предупреждением.
 
-Сервер использует встроенные модули Node.js и SQLite-драйвер для development, одновременно отдавая сайт и demo API. На Node 20 после `npm install` используется `better-sqlite3`; если драйвер временно недоступен, включается JSON fallback с предупреждением. Файл dev-базы создаётся в `web/data/dev.sqlite` и не попадает в Git. Для одного только UI также можно запустить:
-
-```bash
-python3 -m http.server 4173 --directory web --bind 0.0.0.0
-```
-
-Сборщик и зависимости не нужны: HTML, CSS и vanilla JavaScript специально оставлены простыми для дальнейшего подключения к production API.
-
-### Переменные для ботов
-
-```bash
-TELEGRAM_BOT_USERNAME=poslaniya_robot
-TELEGRAM_BOT_TOKEN=...
-VK_GROUP_ID=poslaniya_demo
-VK_GROUP_TOKEN=...
-VK_CONFIRMATION_TOKEN=...
+```dotenv
 WEB_APP_URL=https://app.gogoa.club
+TELEGRAM_BOT_USERNAME=poslaniya_robot
+VK_GROUP_ID=poslaniya_demo
+VK_API_VERSION=5.199
 DB_DRIVER=sqlite
-SQLITE_FILE=web/data/dev.sqlite
-PORT=4173
+SQLITE_FILE=data/dev.sqlite
+DAILY_RU_FILE=content/daily/ru.txt
+DAILY_EN_FILE=content/daily/en.txt
 ```
 
-Без токенов работают demo-авторизация, Web App shell, общий inbox, тарифы и настройки удержания. При наличии токенов scheduler сможет отправлять ежедневные сообщения через официальные API Telegram/VK.
+SQLite-файл и JSON runtime-состояние создаются в корневой `data/`. Файлы ежедневных посланий находятся в `content/daily/ru.txt` и `content/daily/en.txt`; в каждом файле по 500 вариантов.
 
-## Единый организм
+## Referral-ссылки
 
-- `/start` и `/app` в Telegram автоматически создают/находят общий аккаунт и отправляют кнопку Telegram Web App;
-- `setChatMenuButton` на production настраивает постоянную кнопку «Мой ящик»;
-- Web App подтверждает `Telegram.WebApp.initData` на backend, после чего получает ту же сессию, что и сайт;
-- сайт и Web App читают один `/api/v1/inbox`, отправляют в один `/api/v1/links/{slug}/messages` и используют одинаковые платежи/retention settings;
-- новое послание из сайта вызывает общий `notifyUser`, который доставляет уведомление в привязанные Telegram и VK identities;
-- VK-бот отправляет такую же ссылку на общий Web App через inline keyboard.
+Форматы ссылок строятся из значений `.env` и конкретного slug получателя:
 
-Telegram Web App требует HTTPS в production. Укажите его адрес в `WEB_APP_URL` и устанавливайте webhook на `/webhooks/telegram` только в webhook-режиме.
+- Telegram: `https://t.me/<TELEGRAM_BOT_USERNAME>?start=ref_<slug>`;
+- VK: `https://vk.me/<VK_GROUP_ID>?ref=ref_<slug>`;
+- сайт: `https://<WEB_APP_URL>/?ref=<slug>`.
 
-По умолчанию бот работает через отдельный модуль `telegram-bot.mjs` в polling-режиме, поэтому для старта не нужен публичный webhook. Баннер `/start` находится в `web/assets/start-banner.png`, а Telegram получает его через `TELEGRAM_START_BANNER_URL`.
+При открытии сайта с `?ref=<slug>` форма отправки доступна сразу, без авторизации. Сообщение отправляется через `POST /api/v1/links/<slug>/messages` и сохраняется в SQLite.
 
-## Что можно проверить
+Telegram referral deep link сохраняет получателя и показывает кнопку Web App уже с тем же `?ref=<slug>`. Обычная кнопка `Открыть мой ящик` и меню Telegram также используют `WEB_APP_URL` из `.env`.
 
-- «Получить свою ссылку» → введите имя → скопируйте созданную ссылку;
-- форма на hero-экране → отправьте тестовое послание;
-- «Мои послания» → откройте inbox, увидите счётчики и тестовое сообщение;
-- «Подключить Telegram или VK» → сценарии каналов;
-- «Подключить VIP» → демо-сценарий оплаты 20 ₽ за 7 дней;
-- «Узнать отправителя» → демо-сценарий разовой оплаты 7 ₽;
-- обновите страницу: демо-сообщения сохраняются в `localStorage`.
+## Ежедневные послания
 
-Без production-токенов кнопки платежей и авторизации работают в demo-режиме. Webhook/API-контракты и план запуска находятся в [`../docs/anonymous-messages-plan.md`](../docs/anonymous-messages-plan.md).
+Сервер загружает по одному посланию на строку из файлов, заданных `DAILY_RU_FILE` и `DAILY_EN_FILE`. Можно заменить файлы без изменения кода. В каждом тексте бот дополнительно сообщает, что это игровой тизер сервиса, а не послание реального отправителя.
 
-## Быстрый запуск Telegram-бота в polling-режиме
+## Что проверить
 
-Polling нужен для первого запуска без публичного HTTPS webhook:
+- открыть `/?ref=anya` и отправить послание без входа;
+- проверить `GET /api/v1/links/anya`;
+- проверить `POST /api/v1/links/anya/messages`;
+- открыть Telegram-бота, нажать `/start` или referral-ссылку и затем `Открыть мой ящик`;
+- проверить нижнюю навигацию Web App и загрузку профиля через `/api/v1/me`;
+- проверить `GET /health`.
 
-```bash
-export TELEGRAM_BOT_TOKEN='токен_бота'
-export TELEGRAM_BOT_USERNAME='имя_бота_без_@'
-export TELEGRAM_ADMIN_IDS='ваш_telegram_id'
-export TELEGRAM_MODE=polling
-node web/server.mjs
-```
-
-После запуска бот отвечает на `/start`, показывает выбор `Русский / English`, открывает Web App, принимает callback-кнопки, отправляет daily-послания и поддерживает `/admin`, `/stats` через админскую панель.
-
-Команда `/id` показывает Telegram ID, который нужно добавить в `TELEGRAM_ADMIN_IDS`. Токен не следует хранить в Git или публиковать в чате.
+Telegram polling запускается автоматически, если в `.env` задан `TELEGRAM_BOT_TOKEN`. Для production Web App URL должен быть HTTPS. Токен и другие секреты нельзя хранить в исходниках или публиковать.
