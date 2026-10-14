@@ -581,6 +581,26 @@ async function sendTelegramMessage(chatId, text, options = true) {
   }
 }
 
+async function sendTelegramMedia(chatId, media, caption = '', options = true) {
+  if (telegramBotUserId && String(chatId) === String(telegramBotUserId)) return { skipped: true, reason: 'bot_cannot_message_itself' };
+  if (!TELEGRAM_BOT_TOKEN || !chatId || !media?.fileId) return { skipped: true, reason: 'telegram media is not configured' };
+  const methods = { photo: ['sendPhoto', 'photo'], video: ['sendVideo', 'video'], voice: ['sendVoice', 'voice'], video_note: ['sendVideoNote', 'video_note'], sticker: ['sendSticker', 'sticker'], document: ['sendDocument', 'document'], audio: ['sendAudio', 'audio'], animation: ['sendAnimation', 'animation'] };
+  const [method, field] = methods[media.kind] || methods.document;
+  const payload = { chat_id: chatId, [field]: media.fileId };
+  if (caption && !['sticker', 'video_note'].includes(media.kind)) {
+    payload.caption = caption;
+    payload.parse_mode = 'HTML';
+  }
+  if (options?.reply_markup) payload.reply_markup = options.reply_markup;
+  try {
+    await telegramRequest(method, payload);
+    return { sent: true, media: true };
+  } catch (error) {
+    console.error(`[telegram] ${method} failed:`, error.message);
+    return { sent: false, error: error.message };
+  }
+}
+
 async function sendTelegramSticker(chatId, stickerId = TELEGRAM_STICKER_ID, options = false) {
   if (telegramBotUserId && String(chatId) === String(telegramBotUserId)) return { skipped: true, reason: 'bot_cannot_message_itself' };
   if (!TELEGRAM_BOT_TOKEN || !chatId || !stickerId) return { skipped: true, reason: 'sticker is not configured' };
@@ -672,7 +692,7 @@ function newMessageKeyboard(messageId) {
   return {
     inline_keyboard: [
       [{ text: '↩ Ответить', web_app: { url: buildWebAppUrl({ replyMessageId: messageId }) } }],
-      [{ text: '🔎 Узнать отправителя · 7 ₽', web_app: { url: buildWebAppUrl({ payment: 'reveal', messageId }) } }, { text: '🚫 Заблокировать', callback_data: `block:${messageId}` }],
+      [{ text: '🔎 Узнать отправителя · 7 ₽', url: telegramBotStartUrl(`reveal_${messageId}`) }, { text: '🚫 Заблокировать', callback_data: `block:${messageId}` }],
       [{ text: '💌 Открыть мой ящик', web_app: { url: buildWebAppUrl() } }]
     ]
   };
@@ -685,6 +705,8 @@ function messageForOwner(message, user) {
     publicLinkId: message.publicLinkId,
     body: message.body,
     text: message.text,
+    caption: message.caption || '',
+    media: message.media || null,
     source: message.source,
     senderAvailable: Boolean(message.senderAvailable),
     unread: Boolean(message.unread),
@@ -709,20 +731,66 @@ function messageForOwner(message, user) {
   return result;
 }
 
+function telegramMediaFromMessage(message) {
+  if (message?.photo?.length) return { kind: 'photo', fileId: message.photo.at(-1).file_id };
+  if (message?.video?.file_id) return { kind: 'video', fileId: message.video.file_id };
+  if (message?.voice?.file_id) return { kind: 'voice', fileId: message.voice.file_id };
+  if (message?.video_note?.file_id) return { kind: 'video_note', fileId: message.video_note.file_id };
+  if (message?.sticker?.file_id) return { kind: 'sticker', fileId: message.sticker.file_id, emoji: message.sticker.emoji || '', stickerSetName: message.sticker.set_name || '' };
+  if (message?.audio?.file_id) return { kind: 'audio', fileId: message.audio.file_id };
+  if (message?.animation?.file_id) return { kind: 'animation', fileId: message.animation.file_id };
+  if (message?.document?.file_id) return { kind: 'document', fileId: message.document.file_id };
+  return null;
+}
+
+function telegramMediaLabel(media) {
+  return ({ photo: '📷 Фото', video: '🎬 Видео', voice: '🔊 Голосовое', video_note: '📹 Видеосообщение', sticker: '✨ Стикер', audio: '🎵 Аудио', animation: '🎞 GIF', document: '📎 Файл' })[media?.kind] || '📎 Медиа';
+}
+
+function telegramBotStartUrl(startParameter = 'menu') {
+  const username = TELEGRAM_BOT_USERNAME || 'poslaniya_robot';
+  return `https://t.me/${username}?start=${encodeURIComponent(startParameter)}`;
+}
+
+function anonymousMessageSignature() {
+  const username = TELEGRAM_BOT_USERNAME || 'poslaniya_robot';
+  return `Послание отправлено через Послания 💌 t.me/${username}`;
+}
+
 async function notifyNewMessage(user, message) {
-  const text = `💌 <b>Новое анонимное послание</b>\n\nТекст послания:\n«${escapeTelegramHtml(message.text)}»`;
+  const messageSignature = `\n\n<i>${escapeTelegramHtml(anonymousMessageSignature())}</i>`;
+  const botText = message.media
+    ? `${message.caption ? `💌 <b>Новое анонимное послание</b>\n\n${escapeTelegramHtml(message.caption)}` : '💌 <b>Новое анонимное послание</b>'}${messageSignature}`
+    : `💌 <b>Новое анонимное послание</b>\n\nТекст послания:\n«${escapeTelegramHtml(message.text)}»${messageSignature}`;
   const deliveries = [];
+  const recipientUsername = telegramUsernameForDisplay(user);
+  let telegramDeliveredByUserbot = false;
+  if (recipientUsername && telegramUserbot.isReady) {
+    const userbotResult = await telegramUserbot.sendAnonymousMessage({
+      username: recipientUsername,
+      text: message.caption || (message.media ? '' : message.text),
+      media: message.media || null,
+      signature: anonymousMessageSignature(),
+      botUrl: telegramBotStartUrl('menu'),
+      revealUrl: telegramBotStartUrl(`reveal_${message.id}`)
+    });
+    if (userbotResult.sent) {
+      telegramDeliveredByUserbot = true;
+      deliveries.push(Promise.resolve(userbotResult));
+    }
+  }
   for (const identity of userIdentities(user)) {
-    if (isTelegramBotIdentity(identity)) continue;
     if (identity.provider === 'telegram') {
+      if (telegramDeliveredByUserbot || isTelegramBotIdentity(identity)) continue;
       deliveries.push((async () => {
         await resolveTelegramBotIdentity();
         if (isTelegramBotIdentity(identity)) return { skipped: true, reason: 'bot_identity_ignored' };
         await sendTelegramSticker(identity.providerUserId, TELEGRAM_RECEIVED_STICKER_ID);
-        return sendTelegramMessage(identity.providerUserId, text, { reply_markup: newMessageKeyboard(message.id) });
+        if (message.media) return sendTelegramMedia(identity.providerUserId, message.media, botText, { reply_markup: newMessageKeyboard(message.id) });
+        return sendTelegramMessage(identity.providerUserId, botText, { reply_markup: newMessageKeyboard(message.id) });
       })());
     } else {
-      deliveries.push(sendVkMessage(identity.providerUserId, text, true, buildWebAppUrl({ payment: 'reveal', messageId: message.id }), '🔎 Узнать отправителя · 7 ₽'));
+      deliveries.push(sendVkMessage(identity.providerUserId, botText.replace(/<[^>]+>/g, ''), true, buildWebAppUrl({ payment: 'reveal', messageId: message.id }), '🔎 Узнать отправителя · 7 ₽'));
     }
   }
   const results = await Promise.allSettled(deliveries);
@@ -753,7 +821,7 @@ async function configureTelegramBot() {
   if (!WEB_APP_URL.startsWith('https://')) return;
   const headers = { 'Content-Type': 'application/json' };
   const menuPayload = { menu_button: { type: 'web_app', text: 'Мой ящик 💌', web_app: { url: buildWebAppUrl() } } };
-  const commandsPayload = { commands: [{ command: 'start', description: 'Открыть Послания' }, { command: 'app', description: 'Открыть мой ящик' }, { command: 'link', description: 'Моя персональная ссылка' }, { command: 'daily', description: 'Послание дня' }, { command: 'help', description: 'Помощь' }, { command: 'settings', description: 'Настройки уведомлений' }] };
+  const commandsPayload = { commands: [{ command: 'start', description: 'Открыть Послания' }, { command: 'app', description: 'Открыть мой ящик' }, { command: 'link', description: 'Моя персональная ссылка' }, { command: 'daily', description: 'Послание дня' }, { command: 'message', description: 'Написать послание' }, { command: 'help', description: 'Помощь' }, { command: 'settings', description: 'Настройки уведомлений' }] };
   await Promise.all([
     fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setChatMenuButton`, { method: 'POST', headers, body: JSON.stringify(menuPayload) }),
     fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setMyCommands`, { method: 'POST', headers, body: JSON.stringify(commandsPayload) })
@@ -865,6 +933,7 @@ function botMenuKeyboard(language, recipientSlug = null, authToken = null) {
     [{ text: `🔗 ${botText(language, 'myLink')}`, callback_data: 'menu:link' }, { text: `✦ ${botText(language, 'daily')}`, callback_data: 'menu:daily' }],
     [{ text: `♛ ${botText(language, 'vip')}`, callback_data: 'pay:choose:vip' }, { text: `? ${botText(language, 'reveal')}`, callback_data: 'pay:choose:reveal' }],
     [{ text: `💳 ${botText(language, 'topup')}`, callback_data: 'topup:menu' }],
+    [{ text: '✍️ Написать послание', callback_data: 'message:choose' }],
     [{ text: `🎁 ${botText(language, 'gift')}`, callback_data: 'gift:menu' }],
     [{ text: `📌 ${botText(language, 'instructions')}`, callback_data: 'menu:instructions' }],
     [{ text: `⚙ ${botText(language, 'settings')}`, callback_data: 'menu:settings' }, { text: `? ${botText(language, 'help')}`, callback_data: 'menu:help' }]
@@ -1820,6 +1889,13 @@ async function handleTelegramCallback(callback) {
     await answerCallback(callback.id, user.language === 'en' ? 'English selected' : 'Язык выбран');
     return sendBotMenu(user, chatId);
   }
+  if (data === 'message:choose') {
+    user.awaitingMessageRecipient = true;
+    delete user.awaitingDirectMessageSlug;
+    schedulePersist();
+    await answerCallback(callback.id);
+    return sendTelegramMessage(chatId, '✍️ Кому отправить послание? Напишите Telegram @username получателя.', { reply_markup: { force_reply: true, input_field_placeholder: '@username получателя', selective: true } });
+  }
   if (data === 'menu:link') {
     const link = ensurePublicLink(user);
     await answerCallback(callback.id);
@@ -1851,11 +1927,12 @@ async function handleTelegramCallback(callback) {
   }
   if (data === 'menu:help') {
     await answerCallback(callback.id);
-    return sendTelegramMessage(chatId, '💌 Отправьте свою ссылку друзьям. Новые сообщения появятся в ящике и в боте.\n\nVIP: 20 ₽ / 7 дней. Раскрытие отправителя: 7 ₽.', { reply_markup: botMenuKeyboard(user.language) });
+    return sendTelegramMessage(chatId, '💌 Отправьте свою ссылку друзьям. Новые сообщения появятся в ящике и в боте.\n\n✍️ Нажмите «Написать послание» или используйте /message, чтобы выбрать получателя. Можно отправить текст и медиа.\n\nVIP: 20 ₽ / 7 дней. Раскрытие отправителя: 7 ₽.', { reply_markup: botMenuKeyboard(user.language) });
   }
   if (data === 'menu:home' || data === 'app') {
-    if (data === 'menu:home' && user.awaitingDirectMessageSlug) {
+    if (data === 'menu:home' && (user.awaitingDirectMessageSlug || user.awaitingMessageRecipient)) {
       delete user.awaitingDirectMessageSlug;
+      delete user.awaitingMessageRecipient;
       schedulePersist();
     }
     await answerCallback(callback.id);
@@ -1985,17 +2062,28 @@ async function handleTelegramGroupMessage(message) {
   return sendTelegramMessage(chatId, '💌 Откройте свой ящик в Web App.', { reply_markup: { inline_keyboard: [[{ text: 'Открыть Web App 💌', web_app: { url: buildWebAppUrl() } }]] } });
 }
 
-async function deliverDirectTelegramMessage(user, recipientSlug, text) {
+function directMessagePrompt(recipientSlug) {
   const link = resolvePublicLink(recipientSlug);
-  const cleanText = String(text || '').trim();
+  const owner = link && users.get(link.userId);
+  const ownerName = owner?.displayName || telegramUsernameForDisplay(owner) || `@${recipientSlug}`;
+  return `💌 Сейчас ты можешь написать послание человеку.\n\n✍️ <b>Напиши сюда всё, что хочешь ему передать,</b> и когда <b>${escapeTelegramHtml(ownerName)}</b> зайдёт в бот — он получит ваше сообщение, но не будет знать от кого.\n\nОтправить можно фото, видео, 💬 текст, 🔊 голосовые, 📷 видеосообщения (кружки), а также ✨ стикеры.`;
+}
+
+async function deliverDirectTelegramMessage(user, recipientSlug, incomingMessage) {
+  const link = resolvePublicLink(recipientSlug);
+  const cleanText = String(incomingMessage?.text || incomingMessage?.caption || '').trim();
+  const media = telegramMediaFromMessage(incomingMessage);
   if (!link || !link.isActive) return { ok: false, reason: 'link_not_found' };
-  if (cleanText.length < 3 || cleanText.length > 500) return { ok: false, reason: 'message_length' };
+  if (cleanText.length > 500 || (cleanText.length < 3 && !media)) return { ok: false, reason: 'message_length' };
   const providerUserId = telegramChatId(user);
+  const messageText = cleanText || telegramMediaLabel(media);
   const message = {
     id: randomUUID(),
     publicLinkId: link.id,
-    body: cleanText,
-    text: cleanText,
+    body: messageText,
+    text: messageText,
+    caption: cleanText,
+    media,
     source: 'telegram-bot',
     senderAvailable: true,
     sender: { fingerprint: `telegram:${providerUserId}`, provider: 'telegram', providerUserId, displayName: user.displayName, username: user.username },
@@ -2021,6 +2109,16 @@ async function handleTelegramUpdate(update) {
   const chatId = message.chat.id;
   const text = message.text || '';
   const user = getTelegramUser(message);
+  const revealStartMatch = text.match(/^\/start(?:@[a-z0-9_]+)?\s+reveal_([a-f0-9-]+)$/i);
+  if (revealStartMatch) {
+    const messageId = revealStartMatch[1];
+    const targetMessage = messages.get(messageId);
+    const ownerLink = targetMessage && [...publicLinks.values()].find((candidate) => candidate.id === targetMessage.publicLinkId && candidate.userId === user.id);
+    if (!targetMessage || !ownerLink || !targetMessage.senderAvailable) {
+      return sendTelegramMessage(chatId, '🔎 Для этого послания отправителя нельзя определить.', { reply_markup: botMenuKeyboard(user.language || 'ru') });
+    }
+    return sendTelegramMessage(chatId, '🔎 <b>Узнать отправителя</b>\n\nВыберите способ оплаты — после подтверждения покажем доступные данные отправителя.\n\nСтоимость: <b>7 ₽</b>.', { reply_markup: paymentKeyboard(user.language || 'ru', 'reveal', messageId, user) });
+  }
   const giftStartMatch = text.match(/^\/start\s+gift_(gift-[a-f0-9-]+)$/i);
   if (giftStartMatch) {
     const order = mystarsOrders.get(giftStartMatch[1]);
@@ -2044,7 +2142,7 @@ async function handleTelegramUpdate(update) {
     return sendTelegramMessage(chatId, `Заявка ${escapeTelegramHtml(payment.id)} найдена. Отправьте сюда фото или документ чека после оплаты.`, { reply_markup: { inline_keyboard: [[{ text: '← Меню', callback_data: 'menu:home' }]] } });
   }
   const receipt = message.photo?.at(-1) || message.document;
-  if (receipt) {
+  if (receipt && !user.awaitingDirectMessageSlug) {
     const payment = pendingSbpPaymentForUser(user, chatId);
     if (!payment) return sendTelegramMessage(chatId, 'Сначала создайте заявку на оплату через СБП в меню «Пополнить баланс».');
     if (payment.receipt) return sendTelegramMessage(chatId, 'Чек по этой заявке уже отправлен. Ожидайте подтверждения оплаты.');
@@ -2064,28 +2162,46 @@ async function handleTelegramUpdate(update) {
     }
     return;
   }
-  if (text === '/cancel' && user.awaitingDirectMessageSlug) {
+  if (text === '/cancel' && (user.awaitingDirectMessageSlug || user.awaitingMessageRecipient)) {
     delete user.awaitingDirectMessageSlug;
+    delete user.awaitingMessageRecipient;
     schedulePersist();
     return sendBotMenu(user, chatId, 'Ввод послания отменён.');
+  }
+  if (text === '/message') {
+    user.awaitingMessageRecipient = true;
+    delete user.awaitingDirectMessageSlug;
+    schedulePersist();
+    return sendTelegramMessage(chatId, '✍️ Кому отправить послание? Напишите Telegram @username получателя.', { reply_markup: { force_reply: true, input_field_placeholder: '@username получателя', selective: true } });
   }
   const referralMatch = text.match(/^\/start(?:@[a-z0-9_]+)?\s+ref[_-]([^\s]+)$/i);
   if (referralMatch) {
     const referralSlug = referralMatch[1].toLowerCase().replace(/[^a-zа-яё0-9_-]/gi, '');
-    if (!referralSlug) return sendBotMenu(user, chatId);
+    if (!referralSlug || !resolvePublicLink(referralSlug)) return sendBotMenu(user, chatId);
     user.activeRecipientSlug = referralSlug;
     user.awaitingDirectMessageSlug = referralSlug;
+    delete user.awaitingMessageRecipient;
     schedulePersist();
-    return sendTelegramMessage(chatId, '💌 Введите текст послания одним сообщением — оно будет отправлено анонимно.', { reply_markup: { force_reply: true, input_field_placeholder: 'Текст послания…', selective: true } });
+    return sendTelegramMessage(chatId, directMessagePrompt(referralSlug), { reply_markup: { force_reply: true, input_field_placeholder: 'Текст или медиа послания…', selective: true } });
   }
-  if (user.awaitingDirectMessageSlug && text && !text.startsWith('/')) {
-    const directResult = await deliverDirectTelegramMessage(user, user.awaitingDirectMessageSlug, text);
+  if (user.awaitingMessageRecipient && text && !text.startsWith('/')) {
+    const requestedRecipient = text.trim().replace(/^@+/, '').toLowerCase();
+    const recipientLink = resolvePublicLink(requestedRecipient);
+    if (!recipientLink) return sendTelegramMessage(chatId, 'Не нашёл такого получателя. Напишите его публичный Telegram @username или отмените ввод командой /cancel.');
+    user.activeRecipientSlug = recipientLink.slug;
+    user.awaitingDirectMessageSlug = recipientLink.slug;
+    delete user.awaitingMessageRecipient;
+    schedulePersist();
+    return sendTelegramMessage(chatId, directMessagePrompt(recipientLink.slug), { reply_markup: { force_reply: true, input_field_placeholder: 'Текст или медиа послания…', selective: true } });
+  }
+  if (user.awaitingDirectMessageSlug && (text || telegramMediaFromMessage(message))) {
+    const directResult = await deliverDirectTelegramMessage(user, user.awaitingDirectMessageSlug, message);
     if (directResult.ok) {
       delete user.awaitingDirectMessageSlug;
       schedulePersist();
       return sendTelegramMessage(chatId, '✅ Послание отправлено анонимно.', { reply_markup: botMenuKeyboard(user.language || 'ru') });
     }
-    if (directResult.reason === 'message_length') return sendTelegramMessage(chatId, 'Послание должно содержать от 3 до 500 символов. Попробуйте ещё раз.');
+    if (directResult.reason === 'message_length') return sendTelegramMessage(chatId, 'Послание должно содержать от 3 до 500 символов или прикрепите фото, видео, голосовое, кружок или стикер. Попробуйте ещё раз.');
     delete user.awaitingDirectMessageSlug;
     schedulePersist();
     return sendTelegramMessage(chatId, 'Не удалось найти получателя. Откройте актуальную персональную ссылку ещё раз.');
@@ -2668,7 +2784,8 @@ const telegramUserbot = createTelegramUserbot({
   apiHash: TELEGRAM_USERBOT_API_HASH,
   session: TELEGRAM_USERBOT_SESSION,
   appUrl: new URL(WEB_APP_URL).origin,
-  botUsername: TELEGRAM_BOT_USERNAME
+  botUsername: TELEGRAM_BOT_USERNAME,
+  botToken: TELEGRAM_BOT_TOKEN
 });
 
 async function bootstrap() {

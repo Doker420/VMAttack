@@ -8,7 +8,7 @@ import { StringSession } from 'telegram/sessions/index.js';
  * This module is started and stopped by server.mjs when
  * TELEGRAM_USERBOT_ENABLED=true and a previously authorized StringSession is set.
  */
-export function createTelegramUserbot({ enabled, apiId, apiHash, session, appUrl, botUsername }) {
+export function createTelegramUserbot({ enabled, apiId, apiHash, session, appUrl, botUsername, botToken }) {
   let client = null;
   let ready = false;
   let startPromise = null;
@@ -112,6 +112,65 @@ export function createTelegramUserbot({ enabled, apiId, apiHash, session, appUrl
     };
   }
 
+  async function downloadBotFile(fileId) {
+    if (!botToken) throw new Error('Telegram bot token is required to relay media through the userbot');
+    const fileResponse = await fetch(`https://api.telegram.org/bot${botToken}/getFile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_id: fileId })
+    });
+    const filePayload = await fileResponse.json().catch(() => ({}));
+    const filePath = filePayload.result?.file_path;
+    if (!fileResponse.ok || !filePayload.ok || !filePath) throw new Error(filePayload.description || 'Telegram Bot API could not resolve the media file');
+    const mediaResponse = await fetch(`https://api.telegram.org/file/bot${botToken}/${filePath}`);
+    if (!mediaResponse.ok) throw new Error(`Telegram Bot API media download failed (${mediaResponse.status})`);
+    const buffer = Buffer.from(await mediaResponse.arrayBuffer());
+    return { buffer, fileName: filePath.split('/').pop() || 'telegram-media.bin' };
+  }
+
+  async function sendAnonymousMessage({ username, text = '', media = null, signature = '', botUrl = '', revealUrl = '' }) {
+    if (!ready || !client) return { sent: false, reason: 'userbot_not_ready' };
+    try {
+      const entity = await client.getEntity(String(username).replace(/^@+/, ''));
+      const footer = [signature, revealUrl ? `🔎 Узнать кто отправил: ${revealUrl}` : '', botUrl ? `💌 Открыть «Послания»: ${botUrl}` : '']
+        .filter(Boolean)
+        .join('\n');
+      const messageText = [String(text || '').trim(), footer].filter(Boolean).join('\n\n');
+      const buttons = [];
+      if (revealUrl) buttons.push([{ text: '🔎 Узнать кто отправил · 7 ₽', url: revealUrl }]);
+      if (botUrl) buttons.push([{ text: '💌 Открыть «Послания»', url: botUrl }]);
+      if (media?.fileId) {
+        const downloaded = await downloadBotFile(media.fileId);
+        downloaded.buffer.name = downloaded.fileName;
+        const stickerAttributes = media.kind === 'sticker'
+          ? [new Api.DocumentAttributeSticker({
+              alt: media.emoji || '',
+              stickerset: media.stickerSetName
+                ? new Api.InputStickerSetShortName({ shortName: media.stickerSetName })
+                : new Api.InputStickerSetEmpty(),
+              mask: false
+            })]
+          : undefined;
+        await client.sendFile(entity, {
+          file: downloaded.buffer,
+          caption: messageText,
+          forceDocument: media.kind === 'sticker',
+          voiceNote: media.kind === 'voice',
+          videoNote: media.kind === 'video_note',
+          supportsStreaming: media.kind === 'video',
+          attributes: stickerAttributes,
+          buttons: buttons.length ? buttons : undefined
+        });
+      } else {
+        await client.sendMessage(entity, { message: messageText, buttons: buttons.length ? buttons : undefined });
+      }
+      return { sent: true, channel: 'userbot', media: Boolean(media?.fileId) };
+    } catch (error) {
+      console.error(`[userbot] anonymous message to @${username} failed:`, error.message);
+      return { sent: false, reason: error.message };
+    }
+  }
+
   async function getGiftOffer(gift) {
     if (!ready || !client) throw new Error('Telegram userbot is not ready');
     if (gift.type !== 'star_gift') throw new Error('Premium and direct Stars are delivered through MyStars');
@@ -168,6 +227,7 @@ export function createTelegramUserbot({ enabled, apiId, apiHash, session, appUrl
     start,
     stop,
     notify,
+    sendAnonymousMessage,
     getStarGifts,
     getGiftOffer,
     getStarsBalance,
