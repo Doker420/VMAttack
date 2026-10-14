@@ -563,5 +563,6 @@
     renderWebAppInbox();
     await loadRecipient();
     await initializeTelegramWebApp();
+    if (requestedPayment === 'success') showToast('Оплата передана. Ожидаем подтверждение платежа.');
   })();
 })();

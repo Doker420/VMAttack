@@ -46,15 +46,13 @@ const TELEGRAM_SENT_STICKER_ID = env('TELEGRAM_SENT_STICKER_ID', TELEGRAM_STICKE
 const TELEGRAM_SBP_ADMIN_TEXT = env('TELEGRAM_SBP_ADMIN_TEXT', 'Реквизиты СБП не настроены. Обратитесь к администратору.');
 const YUMONEY_RECEIVER = env('YUMONEY_RECEIVER');
 const YUMONEY_PAYMENT_URL = env('YUMONEY_PAYMENT_URL');
-const YUMONEY_NOTIFICATION_SECRET = env('YUMONEY_NOTIFICATION_SECRET');
 const YUMONEY_TOKEN = env('YUMONEY_TOKEN');
-const YUMONEY_WEBHOOK_SECRET = env('YUMONEY_WEBHOOK_SECRET', YUMONEY_NOTIFICATION_SECRET);
 const CRYPTOBOT_API_TOKEN = env('CRYPTOBOT_API_TOKEN');
 const CRYPTOBOT_API_URL = env('CRYPTOBOT_API_URL', 'https://pay.crypt.bot/api');
-const CRYPTOBOT_WEBHOOK_SECRET = env('CRYPTOBOT_WEBHOOK_SECRET');
 const XROCKET_API_TOKEN = env('XROCKET_API_TOKEN');
-const XROCKET_CREATE_INVOICE_URL = env('XROCKET_CREATE_INVOICE_URL');
-const XROCKET_WEBHOOK_SECRET = env('XROCKET_WEBHOOK_SECRET');
+const XROCKET_API_URL = env('XROCKET_API_URL', 'https://pay.api.xrocket.exchange');
+const XROCKET_PRICE_CURRENCY = env('XROCKET_PRICE_CURRENCY', 'RUB');
+const XROCKET_PAYOUT_CURRENCY = env('XROCKET_PAYOUT_CURRENCY');
 const SBP_PAYMENT_DETAILS = env('SBP_PAYMENT_DETAILS', TELEGRAM_SBP_ADMIN_TEXT);
 const VK_GROUP_ID = env('VK_GROUP_ID', 'poslaniya_demo');
 const VK_GROUP_TOKEN = env('VK_GROUP_TOKEN');
@@ -62,6 +60,7 @@ const VK_API_VERSION = env('VK_API_VERSION', '5.199');
 const VK_CONFIRMATION_TOKEN = env('VK_CONFIRMATION_TOKEN');
 const CLOUDPAYMENTS_API_SECRET = env('CLOUDPAYMENTS_API_SECRET');
 const WEB_APP_URL = env('WEB_APP_URL', 'https://app.goago.club');
+const YUMONEY_SUCCESS_URL = env('YUMONEY_SUCCESS_URL', `${new URL(WEB_APP_URL).origin}/?payment=success`);
 const DEFAULT_RECIPIENT_SLUG = env('DEFAULT_RECIPIENT_SLUG', 'anya');
 const DEMO_RECIPIENT_ID = env('DEMO_RECIPIENT_ID', 'demo_recipient');
 const DEMO_RECIPIENT_NAME = env('DEMO_RECIPIENT_NAME', 'Аня');
@@ -671,7 +670,7 @@ function paymentKeyboard(language, plan, messageId = null, user = null) {
 
 function paymentMethodIsConfigured(provider) {
   if (provider === 'yoomoney') return Boolean(YUMONEY_PAYMENT_URL || YUMONEY_RECEIVER);
-  if (provider === 'xrocket') return Boolean(XROCKET_API_TOKEN && XROCKET_CREATE_INVOICE_URL);
+  if (provider === 'xrocket') return Boolean(XROCKET_API_TOKEN);
   if (provider === 'cryptobot') return Boolean(CRYPTOBOT_API_TOKEN);
   return provider === 'sbp';
 }
@@ -712,6 +711,7 @@ function yoomoneyPaymentUrl(payment) {
     if (YUMONEY_RECEIVER) url.searchParams.set('receiver', YUMONEY_RECEIVER);
     url.searchParams.set('quickpay-form', url.searchParams.get('quickpay-form') || 'shop');
     url.searchParams.set('targets', paymentDescription(payment));
+    url.searchParams.set('successURL', YUMONEY_SUCCESS_URL);
     url.searchParams.set('label', payment.id);
     url.searchParams.set('sum', String(payment.amount));
     url.searchParams.set('currency', payment.currency || 'RUB');
@@ -740,16 +740,26 @@ async function createCryptoBotInvoice(payment) {
   return { url: result.bot_invoice_url || result.pay_url, externalId: result.invoice_id };
 }
 
-async function createXRocketInvoice(payment) {
-  const response = await fetch(XROCKET_CREATE_INVOICE_URL, {
+async function createXRocketPaymentLink(payment) {
+  const response = await fetch(`${XROCKET_API_URL.replace(/\/$/, '')}/api/v1/invoices`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${XROCKET_API_TOKEN}` },
-    body: JSON.stringify({ amount: payment.amount, currency: 'RUB', description: paymentDescription(payment), payload: payment.id })
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${XROCKET_API_TOKEN}` },
+    body: JSON.stringify({
+      priceAmount: String(payment.amount),
+      priceCurrency: XROCKET_PRICE_CURRENCY,
+      ...(XROCKET_PAYOUT_CURRENCY ? { payoutCurrency: XROCKET_PAYOUT_CURRENCY } : {}),
+      clientInvoiceId: payment.id,
+      description: paymentDescription(payment),
+      expiresIn: 3600000,
+      callbackUrl: `${new URL(WEB_APP_URL).origin}/webhooks/payments/xrocket`,
+      payload: { paymentId: payment.id },
+      url: { successUrl: YUMONEY_SUCCESS_URL, cancelUrl: `${new URL(WEB_APP_URL).origin}/?payment=cancel` }
+    })
   });
   const payload = await response.json();
-  if (!response.ok) throw new Error(payload.error?.message || payload.message || 'xRocket invoice failed');
+  if (!response.ok) throw new Error(payload.detail || payload.message || 'xRocket payment link failed');
   const result = payload.result || payload.data || payload;
-  return { url: result.pay_url || result.payment_url || result.invoice_url || result.url, externalId: result.invoice_id || result.id };
+  return { url: result.links?.webLink || result.links?.telegramBotLink || result.pay_url || result.payment_url || result.url, externalId: result.id || result.invoice_id };
 }
 
 async function createPaymentCheckout(user, { provider, purpose, plan = null, amount, messageId = null }) {
@@ -773,11 +783,11 @@ async function createPaymentCheckout(user, { provider, purpose, plan = null, amo
       payment.paymentUrl = invoice.url;
       payment.externalId = invoice.externalId || null;
     } else if (provider === 'xrocket') {
-      if (!XROCKET_API_TOKEN || !XROCKET_CREATE_INVOICE_URL) throw new Error('xRocket is not configured');
-      const invoice = await createXRocketInvoice(payment);
-      if (!invoice.url) throw new Error('xRocket did not return a payment URL');
-      payment.paymentUrl = invoice.url;
-      payment.externalId = invoice.externalId || null;
+      if (!XROCKET_API_TOKEN) throw new Error('XROCKET_API_TOKEN is not configured');
+      const paymentLink = await createXRocketPaymentLink(payment);
+      if (!paymentLink.url) throw new Error('xRocket did not return a payment URL');
+      payment.paymentUrl = paymentLink.url;
+      payment.externalId = paymentLink.externalId || null;
     } else if (provider === 'sbp') {
       payment.instructions = SBP_PAYMENT_DETAILS;
       payment.botUrl = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=sbp_${encodeURIComponent(payment.id)}`;
@@ -1439,12 +1449,13 @@ async function handleApi(req, res, url) {
   }
   if (req.method === 'POST' && (url.pathname === '/webhooks/payments/cryptobot' || url.pathname === '/webhooks/cryptobot' || url.pathname === '/webhooks/payments/xrocket' || url.pathname === '/webhooks/xrocket' || url.pathname === '/webhooks/payments/yoomoney' || url.pathname === '/webhooks/yoomoney')) {
     const provider = url.pathname.includes('cryptobot') ? 'cryptobot' : url.pathname.includes('xrocket') ? 'xrocket' : 'yoomoney';
-    const expectedSecret = provider === 'cryptobot' ? CRYPTOBOT_WEBHOOK_SECRET : provider === 'xrocket' ? XROCKET_WEBHOOK_SECRET : YUMONEY_WEBHOOK_SECRET;
-    if (expectedSecret && req.headers['x-payment-webhook-secret'] !== expectedSecret) return json(res, 403, { error: 'invalid_payment_webhook_secret' });
+    // These integrations are configured with provider API tokens only. No separate
+    // webhook-secret env is required; callbacks are matched to an existing payment
+    // id and amount before anything is credited.
     const body = await readBody(req);
     const event = body.update_type || body.status || body.event || body.type || '';
     const payload = body.payload || body.data || body.invoice || body;
-    const paymentId = payload.payload || payload.payment_id || payload.paymentId || payload.label || payload.metadata?.paymentId;
+    const paymentId = payload.payload?.paymentId || payload.payload || payload.payment_id || payload.paymentId || payload.clientInvoiceId || payload.label || payload.metadata?.paymentId;
     const payment = paymentId && payments.get(String(paymentId));
     const paid = provider === 'cryptobot'
       ? event === 'invoice_paid' || payload.status === 'paid'

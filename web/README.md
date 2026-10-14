@@ -63,20 +63,19 @@ Telegram polling запускается автоматически, если в 
 ```dotenv
 YUMONEY_RECEIVER=4100118715887132
 YUMONEY_PAYMENT_URL=https://yoomoney.ru/quickpay/confirm.xml?... # optional override
-YUMONEY_NOTIFICATION_SECRET=
+YUMONEY_SUCCESS_URL=https://app.goago.club/?payment=success
 YUMONEY_TOKEN=
-YUMONEY_WEBHOOK_SECRET=
 CRYPTOBOT_API_TOKEN=
 CRYPTOBOT_API_URL=https://pay.crypt.bot/api
-CRYPTOBOT_WEBHOOK_SECRET=
 XROCKET_API_TOKEN=
-XROCKET_CREATE_INVOICE_URL=
-XROCKET_WEBHOOK_SECRET=
+XROCKET_API_URL=https://pay.api.xrocket.exchange
+XROCKET_PRICE_CURRENCY=RUB
+XROCKET_PAYOUT_CURRENCY=
 SBP_PAYMENT_DETAILS=Перевод по СБП на ...
 TELEGRAM_ADMIN_IDS=123456789
 ```
 
-Для CryptoBot и xRocket после оплаты нужно направить callback на `/webhooks/payments/cryptobot` или `/webhooks/payments/xrocket`; для ЮMoney доступен `/webhooks/payments/yoomoney`. Callback можно защитить заголовком `X-Payment-Webhook-Secret`. При заданном `YUMONEY_RECEIVER` ссылка ЮMoney строится автоматически и получает параметры `label` с ID заявки и `sum` с суммой; webhook должен передать тот же `label` и статус `paid`. `YUMONEY_NOTIFICATION_SECRET` и `YUMONEY_TOKEN` остаются пустыми, если уведомления и OAuth API не используются.
+Для CryptoBot и xRocket callback направляется на `/webhooks/payments/cryptobot` или `/webhooks/payments/xrocket`; для ЮMoney доступен `/webhooks/payments/yoomoney`. Отдельные webhook secrets не используются: нужны только токены самих платёжных систем, а callback дополнительно сверяет ID и сумму существующей заявки. При заданном `YUMONEY_RECEIVER` ссылка ЮMoney строится автоматически, получает `label`, `sum` и `successURL=https://app.goago.club/?payment=success`. `YUMONEY_TOKEN` нужен только если позже потребуется OAuth API.
 
 СБП создаёт заявку `manual_pending`. Пользователь получает реквизиты и deep link в Telegram, отправляет боту фото или документ чека, а администратор получает копию чека с кнопками «Одобрить» и «Отклонить». После одобрения сумма зачисляется на баланс или активируется выбранная функция. Авторизованный пользователь также может оплатить VIP или раскрытие непосредственно с внутреннего баланса.
 
