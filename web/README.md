@@ -46,7 +46,7 @@ Telegram-ссылка использует обычный bot deep link. Пос�
 
 ## Отправка посланий из Telegram через userbot
 
-В меню Telegram добавлена кнопка `✍️ Написать послание`: отправитель указывает публичный `@username` получателя, после чего может отправить текст, фото, видео, голосовое, видеосообщение-кружок, стикер, аудио, GIF или файл. Referral deep link `?start=ref_<slug>` сразу открывает тот же режим для конкретного получателя.
+В меню Telegram добавлена кнопка `✍️ Написать послание`: отправитель указывает публичный `@username` получателя, после чего может отправить текст, фото, видео, голосовое, видеосообщение-кружок, стикер, аудио, GIF или файл. Referral deep link `?start=ref_<slug>` сразу открывает тот же режим для конкретного получателя. Прямой ввод `@username` не зависит от `publicLinks`: если Telegram identity ещё нет в локальном storage, сервер создаёт техническую запись получателя для userbot-доставки, а при последующем `/start` связывает её с реальным Telegram ID. Referral flow при этом по-прежнему использует только `ref_<slug>` и не подменяется поиском по username.
 
 Сначала сервер проверяет доступность чата через Bot API. Если получатель уже запускал бота, послание отправляется обычным Bot API, а userbot вообще не вызывается. Если Bot API подтверждает, что получатель ещё не открывал бота, и `TELEGRAM_USERBOT_ENABLED=true` с авторизованной сессией, послание доставляется через Telegram userbot. Медиа скачивается Bot API и загружается userbot в исходном типе. В сообщение добавляются рекламная подпись «Послание отправлено через Послания 💌» и кнопка `🔎 Узнать кто отправил · 7 ₽`, которая ведёт в бота на оплату раскрытия. Если userbot временно не готов, для пользователей, уже открывших бота, сохраняется Bot API fallback.
 
@@ -122,6 +122,8 @@ YUMONEY_API_URL=https://yoomoney.ru/api
 # there is no separate CryptoBot webhook secret to configure.
 CRYPTOBOT_API_TOKEN=
 CRYPTOBOT_API_URL=https://pay.crypt.bot/api
+# Background server reconciliation interval; it runs even with no Web App open.
+PAYMENT_RECONCILE_INTERVAL_MS=15000
 XROCKET_API_TOKEN= # именно Pay API token из приложения xRocket
 XROCKET_TESTNET=false
 XROCKET_API_URL=https://pay.api.xrocket.exchange
@@ -136,7 +138,7 @@ SBP_PAYMENT_DETAILS=
 TELEGRAM_ADMIN_IDS=123456789
 ```
 
-Для CryptoBot callback URL нужно один раз указать в `@CryptoBot` → приложение → `Webhooks`: `${origin(WEB_APP_URL)}/webhooks/payments/cryptobot`. Crypto Pay не использует отдельный webhook secret: `Crypto-Pay-API-Signature` проверяется через SHA-256 от `CRYPTOBOT_API_TOKEN` как HMAC-ключ. В production `WEB_APP_URL` должен быть публичным HTTPS-адресом, доступным от CryptoBot/xRocket; проверьте DNS, reverse proxy, TLS, путь `/webhooks/payments/*` и токены. Для актуального xRocket Pay callback создаётся вложенным объектом `callback`, а server принимает documented envelope `type=invoice`, `data.event=invoice_status_changed|payment_status_changed`; при наличии `XROCKET_WEBHOOK_SECRET` дополнительно проверяется HMAC-подпись `v1`. Callback сверяет client invoice ID или внешний invoice ID и сумму существующей заявки. Если callback потерян, авторизованный Web App polling статуса вызывает provider API через `GET /api/v1/payments/:id`, поэтому для CryptoBot и xRocket должны быть заполнены соответствующие API-токены.
+Для CryptoBot callback URL нужно один раз указать в `@CryptoBot` → приложение → `Webhooks`: `${origin(WEB_APP_URL)}/webhooks/payments/cryptobot`. Crypto Pay не использует отдельный webhook secret: `Crypto-Pay-API-Signature` проверяется через SHA-256 от `CRYPTOBOT_API_TOKEN` как HMAC-ключ. В production `WEB_APP_URL` должен быть публичным HTTPS-адресом, доступным от CryptoBot/xRocket; проверьте DNS, reverse proxy, TLS, путь `/webhooks/payments/*` и токены. Для актуального xRocket Pay callback создаётся вложенным объектом `callback`, а server принимает documented envelope `type=invoice`, `data.event=invoice_status_changed|payment_status_changed`; при наличии `XROCKET_WEBHOOK_SECRET` дополнительно проверяется HMAC-подпись `v1`. Callback сверяет client invoice ID или внешний invoice ID и сумму существующей заявки. Независимо от callback и открытого Web App сервер после запуска периодически сверяет все pending-платежи: CryptoBot через `getInvoices({ invoice_ids: [invoice_id] })`, xRocket через invoice endpoint, YooMoney через operation history. В CryptoBot только статус `paid` зачисляет оплату; `active` остаётся pending, а `expired` закрывает заявку. Поэтому для фоновой сверки должны быть заполнены соответствующие API-токены.
 
 ЮMoney не требует `successURL` для этого сценария: ссылка содержит только `receiver`, `sum`, `targets` и уникальный `label`. Сервер подтверждает поступление через `POST /api/operation-history` с form-параметрами `label` и `records`, OAuth `YUMONEY_TOKEN` (scope `operation-history`), проверяя `label`, `status=success`, входящее направление и точную сумму. Поэтому ЮMoney показывается как способ оплаты только при наличии OAuth token; после оплаты Web App polling автоматически обновляет баланс. `/webhooks/payments/yoomoney` оставлен для совместимости, но основная надёжная проверка — через историю операций.
 

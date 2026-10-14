@@ -45,6 +45,7 @@ function resolveProjectPath(value) {
 // bootable; secrets never have a source-code fallback.
 const PORT = Number(env('PORT', '4173'));
 const RETENTION_INTERVAL_MS = Number(env('RETENTION_INTERVAL_MS', '86400000'));
+const PAYMENT_RECONCILE_INTERVAL_MS = Number(env('PAYMENT_RECONCILE_INTERVAL_MS', '15000'));
 const DEMO_MODE = env('DEMO_MODE', 'true') === 'true';
 const TELEGRAM_MODE = env('TELEGRAM_MODE', 'polling');
 let TELEGRAM_BOT_USERNAME = env('TELEGRAM_BOT_USERNAME', '');
@@ -415,15 +416,41 @@ function ensurePublicLink(user, requestedSlug = null) {
 function resolvePublicLink(slug) {
   const normalizedSlug = String(slug || '').trim().toLowerCase();
   if (!normalizedSlug) return null;
-  const exact = publicLinks.get(normalizedSlug);
-  if (exact) return exact;
+  // A verified Telegram identity wins over a same-named legacy link. This is
+  // important for direct @username recipient selection after old migrations.
   const owner = [...users.values()].find((candidate) => {
     if (normalizeTelegramUsername(candidate.username) === normalizedSlug && !isTelegramBotUsername(candidate.username)) return true;
     return userIdentities(candidate).some((identity) => identity.provider === 'telegram'
       && normalizeTelegramUsername(identity.username) === normalizedSlug
       && !isTelegramBotIdentity(identity));
   });
-  return owner ? ensurePublicLink(owner, normalizedSlug) : null;
+  if (owner) return ensurePublicLink(owner, normalizedSlug);
+  return publicLinks.get(normalizedSlug) || null;
+}
+
+function ensureTelegramRecipientLink(username) {
+  const normalizedUsername = normalizeTelegramUsername(username);
+  if (!/^[a-z0-9_]{5,32}$/i.test(normalizedUsername) || isTelegramBotUsername(normalizedUsername)) return null;
+  const existing = resolvePublicLink(normalizedUsername);
+  if (existing) return existing;
+  const user = {
+    id: randomUUID(),
+    displayName: `@${normalizedUsername}`,
+    username: normalizedUsername,
+    createdAt: new Date().toISOString(),
+    vipUntil: null,
+    revealCredits: 0,
+    balanceRub: 0,
+    language: 'ru',
+    dailyEnabled: true,
+    telegramUserbotOnly: true,
+    identities: [{ provider: 'telegram', providerUserId: null, username: normalizedUsername, userbotOnly: true }]
+  };
+  users.set(user.id, user);
+  retentionSettings.set(user.id, { dailyEnabled: true });
+  const link = ensurePublicLink(user, normalizedUsername);
+  schedulePersist();
+  return link;
 }
 
 function ensureWebSession(user) {
@@ -784,7 +811,7 @@ async function notifyNewMessage(user, message) {
   }
   for (const identity of userIdentities(user)) {
     if (identity.provider === 'telegram') {
-      if (telegramDeliveredByUserbot || isTelegramBotIdentity(identity)) continue;
+      if (telegramDeliveredByUserbot || isTelegramBotIdentity(identity) || !identity.providerUserId) continue;
       deliveries.push((async () => {
         await resolveTelegramBotIdentity();
         if (isTelegramBotIdentity(identity)) return { skipped: true, reason: 'bot_identity_ignored' };
@@ -1216,13 +1243,26 @@ async function reconcileExternalPayment(payment) {
       const response = await fetch(`${CRYPTOBOT_API_URL.replace(/\/$/, '')}/getInvoices`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Crypto-Pay-API-Token': CRYPTOBOT_API_TOKEN },
-        body: JSON.stringify({ invoice_ids: String(payment.externalId) })
+        // Crypto Pay expects invoice_ids as an array of numeric invoice IDs.
+        body: JSON.stringify({ invoice_ids: [Number(payment.externalId)] })
       });
       const payload = await response.json().catch(() => ({}));
-      const invoice = payload.result?.items?.[0] || payload.result?.[0] || null;
-      if (invoice?.status === 'paid') applyPaidPayment(payment);
-      if (['expired', 'failed'].includes(invoice?.status)) {
-        payment.status = invoice.status;
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.error?.name || payload.error?.description || `CryptoBot getInvoices ${response.status}`);
+      }
+      const items = Array.isArray(payload.result?.items)
+        ? payload.result.items
+        : (Array.isArray(payload.result) ? payload.result : []);
+      // Do not fall back to the first item: crediting a different invoice
+      // would be worse than leaving this payment pending.
+      const invoice = items.find((candidate) => String(candidate.invoice_id ?? candidate.id) === String(payment.externalId)) || null;
+      const status = String(invoice?.status || '').toLowerCase();
+      // Crypto Pay documents the invoice lifecycle as active, paid and
+      // expired. Only paid (plus the harmless completed alias used by some
+      // compatible gateways) is allowed to credit an internal balance.
+      if (['paid', 'completed'].includes(status)) applyPaidPayment(payment);
+      if (['expired', 'failed', 'cancelled'].includes(status)) {
+        payment.status = status;
         schedulePersist();
       }
     } else if (payment.provider === 'xrocket' && xrocketAuthHeader()) {
@@ -1248,6 +1288,30 @@ async function reconcileExternalPayment(payment) {
     console.warn(`[payments] reconciliation failed for ${payment.id}:`, error.message);
   }
   return payment;
+}
+
+let paymentReconciliationRunning = false;
+
+async function runPendingPaymentReconciliation() {
+  if (paymentReconciliationRunning) return { checked: 0, paid: 0 };
+  paymentReconciliationRunning = true;
+  try {
+    const pending = [...payments.values()]
+      .filter((payment) => payment.status === 'pending'
+        && ['cryptobot', 'xrocket', 'yoomoney'].includes(payment.provider))
+      .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')))
+      .slice(0, 100);
+    let paid = 0;
+    for (const payment of pending) {
+      const before = payment.status;
+      await reconcileExternalPayment(payment);
+      if (before !== 'paid' && payment.status === 'paid') paid += 1;
+    }
+    if (paid) console.log(`[payments] background reconciliation credited ${paid} payment(s)`);
+    return { checked: pending.length, paid };
+  } finally {
+    paymentReconciliationRunning = false;
+  }
 }
 
 function topupAmountKeyboard() {
@@ -2224,7 +2288,11 @@ async function handleTelegramUpdate(update) {
   }
   if (user.awaitingMessageRecipient && text && !text.startsWith('/')) {
     const requestedRecipient = text.trim().replace(/^@+/, '').toLowerCase();
-    const recipientLink = resolvePublicLink(requestedRecipient);
+    // A Telegram username is a valid recipient even when that person has never
+    // opened this bot and therefore has no local publicLinks record yet. Keep a
+    // local placeholder so the message can be stored and delivered by userbot;
+    // completeAuth will attach the real Telegram ID when the recipient starts the bot.
+    const recipientLink = resolvePublicLink(requestedRecipient) || ensureTelegramRecipientLink(requestedRecipient);
     if (!recipientLink) return sendTelegramMessage(chatId, 'Не нашёл такого получателя. Напишите его публичный Telegram @username или отмените ввод командой /cancel.');
     user.activeRecipientSlug = recipientLink.slug;
     user.awaitingDirectMessageSlug = recipientLink.slug;
@@ -2832,10 +2900,15 @@ async function bootstrap() {
   await loadState();
   seedDemoData();
   setInterval(runDailyRetentionBroadcast, RETENTION_INTERVAL_MS).unref();
+  setInterval(runPendingPaymentReconciliation, PAYMENT_RECONCILE_INTERVAL_MS).unref();
+  // Reconcile once shortly after boot as well, so a payment made while the
+  // process was restarting is credited without waiting for the first interval.
+  setTimeout(() => { void runPendingPaymentReconciliation(); }, 1000).unref();
   server.listen(PORT, '0.0.0.0', async () => {
     console.log(`Послания listening on http://0.0.0.0:${PORT}`);
     console.log(`Telegram Web App: ${WEB_APP_URL}`);
     console.log(`Daily anonymous messages: every ${Math.round(RETENTION_INTERVAL_MS / 1000)}s, all active users unless disabled`);
+    console.log(`External payment reconciliation: every ${Math.round(PAYMENT_RECONCILE_INTERVAL_MS / 1000)}s for pending YooMoney, CryptoBot and xRocket payments`);
     await configureTelegramBot();
     announceCryptoBotWebhook();
     if (TELEGRAM_MODE === 'polling') telegramBot.start();
