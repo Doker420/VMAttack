@@ -569,7 +569,13 @@
     const result = await apiRequest('/api/v1/payments/checkout', { method: 'POST', body: JSON.stringify({ provider, purpose, plan, amount, messageId: plan === 'reveal' ? activeMessageId : null }) });
     providerButton.disabled = false;
     if (result?.__error) {
-      showToast(result.status === 401 ? 'Войдите через Telegram, чтобы пополнить баланс' : result.status === 402 ? 'Недостаточно средств на внутреннем балансе' : result.status === 503 ? 'Этот способ оплаты пока не настроен' : 'Не удалось создать платёж');
+      showToast(result.message || (result.status === 401
+        ? 'Войдите через Telegram, чтобы пополнить баланс'
+        : result.status === 402
+          ? 'Недостаточно средств на внутреннем балансе'
+          : result.status === 503
+            ? 'Этот способ оплаты временно недоступен'
+            : 'Не удалось создать платёж'));
       return;
     }
     if (result.paymentUrl) {

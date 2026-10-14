@@ -14,12 +14,24 @@ const PROJECT_ROOT = resolve(WEB_ROOT, '..');
 const configuredEnvFile = process.env.ENV_FILE?.trim();
 const envCandidates = configuredEnvFile
   ? [resolveProjectPath(configuredEnvFile)]
-  : [join(PROJECT_ROOT, '.env'), join(WEB_ROOT, '.env')];
-const envFile = envCandidates.find((candidate) => existsSync(candidate));
-const dotenvResult = envFile ? dotenv.config({ path: envFile, override: true }) : null;
-if (envFile && dotenvResult?.error) console.warn(`[config] failed to load ${envFile}: ${dotenvResult.error.message}`);
-else if (envFile) console.log(`[config] loaded ${envFile}`);
-else console.warn(`[config] .env not found; using process environment and safe defaults`);
+  // Load web/.env first and the project-root .env second so a root file wins,
+  // while deployments that keep their settings next to server.mjs still work.
+  : [join(WEB_ROOT, '.env'), join(PROJECT_ROOT, '.env')];
+const envFiles = envCandidates.filter((candidate, index, list) => existsSync(candidate) && list.indexOf(candidate) === index);
+for (const envFile of envFiles) {
+  const dotenvResult = dotenv.config({ path: envFile, override: false });
+  if (dotenvResult?.error) {
+    console.warn(`[config] failed to load ${envFile}: ${dotenvResult.error.message}`);
+  } else {
+    // A second .env file should not erase a real value with an empty template
+    // line. Non-empty values from the later/root file still take precedence.
+    for (const [name, value] of Object.entries(dotenvResult.parsed || {})) {
+      if (String(value).trim()) process.env[name] = String(value).trim();
+    }
+    console.log(`[config] loaded ${envFile}`);
+  }
+}
+if (!envFiles.length) console.warn(`[config] .env not found; using process environment and safe defaults`);
 
 function env(name, fallback = '') {
   return process.env[name]?.trim() || fallback;
@@ -74,9 +86,15 @@ const CRYPTOBOT_API_URL = env('CRYPTOBOT_API_URL', 'https://pay.crypt.bot/api');
 const XROCKET_API_TOKEN = env('XROCKET_API_TOKEN');
 const XROCKET_API_URL = env('XROCKET_API_URL', 'https://pay.api.xrocket.exchange');
 const XROCKET_WEBHOOK_SECRET = env('XROCKET_WEBHOOK_SECRET');
-const XROCKET_PRICE_CURRENCY = env('XROCKET_PRICE_CURRENCY', 'RUB');
+// The public xRocket asset list does not contain RUB on every account. Keep the
+// old RUB setting compatible by converting the RUB checkout amount to USDT (or
+// another configured fallback asset) before creating the invoice.
+const XROCKET_PRICE_CURRENCY = env('XROCKET_PRICE_CURRENCY', 'RUB').toUpperCase();
+const XROCKET_FALLBACK_PRICE_CURRENCY = env('XROCKET_FALLBACK_PRICE_CURRENCY', 'USDT').toUpperCase();
+const XROCKET_RUB_ASSET_RATE = Number(env('XROCKET_RUB_ASSET_RATE', '0'));
 const XROCKET_PAYOUT_CURRENCY = env('XROCKET_PAYOUT_CURRENCY');
-const SBP_PAYMENT_DETAILS = env('SBP_PAYMENT_DETAILS', TELEGRAM_SBP_ADMIN_TEXT);
+const TELEGRAM_SBP_DETAILS = env('SBP_PAYMENT_DETAILS', env('SBP_DETAILS', env('SBP_REQUISITES', env('TELEGRAM_SBP_ADMIN_TEXT'))));
+const SBP_PAYMENT_DETAILS = TELEGRAM_SBP_DETAILS;
 
 function sbpDetailsConfigured() {
   return Boolean(SBP_PAYMENT_DETAILS && !/нет\s+реквизитов|не\s+настроен/i.test(SBP_PAYMENT_DETAILS));
@@ -948,14 +966,44 @@ async function createCryptoBotInvoice(payment) {
   return { url: result.bot_invoice_url || result.pay_url, externalId: result.invoice_id };
 }
 
+async function getXRocketRate(baseCurrency, assetCurrency) {
+  if (XROCKET_RUB_ASSET_RATE > 0 && baseCurrency === 'RUB') return XROCKET_RUB_ASSET_RATE;
+  const url = new URL(`${XROCKET_API_URL.replace(/\/$/, '')}/api/v1/rates`);
+  url.searchParams.set('base', baseCurrency);
+  url.searchParams.set('assets', assetCurrency);
+  const response = await fetch(url, { headers: { Accept: 'application/json' } });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.detail || payload.message || `xRocket rates API ${response.status}`);
+  const rates = Array.isArray(payload) ? payload : payload.rates || payload.data || payload.items || [];
+  const rateEntry = rates.find?.((entry) => String(entry?.currency || entry?.asset || entry?.code || '').toUpperCase() === assetCurrency)
+    || (payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? (String(payload.currency || '').toUpperCase() === assetCurrency ? payload : payload[assetCurrency])
+      : null);
+  const rate = Number(typeof rateEntry === 'object' ? (rateEntry.rate ?? rateEntry.value ?? rateEntry.price) : rateEntry);
+  if (!Number.isFinite(rate) || rate <= 0) throw new Error(`xRocket rate for ${assetCurrency} in ${baseCurrency} was not returned`);
+  return rate;
+}
+
+async function resolveXRocketInvoicePrice(payment) {
+  const configuredCurrency = XROCKET_PRICE_CURRENCY;
+  if (configuredCurrency !== 'RUB') {
+    const rate = await getXRocketRate('RUB', configuredCurrency);
+    return { currency: configuredCurrency, amount: Number((Number(payment.amount) * rate).toFixed(8)) };
+  }
+  const fallbackCurrency = XROCKET_FALLBACK_PRICE_CURRENCY === 'RUB' ? 'USDT' : XROCKET_FALLBACK_PRICE_CURRENCY;
+  const rate = await getXRocketRate('RUB', fallbackCurrency);
+  return { currency: fallbackCurrency, amount: Number((Number(payment.amount) * rate).toFixed(8)) };
+}
+
 async function createXRocketPaymentLink(payment) {
+  const invoicePrice = await resolveXRocketInvoicePrice(payment);
   const response = await fetch(`${XROCKET_API_URL.replace(/\/$/, '')}/api/v1/invoices`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${XROCKET_API_TOKEN}` },
     body: JSON.stringify({
-      priceAmount: String(payment.amount),
-      priceCurrency: XROCKET_PRICE_CURRENCY,
-      ...(XROCKET_PAYOUT_CURRENCY ? { payoutCurrency: XROCKET_PAYOUT_CURRENCY } : {}),
+      priceAmount: String(invoicePrice.amount),
+      priceCurrency: invoicePrice.currency,
+      ...(XROCKET_PAYOUT_CURRENCY && XROCKET_PAYOUT_CURRENCY.toUpperCase() !== 'RUB' ? { payoutCurrency: XROCKET_PAYOUT_CURRENCY.toUpperCase() } : {}),
       clientInvoiceId: payment.id,
       description: paymentDescription(payment),
       expiresIn: 3600000,
@@ -969,7 +1017,12 @@ async function createXRocketPaymentLink(payment) {
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.detail || payload.message || payload.title || `xRocket payment link failed (${response.status})`);
   const result = payload.result || payload.data || payload;
-  return { url: result.links?.webLink || result.links?.telegramBotLink || result.pay_url || result.payment_url || result.url, externalId: result.id || result.invoice_id };
+  return {
+    url: result.links?.webLink || result.links?.telegramBotLink || result.pay_url || result.payment_url || result.url,
+    externalId: result.id || result.invoice_id,
+    priceAmount: invoicePrice.amount,
+    priceCurrency: invoicePrice.currency
+  };
 }
 
 async function createPaymentCheckout(user, { provider, purpose, plan = null, amount, messageId = null }) {
@@ -998,6 +1051,8 @@ async function createPaymentCheckout(user, { provider, purpose, plan = null, amo
       if (!paymentLink.url) throw new Error('xRocket did not return a payment URL');
       payment.paymentUrl = paymentLink.url;
       payment.externalId = paymentLink.externalId || null;
+      payment.providerAmount = paymentLink.priceAmount;
+      payment.providerCurrency = paymentLink.priceCurrency;
     } else if (provider === 'sbp') {
       if (!sbpDetailsConfigured()) throw new Error('SBP_PAYMENT_DETAILS is not configured');
       payment.instructions = SBP_PAYMENT_DETAILS;
@@ -2236,7 +2291,10 @@ async function handleApi(req, res, url) {
         balance: user?.balanceRub || 0
       });
     } catch (error) {
-      return json(res, 503, { error: 'payment_provider_unavailable', provider, message: error.message });
+      const safeMessage = /token|secret|authorization|configured/i.test(error.message)
+        ? 'Способ оплаты временно недоступен. Выберите другой способ оплаты.'
+        : error.message;
+      return json(res, 503, { error: 'payment_provider_unavailable', provider, message: safeMessage });
     }
   }
   if (req.method === 'POST' && url.pathname === '/webhooks/mystars') {
@@ -2277,7 +2335,8 @@ async function handleApi(req, res, url) {
     const reportedAmount = provider === 'xrocket'
       ? (invoice.priceAmount ?? invoice.price_amount)
       : (payload.amount ?? payload.invoice_amount ?? payload.sum);
-    const amountMatches = reportedAmount === undefined || Number(reportedAmount) === Number(payment?.amount);
+    const expectedProviderAmount = payment?.providerAmount ?? payment?.amount;
+    const amountMatches = reportedAmount === undefined || Number(reportedAmount) === Number(expectedProviderAmount);
     if (payment && payment.provider === provider && paid && amountMatches) applyPaidPayment(payment);
     return json(res, 200, { ok: true, processed: Boolean(payment && paid && amountMatches) });
   }

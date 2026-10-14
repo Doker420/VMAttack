@@ -114,7 +114,10 @@ CRYPTOBOT_API_URL=https://pay.crypt.bot/api
 XROCKET_API_TOKEN=
 XROCKET_API_URL=https://pay.api.xrocket.exchange
 XROCKET_WEBHOOK_SECRET=
-XROCKET_PRICE_CURRENCY=RUB
+# Суммы каталога в приложении указаны в RUB; backend конвертирует их в актив xRocket.
+XROCKET_PRICE_CURRENCY=USDT
+XROCKET_FALLBACK_PRICE_CURRENCY=USDT
+XROCKET_RUB_ASSET_RATE=
 XROCKET_PAYOUT_CURRENCY=
 # Заполните реальными реквизитами; при пустом значении кнопка СБП скрывается.
 SBP_PAYMENT_DETAILS=
