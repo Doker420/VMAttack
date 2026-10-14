@@ -101,6 +101,7 @@ async function loadState() {
     if (Array.isArray(snapshot.messages)) { messages.clear(); snapshot.messages.forEach((message) => messages.set(message.id, message)); }
     if (Array.isArray(snapshot.payments)) { payments.clear(); snapshot.payments.forEach(([id, payment]) => payments.set(id, payment)); }
     if (Array.isArray(snapshot.retentionSettings)) { retentionSettings.clear(); snapshot.retentionSettings.forEach(([id, settings]) => retentionSettings.set(id, settings)); }
+    for (const user of users.values()) ensurePublicLink(user);
     console.log(`[store] loaded ${users.size} users, ${messages.size} messages via ${devStore ? 'SQLite' : 'JSON'}`);
   } catch (error) {
     if (error.code !== 'ENOENT') console.error('[store] load failed:', error.message);
@@ -232,12 +233,13 @@ function ensurePublicLink(user, requestedSlug = null) {
   const username = user.username || identityUsername || null;
   // Repair links created by an old demo/default configuration. A real Telegram
   // username must never turn into the bot username or a global demo slug.
-  const needsRepair = existing && !requestedSlug && username &&
+  const preferredName = username || user.displayName;
+  const needsRepair = existing && !requestedSlug &&
     (existing.slug === TELEGRAM_BOT_USERNAME || existing.slug === DEFAULT_RECIPIENT_SLUG) &&
-    slugify(username, '') !== existing.slug;
+    slugify(preferredName, '') !== existing.slug;
   if (existing && !requestedSlug && !needsRepair) return existing;
 
-  const base = slugify(requestedSlug || (needsRepair ? username : null) || existing?.slug || username || user.displayName, `user-${user.id.slice(0, 6)}`);
+  const base = slugify(requestedSlug || (needsRepair ? preferredName : null) || existing?.slug || preferredName, `user-${user.id.slice(0, 6)}`);
   let slug = base;
   let suffix = 2;
   while (publicLinks.has(slug) && publicLinks.get(slug).userId !== user.id) slug = `${base}-${suffix++}`;
