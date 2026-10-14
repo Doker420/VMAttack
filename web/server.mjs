@@ -252,7 +252,7 @@ function demoSlug() {
 }
 
 function ensurePublicLink(user, requestedSlug = null) {
-  const existing = [...publicLinks.values()].find((link) => link.userId === user.id);
+  const existing = [...publicLinks.values()].find((link) => link.userId === user.id && !link.isAlias);
   const identityUsername = userIdentities(user).find((identity) => identity.username && identity.username !== TELEGRAM_BOT_USERNAME)?.username;
   const username = user.username && user.username !== TELEGRAM_BOT_USERNAME ? user.username : identityUsername;
   const fallback = `u-${user.id.replace(/[^a-z0-9]/gi, '').slice(0, 10).toLowerCase() || 'user'}`;
@@ -267,8 +267,12 @@ function ensurePublicLink(user, requestedSlug = null) {
   let suffix = 2;
   while (publicLinks.has(slug) && publicLinks.get(slug).userId !== user.id) slug = `${base}-${suffix++}`;
   const link = existing || { id: randomUUID(), userId: user.id, slug, createdAt: new Date().toISOString(), isActive: true };
-  if (existing?.slug && existing.slug !== slug) publicLinks.delete(existing.slug);
+  if (existing?.slug && existing.slug !== slug) {
+    publicLinks.set(existing.slug, { ...existing, isAlias: true, canonicalSlug: slug });
+  }
   link.slug = slug;
+  delete link.isAlias;
+  delete link.canonicalSlug;
   publicLinks.set(slug, link);
   schedulePersist();
   return link;
