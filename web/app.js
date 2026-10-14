@@ -514,7 +514,8 @@
     username: $('#giftUsername')?.value.trim() || '',
     quantity: Number($('#giftQuantity')?.value || 100),
     months: Number($('#giftMonths')?.value || 3),
-    payment_currency: $('#giftCurrency')?.value || 'ton'
+    payment_currency: $('#giftCurrency')?.value || 'ton',
+    payment_method: $('#giftPaymentMethod')?.value || 'balance'
   });
   $('#giftQuoteButton')?.addEventListener('click', async () => {
     const button = $('#giftQuoteButton');
@@ -524,7 +525,10 @@
     const box = $('#giftQuote');
     if (result?.quote) {
       const recipient = result.recipient?.eligible ? 'Получатель доступен' : `Получатель: ${result.recipient?.reason || 'проверка не пройдена'}`;
-      box.innerHTML = `<strong>${escapeHtml(String(result.quote.amount || 'Цена уточняется'))} ${escapeHtml(String(result.quote.currency || ''))}</strong><br />${escapeHtml(recipient)}`;
+      const balance = result.balancePayment
+        ? `<br /><strong>С баланса: ${escapeHtml(String(result.balancePayment.amount))} ₽</strong> <small>(наценка ${escapeHtml(String(result.balancePayment.markupPercent))}%)</small>`
+        : '<br /><small>Оплата с баланса пока не настроена: добавьте цены MyStars в .env.</small>';
+      box.innerHTML = `<strong>MyStars: ${escapeHtml(String(result.quote.amount || 'Цена уточняется'))} ${escapeHtml(String(result.quote.currency || ''))}</strong>${balance}<br />${escapeHtml(recipient)}`;
       box.hidden = false;
       return;
     }
@@ -537,8 +541,11 @@
     const result = await apiRequest('/api/v1/gifts/orders', { method: 'POST', body: JSON.stringify(giftPayload()) });
     button.disabled = false;
     if (result?.id) {
+      $('#giftSuccess').textContent = result.paymentMethod === 'balance'
+        ? `✓ Заказ создан. Списано ${result.balancePriceRub} ₽ с баланса; MyStars оплатит администратор.`
+        : '✓ Заказ создан и отправлен администратору на оплату';
       $('#giftSuccess').hidden = false;
-      showToast('Заказ создан: администратор оплатит подарок');
+      showToast(result.paymentMethod === 'balance' ? 'Подарок оплачен с баланса' : 'Заказ создан: администратор оплатит подарок');
       return;
     }
     showToast(result?.status === 401 ? 'Откройте Web App из Telegram' : 'Не удалось создать заказ подарка');

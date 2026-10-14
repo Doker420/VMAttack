@@ -58,12 +58,20 @@ Telegram polling запускается автоматически, если в 
 
 ## Анонимные подарки MyStars
 
-В Web App и Telegram-боте добавлена форма «Анонимный подарок»: пользователь указывает `@username`, выбирает Telegram Stars или Premium на 3/6/12 месяцев, а backend получает live quote, проверяет получателя и создаёт MyStars order с idempotency key. API key задаётся только в root `.env`:
+В Web App и Telegram-боте добавлена форма «Анонимный подарок»: пользователь указывает `@username`, выбирает Telegram Stars или Premium на 3/6/12 месяцев, а backend получает live quote, проверяет получателя и создаёт MyStars order с idempotency key. Подарок можно оплатить с внутреннего баланса: пользователь выбирает этот способ, сумма в рублях списывается сразу, а администратор оплачивает созданный MyStars order. Для такой оплаты задаются базовые рублёвые цены и наценка в root `.env`. API key задаётся только в root `.env`:
 
 ```dotenv
 MYSTARS_API_KEY=
 MYSTARS_API_URL=https://api.mystars.tg
 MYSTARS_PAYMENT_CURRENCY=ton
+
+# Базовые цены для оплаты подарка с внутреннего баланса.
+# Итоговая сумма = base + 10% наценки по умолчанию.
+MYSTARS_BALANCE_MARKUP_PERCENT=10
+MYSTARS_BALANCE_STARS_RUB_PER_UNIT=
+MYSTARS_BALANCE_PREMIUM_3_RUB=
+MYSTARS_BALANCE_PREMIUM_6_RUB=
+MYSTARS_BALANCE_PREMIUM_12_RUB=
 ```
 
 MyStars возвращает on-chain payment instructions. В текущем режиме выбранная схема — ручная оплата администратором: администратор получает в Telegram адрес, сумму и memo, оплачивает заказ и нажимает «Проверить оплату». После статуса `delivered` backend сначала пытается отправить уведомление через встроенный Telegram userbot по `@username`, а затем использует уже известный чат `poslaniya_robot` как безопасный fallback.

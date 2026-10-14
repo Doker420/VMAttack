@@ -52,6 +52,11 @@ const TELEGRAM_USERBOT_SESSION = env('TELEGRAM_USERBOT_SESSION');
 const MYSTARS_API_KEY = env('MYSTARS_API_KEY');
 const MYSTARS_API_URL = env('MYSTARS_API_URL', 'https://api.mystars.tg');
 const MYSTARS_PAYMENT_CURRENCY = env('MYSTARS_PAYMENT_CURRENCY', 'ton');
+const MYSTARS_BALANCE_MARKUP_PERCENT = Number(env('MYSTARS_BALANCE_MARKUP_PERCENT', '10'));
+const MYSTARS_BALANCE_STARS_RUB_PER_UNIT = Number(env('MYSTARS_BALANCE_STARS_RUB_PER_UNIT', '0'));
+const MYSTARS_BALANCE_PREMIUM_3_RUB = Number(env('MYSTARS_BALANCE_PREMIUM_3_RUB', '0'));
+const MYSTARS_BALANCE_PREMIUM_6_RUB = Number(env('MYSTARS_BALANCE_PREMIUM_6_RUB', '0'));
+const MYSTARS_BALANCE_PREMIUM_12_RUB = Number(env('MYSTARS_BALANCE_PREMIUM_12_RUB', '0'));
 const YUMONEY_RECEIVER = env('YUMONEY_RECEIVER');
 const YUMONEY_PAYMENT_URL = env('YUMONEY_PAYMENT_URL');
 const YUMONEY_TOKEN = env('YUMONEY_TOKEN');
@@ -944,11 +949,25 @@ function giftDescription(order) {
   return order.type === 'stars' ? `${order.quantity} Telegram Stars` : `Telegram Premium на ${order.months} мес.`;
 }
 
+function mystarsBalanceBasePrice(gift) {
+  if (gift.type === 'stars') return Number(gift.quantity) * MYSTARS_BALANCE_STARS_RUB_PER_UNIT;
+  const prices = { 3: MYSTARS_BALANCE_PREMIUM_3_RUB, 6: MYSTARS_BALANCE_PREMIUM_6_RUB, 12: MYSTARS_BALANCE_PREMIUM_12_RUB };
+  return prices[gift.months] || 0;
+}
+
+function mystarsBalancePrice(gift) {
+  const basePrice = mystarsBalanceBasePrice(gift);
+  const markup = Number.isFinite(MYSTARS_BALANCE_MARKUP_PERCENT) ? MYSTARS_BALANCE_MARKUP_PERCENT : 10;
+  if (!Number.isFinite(basePrice) || basePrice <= 0 || markup < 0) return null;
+  return { basePrice, markupPercent: markup, amount: Math.ceil(basePrice * (1 + markup / 100)) };
+}
+
 async function notifyMystarsAdmins(order) {
   const payment = order.payment || {};
   const adminIds = TELEGRAM_ADMIN_IDS.split(',').map((id) => id.trim()).filter(Boolean);
   if (!adminIds.length) return;
-  const details = `🎁 <b>Новый анонимный подарок</b>\n\nПолучатель: <code>@${escapeTelegramHtml(order.username)}</code>\nТовар: <b>${escapeTelegramHtml(giftDescription(order))}</b>\nMyStars order: <code>${escapeTelegramHtml(String(order.remoteOrderId || order.id))}</code>\n\nОплатить MyStars вручную:\nСумма: <code>${escapeTelegramHtml(String(payment.amount || '—'))} ${escapeTelegramHtml(String(payment.currency || ''))}</code>\nАдрес: <code>${escapeTelegramHtml(String(payment.pay_to_address || '—'))}</code>\nMemo: <code>${escapeTelegramHtml(String(payment.memo || '—'))}</code>`;
+  const balanceLine = order.paymentMethod === 'balance' ? `\nОплата пользователя: <b>${escapeTelegramHtml(String(order.balancePriceRub))} ₽ списано с баланса</b>\nНаценка сервиса: <b>${escapeTelegramHtml(String(order.balanceMarkupPercent))}%</b>` : '\nОплата пользователя: администратор подтверждает оплату отдельно';
+  const details = `🎁 <b>Новый анонимный подарок</b>\n\nПолучатель: <code>@${escapeTelegramHtml(order.username)}</code>\nТовар: <b>${escapeTelegramHtml(giftDescription(order))}</b>${balanceLine}\nMyStars order: <code>${escapeTelegramHtml(String(order.remoteOrderId || order.id))}</code>\n\nОплатить MyStars вручную:\nСумма: <code>${escapeTelegramHtml(String(payment.amount || '—'))} ${escapeTelegramHtml(String(payment.currency || ''))}</code>\nАдрес: <code>${escapeTelegramHtml(String(payment.pay_to_address || '—'))}</code>\nMemo: <code>${escapeTelegramHtml(String(payment.memo || '—'))}</code>`;
   for (const adminId of adminIds) {
     await sendTelegramMessage(adminId, details, { reply_markup: { inline_keyboard: [[{ text: '🔄 Проверить оплату', callback_data: `mystars:check:${order.id}` }], [{ text: '❌ Отменить заказ', callback_data: `mystars:cancel:${order.id}` }]] } });
   }
@@ -1007,10 +1026,14 @@ async function syncMyStarsOrder(order) {
 }
 
 function mystarsOrderForUser(order, user) {
-  return { id: order.id, username: order.username, type: order.type, quantity: order.quantity, months: order.months, payment_currency: order.payment_currency, quote: order.quote, remoteOrderId: order.remoteOrderId, status: order.remoteStatus, deliveredAt: order.deliveredAt || null, notificationStatus: order.notificationStatus || null, createdAt: order.createdAt };
+  return { id: order.id, username: order.username, type: order.type, quantity: order.quantity, months: order.months, payment_currency: order.payment_currency, quote: order.quote, paymentMethod: order.paymentMethod || 'admin', balancePriceRub: order.balancePriceRub || null, balanceMarkupPercent: order.balanceMarkupPercent ?? null, remoteOrderId: order.remoteOrderId, status: order.remoteStatus, deliveredAt: order.deliveredAt || null, notificationStatus: order.notificationStatus || null, createdAt: order.createdAt };
 }
 
-async function createMystarsOrder(user, gift) {
+async function createMystarsOrder(user, gift, { paymentMethod = 'admin' } = {}) {
+  const balancePrice = paymentMethod === 'balance' ? mystarsBalancePrice(gift) : null;
+  if (paymentMethod === 'balance' && !balancePrice) throw new Error('MYSTARS balance prices are not configured');
+  if (paymentMethod === 'balance' && Number(user.balanceRub || 0) < balancePrice.amount) throw new Error(`Недостаточно средств на балансе: нужно ${balancePrice.amount} ₽`);
+
   const localId = `gift-${randomUUID()}`;
   const quote = await getMyStarsQuote(gift);
   const recipient = await checkMyStarsRecipient(gift);
@@ -1019,7 +1042,30 @@ async function createMystarsOrder(user, gift) {
   if (gift.type === 'stars') body.quantity = gift.quantity;
   else body.months = gift.months;
   const remote = await mystarsRequest('/v1/orders', { method: 'POST', headers: { 'Idempotency-Key': localId }, body: JSON.stringify(body) });
-  const order = { id: localId, userId: user.id, username: gift.username, type: gift.type, quantity: gift.quantity || null, months: gift.months || null, payment_currency: gift.payment_currency, quote, remoteOrderId: remote.order_id || remote.id, remoteStatus: remote.status || 'awaiting_payment', remoteOrder: remote, payment: remote.payment || null, createdAt: new Date().toISOString(), notificationStatus: 'waiting_delivery' };
+
+  if (paymentMethod === 'balance') {
+    user.balanceRub = Number(user.balanceRub || 0) - balancePrice.amount;
+    schedulePersist();
+  }
+  const order = {
+    id: localId,
+    userId: user.id,
+    username: gift.username,
+    type: gift.type,
+    quantity: gift.quantity || null,
+    months: gift.months || null,
+    payment_currency: gift.payment_currency,
+    paymentMethod,
+    balancePriceRub: balancePrice?.amount || null,
+    balanceMarkupPercent: balancePrice?.markupPercent ?? null,
+    quote,
+    remoteOrderId: remote.order_id || remote.id,
+    remoteStatus: remote.status || 'awaiting_payment',
+    remoteOrder: remote,
+    payment: remote.payment || null,
+    createdAt: new Date().toISOString(),
+    notificationStatus: 'waiting_delivery'
+  };
   mystarsOrders.set(order.id, order);
   schedulePersist();
   await notifyMystarsAdmins(order);
@@ -1508,7 +1554,7 @@ async function handleApi(req, res, url) {
     try {
       const gift = validateGiftRequest(await readBody(req));
       const [quote, recipient] = await Promise.all([getMyStarsQuote(gift), checkMyStarsRecipient(gift)]);
-      return json(res, 200, { gift, quote, recipient });
+      return json(res, 200, { gift, quote, recipient, balancePayment: mystarsBalancePrice(gift) });
     } catch (error) {
       return json(res, error.message.includes('required') || error.message.includes('between') || error.message.includes('must be') ? 422 : 503, { error: 'mystars_quote_failed', message: error.message });
     }
@@ -1517,8 +1563,10 @@ async function handleApi(req, res, url) {
     const user = getUserFromRequest(req);
     if (!user) return json(res, 401, { error: 'unauthorized' });
     try {
-      const gift = validateGiftRequest(await readBody(req));
-      const order = await createMystarsOrder(user, gift);
+      const body = await readBody(req);
+      const gift = validateGiftRequest(body);
+      const paymentMethod = body.payment_method === 'admin' ? 'admin' : 'balance';
+      const order = await createMystarsOrder(user, gift, { paymentMethod });
       return json(res, 201, mystarsOrderForUser(order, user));
     } catch (error) {
       const status = error.message.includes('required') || error.message.includes('between') || error.message.includes('must be') || error.message.includes('cannot receive') ? 422 : 503;
