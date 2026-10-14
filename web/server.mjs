@@ -352,7 +352,7 @@ async function telegramRequest(method, body = {}, timeoutMs = 15000) {
 
 async function sendTelegramMessage(chatId, text, options = true) {
   if (!TELEGRAM_BOT_TOKEN || !chatId) return { skipped: true, reason: 'TELEGRAM_BOT_TOKEN is not configured' };
-  const payload = { chat_id: chatId, text };
+  const payload = { chat_id: chatId, text, parse_mode: 'HTML' };
   if (options === true) payload.reply_markup = telegramAppKeyboard();
   if (options?.reply_markup) payload.reply_markup = options.reply_markup;
   try {
@@ -374,6 +374,7 @@ async function sendTelegramPhoto(chatId, caption, options = true) {
     form.append('chat_id', String(chatId));
     form.append('photo', new Blob([image], { type: 'image/png' }), 'start-banner.png');
     form.append('caption', caption);
+    form.append('parse_mode', 'HTML');
     const replyMarkup = options === true ? telegramAppKeyboard() : options?.reply_markup;
     if (replyMarkup) form.append('reply_markup', JSON.stringify(replyMarkup));
     const controller = new AbortController();
@@ -421,7 +422,7 @@ function newMessageKeyboard(messageId) {
 }
 
 async function notifyNewMessage(user, message) {
-  const text = `💌 Новое анонимное послание\n\nТекст послания:\n«${message.text}»`;
+  const text = `💌 <b>Новое анонимное послание</b>\n\nТекст послания:\n«${escapeTelegramHtml(message.text)}»`;
   const deliveries = [];
   for (const identity of userIdentities(user)) {
     deliveries.push(identity.provider === 'telegram'
@@ -519,19 +520,26 @@ function platformLinks(user = null) {
   };
 }
 
+function escapeTelegramHtml(value) {
+  return String(value).replace(/[&<>\"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[character]));
+}
+
 function profileInstructions(language = 'ru', user = null, channel = 'telegram') {
   const links = platformLinks(user);
   const isVk = channel === 'vk';
-  if (language === 'en') {
-    const platform = isVk ? 'VK' : 'Telegram';
-    const platformLink = isVk ? links.vk : links.telegram;
-    const referralLink = isVk ? links.vkReferral : links.telegramReferral;
-    return `📌 ${platform} profile link\n\nAdd this link to your ${platform} profile:\n${platformLink}\n\n🔗 Your personal referral link:\n${referralLink}\n\n🌐 Website link:\n${links.site}\n\nReady-to-post text:\nSend me an anonymous message 💌\nLeave it here:\n${links.siteReferral}\n\nPeople can open your link and send you an anonymous message right away.`;
-  }
   const platform = isVk ? 'ВКонтакте' : 'Telegram';
-  const platformLink = isVk ? links.vk : links.telegram;
   const referralLink = isVk ? links.vkReferral : links.telegramReferral;
-  return `📌 Ссылка для профиля: ${platform}\n\nДобавьте эту ссылку в свой профиль:\n${platformLink}\n\n🔗 Ваша персональная реферальная ссылка:\n${referralLink}\n\n🌐 Ссылка на сайт:\n${links.site}\n\nГотовый текст для профиля:\nНапиши мне анонимно 💌\nОставь послание здесь:\n${links.siteReferral}\n\nПо этой ссылке сразу можно открыть ящик и отправить вам послание.`;
+  if (isVk) {
+    if (language === 'en') return `📌 Personal profile link: VK\n\nAdd this personal referral link to your profile:\n${referralLink}\n\n🌐 Personal website link:\n${links.siteReferral}\n\nReady-to-post text:\nSend me an anonymous message 💌\nLeave it here:\n${links.siteReferral}`;
+    return `📌 Персональная ссылка в профиль: ВКонтакте\n\nДобавьте в профиль именно эту реферальную ссылку:\n${referralLink}\n\n🌐 Персональная ссылка на сайт:\n${links.siteReferral}\n\nГотовый текст для профиля:\nНапиши мне анонимно 💌\nОставь послание здесь:\n${links.siteReferral}`;
+  }
+  const safeReferral = escapeTelegramHtml(referralLink);
+  const safeSiteReferral = escapeTelegramHtml(links.siteReferral);
+  if (language === 'en') {
+    const englishPlatform = isVk ? 'VK' : 'Telegram';
+    return `<b>📌 Personal profile link: ${englishPlatform}</b>\n\nAdd this personal referral link to your profile:\n<a href="${safeReferral}">${safeReferral}</a>\n\n<b>🌐 Personal website link</b>\n<a href="${safeSiteReferral}">${safeSiteReferral}</a>\n\n<b>Ready-to-post text:</b>\nSend me an anonymous message 💌\nLeave it here:\n${safeSiteReferral}\n\nThis link opens your inbox directly.`;
+  }
+  return `<b>📌 Персональная ссылка в профиль: ${platform}</b>\n\nДобавьте в профиль именно эту реферальную ссылку:\n<a href="${safeReferral}">${safeReferral}</a>\n\n<b>🌐 Персональная ссылка на сайт</b>\n<a href="${safeSiteReferral}">${safeSiteReferral}</a>\n\n<b>Готовый текст для профиля:</b>\nНапиши мне анонимно 💌\nОставь послание здесь:\n${safeSiteReferral}\n\nЭта ссылка сразу открывает ваш ящик для посланий.`;
 }
 
 function languageKeyboard() {
@@ -558,6 +566,24 @@ function paymentKeyboard(language, plan, messageId = null) {
     [{ text: 'СБП / SBP — скоро', callback_data: `pay:stub:sbp:${plan}` }],
     [{ text: 'ЮMoney — заглушка', callback_data: `pay:stub:yoomoney:${plan}` }, { text: 'CryptoBot — заглушка', callback_data: `pay:stub:crypto:${plan}` }]
   ] };
+}
+
+function userInboxMessages(user) {
+  const linkIds = new Set([...publicLinks.values()].filter((link) => link.userId === user.id).map((link) => link.id));
+  return [...messages.values()]
+    .filter((message) => linkIds.has(message.publicLinkId))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+async function sendRevealPicker(user, chatId) {
+  const inbox = userInboxMessages(user).slice(0, 10);
+  if (!inbox.length) {
+    return sendTelegramMessage(chatId, '🔎 Пока нет посланий, для которых можно открыть отправителя. Сначала поделитесь своей персональной ссылкой.', { reply_markup: botMenuKeyboard(user.language) });
+  }
+  const lines = inbox.map((message, index) => `${index + 1}. «${escapeTelegramHtml(String(message.text).slice(0, 90))}${String(message.text).length > 90 ? '…' : ''}»`).join('\n');
+  const keyboard = inbox.map((message, index) => [{ text: `🔓 ${index + 1}. Открыть за 7 ₽`, callback_data: `pay:choose:reveal:${message.id}` }]);
+  keyboard.push([{ text: `💌 ${botText(user.language, 'openApp')}`, web_app: { url: buildWebAppUrl() } }]);
+  return sendTelegramMessage(chatId, `<b>🔎 Выберите послание</b>\n\nВыберите сообщение, для которого хотите проверить отправителя:\n\n${lines}\n\nСтоимость проверки — 7 ₽ за одно послание.`, { reply_markup: { inline_keyboard: keyboard } });
 }
 
 function dailyKeyboard(language) {
@@ -670,6 +696,10 @@ async function handleTelegramCallback(callback) {
   if (data === 'menu:home' || data === 'app') {
     await answerCallback(callback.id);
     return sendBotMenu(user, chatId);
+  }
+  if (data === 'pay:choose:reveal') {
+    await answerCallback(callback.id);
+    return sendRevealPicker(user, chatId);
   }
   if (data.startsWith('pay:choose:')) {
     const [, , plan, messageId = null] = data.split(':');
