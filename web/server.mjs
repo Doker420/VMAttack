@@ -147,7 +147,10 @@ async function loadState() {
     if (Array.isArray(snapshot.retentionSettings)) { retentionSettings.clear(); snapshot.retentionSettings.forEach(([id, settings]) => retentionSettings.set(id, settings)); }
     if (Array.isArray(snapshot.blockedSenders)) { blockedSenders.clear(); snapshot.blockedSenders.forEach(([id, fingerprints]) => blockedSenders.set(id, new Set(fingerprints || []))); }
     if (Array.isArray(snapshot.mystarsOrders)) { mystarsOrders.clear(); snapshot.mystarsOrders.forEach(([id, order]) => mystarsOrders.set(id, order)); }
-    for (const user of users.values()) ensurePublicLink(user);
+    for (const user of users.values()) {
+      ensurePublicLink(user);
+      ensureWebSession(user);
+    }
     purgeDemoDataIfDisabled();
     console.log(`[store] loaded ${users.size} users, ${messages.size} messages via ${devStore ? 'SQLite' : 'JSON'}`);
   } catch (error) {
@@ -254,7 +257,12 @@ async function readBody(req) {
 
 function getUserFromRequest(req) {
   const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-  return token ? users.get(sessions.get(token)) : null;
+  if (!token) return null;
+  const userId = sessions.get(token);
+  if (userId) return users.get(userId) || null;
+  const user = [...users.values()].find((candidate) => candidate.webSessionToken === token);
+  if (user) sessions.set(token, user.id);
+  return user || null;
 }
 
 function senderFingerprint(req) {
@@ -357,6 +365,18 @@ function ensurePublicLink(user, requestedSlug = null) {
   return link;
 }
 
+function ensureWebSession(user) {
+  if (!user.webSessionToken) user.webSessionToken = randomUUID();
+  sessions.set(user.webSessionToken, user.id);
+  return user.webSessionToken;
+}
+
+function userForClient(user) {
+  if (!user) return null;
+  const { webSessionToken, ...safeUser } = user;
+  return safeUser;
+}
+
 function completeAuth(provider, providerUserId, profile = {}) {
   const providerId = String(providerUserId);
   const existing = [...users.values()].find((candidate) => identityFor(candidate, provider)?.providerUserId === providerId);
@@ -383,8 +403,7 @@ function completeAuth(provider, providerUserId, profile = {}) {
   users.set(user.id, user);
   ensurePublicLink(user);
   if (!retentionSettings.has(user.id)) retentionSettings.set(user.id, { dailyEnabled: user.dailyEnabled !== false });
-  const token = randomUUID();
-  sessions.set(token, user.id);
+  const token = ensureWebSession(user);
   schedulePersist();
   return { user, token };
 }
@@ -404,9 +423,7 @@ function consumeWebAuthToken(token) {
   webAuthTokens.delete(String(token));
   const user = users.get(record.userId);
   if (!user) return null;
-  const sessionToken = randomUUID();
-  sessions.set(sessionToken, user.id);
-  return { user, token: sessionToken };
+  return { user: userForClient(user), token: ensureWebSession(user) };
 }
 
 // Demo data is seeded after persisted state has loaded, and only in DEMO_MODE.
@@ -1624,7 +1641,10 @@ async function handleApi(req, res, url) {
   if (req.method === 'GET' && /^\/api\/v1\/auth\/(telegram|vk)\/status$/.test(url.pathname)) {
     const challenge = url.searchParams.get('challenge');
     const pending = challenge && pendingAuth.get(challenge);
-    if (challenge && authResults.has(challenge)) return json(res, 200, { status: 'authorized', ...authResults.get(challenge) });
+    if (challenge && authResults.has(challenge)) {
+      const result = authResults.get(challenge);
+      return json(res, 200, { status: 'authorized', token: result.token, user: userForClient(result.user) });
+    }
     if (pending && Date.now() - pending.createdAt < 10 * 60 * 1000) return json(res, 200, { status: 'pending', expiresIn: Math.max(0, 600 - Math.floor((Date.now() - pending.createdAt) / 1000)) });
     return json(res, 404, { status: 'expired' });
   }
@@ -1632,23 +1652,23 @@ async function handleApi(req, res, url) {
     const provider = url.pathname.split('/')[4];
     const body = await readBody(req);
     const authorized = body.challenge && authResults.get(body.challenge);
-    if (authorized) return json(res, 200, authorized);
+    if (authorized) return json(res, 200, { token: authorized.token, user: userForClient(authorized.user) });
     // `demo: true` makes the UI preview useful without bot credentials. Disable this
     // fallback in production with DEMO_MODE=false; real users complete via webhook.
     if (body.demo !== true || !DEMO_MODE) return json(res, 409, { error: 'waiting_for_bot_confirmation' });
     const result = completeAuth(provider, body.providerUserId || (provider === 'telegram' ? 'demo_recipient' : 'demo_vk_recipient'), { displayName: provider === 'telegram' ? 'Аня' : (body.displayName || 'VK user'), username: provider === 'telegram' ? 'anya' : null });
-    return json(res, 200, result);
+    return json(res, 200, { token: result.token, user: userForClient(result.user) });
   }
   if (req.method === 'POST' && url.pathname === '/api/v1/auth/telegram/webapp') {
     const body = await readBody(req);
     const telegramUser = verifyTelegramWebAppInitData(body.initData || req.headers['x-telegram-init-data']);
     if (!telegramUser?.id) return json(res, 401, { error: 'invalid_telegram_webapp_data' });
     const result = completeAuth('telegram', telegramUser.id, { displayName: [telegramUser.first_name, telegramUser.last_name].filter(Boolean).join(' ') || 'Telegram user', username: telegramUser.username || null, photoUrl: telegramUser.photo_url || null });
-    return json(res, 200, result);
+    return json(res, 200, { token: result.token, user: userForClient(result.user) });
   }
   if (req.method === 'GET' && url.pathname === '/api/v1/me') {
     const user = getUserFromRequest(req);
-    return user ? json(res, 200, { user, retention: retentionSettings.get(user.id), link: ensurePublicLink(user) }) : json(res, 401, { error: 'unauthorized' });
+    return user ? json(res, 200, { user: userForClient(user), retention: retentionSettings.get(user.id), link: ensurePublicLink(user) }) : json(res, 401, { error: 'unauthorized' });
   }
   if (req.method === 'GET' && /^\/api\/v1\/inbox$/.test(url.pathname)) {
     const user = getUserFromRequest(req);
