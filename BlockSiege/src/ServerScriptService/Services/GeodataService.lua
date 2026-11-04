@@ -1,5 +1,7 @@
 -- Lightweight server geodata: static collision geometry + live fortress/trap obstacles.
 -- PathfindingService remains the final navmesh solver; this map gives bots tactical obstacle context.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Config = require(ReplicatedStorage:WaitForChild("BlockSiege"):WaitForChild("Config"))
 
 local GeodataService = {}
 local world
@@ -21,6 +23,7 @@ local ignoredNames = {
 	OrangeBaseGrass = true,
 	BlueSpawn = true,
 	OrangeSpawn = true,
+	ArenaBoundary = true,
 }
 
 local function addPart(list, part, source, team, kind)
@@ -140,10 +143,10 @@ function GeodataService.GetAvoidancePoint(start, destination, side)
 	local sign = (side or 1) % 2 == 0 and 1 or -1
 	local perpendicular = Vector3.new(-direction.Z, 0, direction.X) * sign
 	local candidate = best.Position + perpendicular * (radius + 8)
-	if math.abs(candidate.X) > 205 or math.abs(candidate.Z) > 88 then
+	if math.abs(candidate.X) > Config.Arena.BotBoundsX or math.abs(candidate.Z) > Config.Arena.BotBoundsZ then
 		candidate = best.Position - perpendicular * (radius + 8)
 	end
-	if math.abs(candidate.X) > 205 or math.abs(candidate.Z) > 88 then
+	if math.abs(candidate.X) > Config.Arena.BotBoundsX or math.abs(candidate.Z) > Config.Arena.BotBoundsZ then
 		return nil
 	end
 	return Vector3.new(candidate.X, destination.Y, candidate.Z)
