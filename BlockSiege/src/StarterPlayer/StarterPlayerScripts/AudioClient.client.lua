@@ -125,9 +125,11 @@ UserInputService.InputBegan:Connect(function(input, processed)
 end)
 
 remotes.CombatFX.OnClientEvent:Connect(function(payload)
-	if payload.Kind == "Shot" then
-		local heavy = payload.WeaponId == "Rail" or payload.WeaponId == "Demolisher" or payload.WeaponId == "Marksman"
-		local pitch = payload.WeaponId == "SMG" and 1.16 or (payload.WeaponId == "Scatter" and 0.86 or (payload.WeaponId == "Rail" and 0.78 or 1))
+	if payload.Melee == true or payload.Kind == "Melee" then
+		playSfx("Hit", 0.58, 1.18)
+	elseif payload.Kind == "Shot" then
+		local heavy = payload.WeaponId == "Rail" or payload.WeaponId == "Demolisher" or payload.WeaponId == "Marksman" or payload.WeaponId == "ThanosGauntlet"
+		local pitch = payload.WeaponId == "SMG" and 1.16 or (payload.WeaponId == "Scatter" and 0.86 or ((payload.WeaponId == "Rail" or payload.WeaponId == "ThanosGauntlet") and 0.78 or 1))
 		playSfx(heavy and "HeavyShot" or "Shot", heavy and 0.7 or 0.42, pitch)
 	elseif payload.Kind == "StructureHit" then
 		playSfx("Hit", 0.32, 0.95 + math.random() * 0.1)
@@ -139,6 +141,12 @@ remotes.CombatFX.OnClientEvent:Connect(function(payload)
 end)
 remotes.BuildFX.OnClientEvent:Connect(function()
 	playSfx("Build", 0.55, 0.96 + math.random() * 0.08)
+end)
+remotes.TrapFX.OnClientEvent:Connect(function(payload)
+	playSfx(payload.Kind == "ShockMine" and "Destroy" or "Hit", 0.62, payload.Kind == "FlameTrap" and 0.82 or 1.08)
+end)
+remotes.CaptureFX.OnClientEvent:Connect(function()
+	playSfx("CaseOpened", 0.72, 1.12)
 end)
 remotes.CaseOpened.OnClientEvent:Connect(function()
 	playSfx("CaseOpened", 0.8, 1)

@@ -167,6 +167,22 @@ local function buildLobby(lobby)
 	spawn.Neutral = true
 	spawn.CanQuery = false
 
+	-- Decorative rails plus continuous glass safety walls: the lobby cannot be fallen off.
+	for _, side in ipairs({ -1, 1 }) do
+		makePart(lobby, "LobbySafetyWall", Vector3.new(1.5, 18, 126), CFrame.new(side * 82, 53, 330), Color3.fromRGB(110, 170, 175), Enum.Material.Glass, true).Transparency = 0.72
+		makePart(lobby, "LobbyFenceRail", Vector3.new(1.2, 1, 126), CFrame.new(side * 81.5, 48, 330), C.Gold, Enum.Material.Metal, true)
+		for index = 0, 8 do
+			makePart(lobby, "LobbyFencePost", Vector3.new(2, 7, 2), CFrame.new(side * 81.5, 47.5, 268 + index * 15.5), C.StoneDark, Enum.Material.Cobblestone, true)
+		end
+	end
+	for _, side in ipairs({ -1, 1 }) do
+		makePart(lobby, "LobbySafetyWall", Vector3.new(166, 18, 1.5), CFrame.new(0, 53, 330 + side * 62), Color3.fromRGB(110, 170, 175), Enum.Material.Glass, true).Transparency = 0.72
+		makePart(lobby, "LobbyFenceRail", Vector3.new(166, 1, 1.2), CFrame.new(0, 48, 330 + side * 61.5), C.Gold, Enum.Material.Metal, true)
+		for index = 0, 10 do
+			makePart(lobby, "LobbyFencePost", Vector3.new(2, 7, 2), CFrame.new(-77 + index * 15.5, 47.5, 330 + side * 61.5), C.StoneDark, Enum.Material.Cobblestone, true)
+		end
+	end
+
 	local crate = makePart(lobby, "LobbyLootbox", Vector3.new(9, 7, 9), CFrame.new(0, 48, 318), C.Gold, Enum.Material.Metal, true)
 	local crateLight = Instance.new("PointLight")
 	crateLight.Color = C.Gold
@@ -182,18 +198,21 @@ local function buildLobby(lobby)
 	local startPrompt = prompt(board, "В БОЙ", "Быстрый старт · боты заполняют команды")
 
 	for index, weaponId in ipairs(Catalog.WeaponOrder) do
-		local x = -63 + (index - 1) * 21
-		makePart(lobby, "WeaponPedestal", Vector3.new(10, 3, 10), CFrame.new(x, 46, 292), C.Stone, Enum.Material.Cobblestone, true)
+		local row = math.floor((index - 1) / 5)
+		local column = (index - 1) % 5
+		local x = -56 + column * 28
+		local z = 292 - row * 16
+		makePart(lobby, "WeaponPedestal", Vector3.new(10, 3, 10), CFrame.new(x, 46, z), C.Stone, Enum.Material.Cobblestone, true)
 		local weapon = WeaponModels.Build(weaponId)
 		weapon.Name = "Display_" .. weaponId
 		weapon.Parent = lobby
-		weapon:PivotTo(CFrame.new(x, 50, 292) * CFrame.Angles(0, math.rad(90), 0))
+		weapon:PivotTo(CFrame.new(x, 50, z) * CFrame.Angles(0, math.rad(90), 0))
 		for _, item in ipairs(weapon:GetDescendants()) do
 			if item:IsA("BasePart") then
 				item.Anchored = true
 			end
 		end
-		local labelAnchor = makePart(lobby, "WeaponLabelAnchor", Vector3.new(1, 1, 1), CFrame.new(x, 52, 292), C.White, Enum.Material.SmoothPlastic, false)
+		local labelAnchor = makePart(lobby, "WeaponLabelAnchor", Vector3.new(1, 1, 1), CFrame.new(x, 52, z), C.White, Enum.Material.SmoothPlastic, false)
 		labelAnchor.Transparency = 1
 		labelAnchor.CanQuery = false
 		local definition = Catalog.GetWeapon(weaponId)
@@ -203,17 +222,61 @@ local function buildLobby(lobby)
 	local upgradePrompt = buildNpc(lobby, "UpgradeForge", Vector3.new(-48, 44.5, 344), Color3.fromRGB(88, 220, 255), "FORGE // УЛУЧШЕНИЯ", "УЛУЧШИТЬ", "HP · броня · скорость · постройки")
 	local dailyPrompt = buildNpc(lobby, "DailyBonus", Vector3.new(48, 44.5, 344), Color3.fromRGB(255, 211, 78), "DAILY // БОНУС", "ПОЛУЧИТЬ", "Монеты · XP · жетон кейса")
 	local shopPrompt = buildNpc(lobby, "CosmeticShop", Vector3.new(48, 44.5, 300), Color3.fromRGB(195, 117, 255), "ROBUX // КОСМЕТИКА", "МАГАЗИН", "Только внешний вид · без pay-to-win")
+	local defensePrompt = buildNpc(lobby, "DefenseWorkshop", Vector3.new(-48, 44.5, 300), Color3.fromRGB(255, 133, 71), "DEFENSE // ЛОВУШКИ", "КУПИТЬ ЧЕРТЁЖ", "Шипы · мины · огнемёт за монеты")
 	local upgradePad = makePart(lobby, "UpgradePad", Vector3.new(16, 0.35, 12), CFrame.new(-48, 44.8, 344), Color3.fromRGB(40, 120, 145), Enum.Material.Metal, false)
 	upgradePad.CanQuery = false
 	local dailyPad = makePart(lobby, "DailyPad", Vector3.new(16, 0.35, 12), CFrame.new(48, 44.8, 344), Color3.fromRGB(150, 110, 35), Enum.Material.Metal, false)
 	dailyPad.CanQuery = false
 	local shopPad = makePart(lobby, "ShopPad", Vector3.new(16, 0.35, 12), CFrame.new(48, 44.8, 300), Color3.fromRGB(105, 55, 145), Enum.Material.Metal, false)
 	shopPad.CanQuery = false
+	local defensePad = makePart(lobby, "DefensePad", Vector3.new(16, 0.35, 12), CFrame.new(-48, 44.8, 300), Color3.fromRGB(150, 65, 35), Enum.Material.Metal, false)
+	defensePad.CanQuery = false
 
 	for _, position in ipairs({ Vector3.new(-70, 44.5, 370), Vector3.new(70, 44.5, 370), Vector3.new(-70, 44.5, 280), Vector3.new(70, 44.5, 280) }) do
 		buildTree(lobby, position, 0.8)
 	end
-	return spawnCFrame, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt
+	return spawnCFrame, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt, defensePrompt
+end
+
+local function buildCapturePoint(parent)
+	local model = Instance.new("Model")
+	model.Name = "Capture67"
+	model.Parent = parent
+	local base = makePart(model, "CaptureBase", Vector3.new(28, 0.8, 28), CFrame.new(0, 0.4, 0), C.StoneDark, Enum.Material.Cobblestone, true)
+	base:SetAttribute("CaptureGeometry", true)
+	local crystal = makePart(model, "CaptureCrystal", Vector3.new(7, 10, 7), CFrame.new(0, 6, 0) * CFrame.Angles(0, math.rad(45), 0), Color3.fromRGB(237, 190, 64), Enum.Material.DiamondPlate, true)
+	model.PrimaryPart = crystal
+	for _, side in ipairs({ -1, 1 }) do
+		for _, forward in ipairs({ -1, 1 }) do
+			makePart(model, "CapturePylon", Vector3.new(2.2, 7, 2.2), CFrame.new(side * 11, 3.5, forward * 11), C.Stone, Enum.Material.Metal, true)
+			makePart(model, "CaptureGlow", Vector3.new(2.5, 0.6, 2.5), CFrame.new(side * 11, 7.2, forward * 11), Color3.fromRGB(237, 190, 64), Enum.Material.Neon, false)
+		end
+	end
+	for index = 1, 4 do
+		local angle = math.rad(index * 90)
+		makePart(model, "CaptureRing", Vector3.new(8, 0.3, 1), CFrame.new(math.cos(angle) * 9, 1.1, math.sin(angle) * 9) * CFrame.Angles(0, -angle, 0), Color3.fromRGB(237, 190, 64), Enum.Material.Neon, false)
+	end
+	local light = Instance.new("PointLight")
+	light.Name = "CaptureLight"
+	light.Color = Color3.fromRGB(237, 190, 64)
+	light.Brightness = 2.5
+	light.Range = 30
+	light.Parent = crystal
+	local sparkles = Instance.new("Sparkles")
+	sparkles.Name = "CaptureSparkles"
+	sparkles.SparkleColor = Color3.fromRGB(237, 190, 64)
+	sparkles.Parent = crystal
+	local gui = billboard(crystal, "67", Color3.fromRGB(255, 222, 105), Vector3.new(0, 8, 0), UDim2.fromScale(1, 1))
+	gui.Name = "Capture67Label"
+	gui.Size = UDim2.fromOffset(250, 140)
+	local label = gui:FindFirstChild("TextLabel")
+	label.TextStrokeTransparency = 0.05
+	local subtitleAnchor = makePart(model, "CaptureSubtitleAnchor", Vector3.new(1, 1, 1), CFrame.new(0, 2, 0), C.White, Enum.Material.SmoothPlastic, false)
+	subtitleAnchor.Transparency = 1
+	subtitleAnchor.CanQuery = false
+	billboard(subtitleAnchor, "CAPTURE // КОНТРОЛЬ", C.White, Vector3.new(0, 4, 0), UDim2.fromScale(1, 1))
+	model:SetAttribute("CaptureRadius", 22)
+	return { Model = model, Root = crystal, Label = label, Light = light }
 end
 
 function WorldBuilder.Build()
@@ -288,7 +351,8 @@ function WorldBuilder.Build()
 		makePart(arena, "StoneCover", entry[2], CFrame.new(entry[1]), C.Stone, Enum.Material.Cobblestone, true)
 	end
 
-	local lobbySpawn, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt = buildLobby(lobby)
+	local capturePoint = buildCapturePoint(arena)
+	local lobbySpawn, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt, defensePrompt = buildLobby(lobby)
 	Lighting.Brightness = 2
 	Lighting.ClockTime = 14.5
 	Lighting.EnvironmentDiffuseScale = 0.35
@@ -331,6 +395,8 @@ function WorldBuilder.Build()
 		UpgradePrompt = upgradePrompt,
 		DailyPrompt = dailyPrompt,
 		ShopPrompt = shopPrompt,
+		DefensePrompt = defensePrompt,
+		CapturePoint = capturePoint,
 	}
 end
 

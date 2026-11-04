@@ -24,7 +24,7 @@
           <string name="Source"><![CDATA[-- Оружие и честные игровые кейсы. Случайные награды нельзя купить за Robux.
 local Catalog = {}
 
-Catalog.WeaponOrder = { "Carbine", "SMG", "Scatter", "Marksman", "Demolisher", "Rail", "Vortex" }
+Catalog.WeaponOrder = { "Carbine", "SMG", "Scatter", "Marksman", "Demolisher", "Rail", "Vortex", "ThanosGauntlet", "TacticalKnife", "ShadowKnives" }
 Catalog.Weapons = {
 	Carbine = {
 		Id = "Carbine", Name = "BLOCK CARBINE", Rarity = "Starter", Model = "Carbine",
@@ -61,6 +61,21 @@ Catalog.Weapons = {
 		Damage = 22, Cooldown = 0.22, Range = 165, Spread = 0.01, Pellets = 1, StructureMultiplier = 1.5,
 		Color = Color3.fromRGB(235, 112, 51),
 	},
+	ThanosGauntlet = {
+		Id = "ThanosGauntlet", Name = "THANOS GAUNTLET · SNIPER", Rarity = "Legendary", Model = "Gauntlet",
+		Damage = 120, Cooldown = 1.6, Range = 320, Spread = 0, Pellets = 1, StructureMultiplier = 2,
+		Color = Color3.fromRGB(232, 184, 55),
+	},
+	TacticalKnife = {
+		Id = "TacticalKnife", Name = "TACTICAL KNIFE", Rarity = "Rare", Model = "Knife",
+		Damage = 58, Cooldown = 0.42, Range = 14, Spread = 0, Pellets = 1, StructureMultiplier = 0.65, Melee = true,
+		Color = Color3.fromRGB(107, 224, 220),
+	},
+	ShadowKnives = {
+		Id = "ShadowKnives", Name = "SHADOW DUAL KNIVES", Rarity = "Legendary", Model = "DualKnives",
+		Damage = 82, Cooldown = 0.65, Range = 16, Spread = 0, Pellets = 1, StructureMultiplier = 0.8, Melee = true,
+		Color = Color3.fromRGB(186, 104, 255),
+	},
 }
 
 Catalog.RarityNames = { Starter = "СТАРТОВОЕ", Common = "ОБЫЧНОЕ", Rare = "РЕДКОЕ", Legendary = "ЛЕГЕНДАРНОЕ" }
@@ -77,8 +92,8 @@ Catalog.Case = {
 	LegendaryPity = 20,
 	Pool = {
 		Common = { "SMG", "Scatter" },
-		Rare = { "Marksman", "Demolisher" },
-		Legendary = { "Rail", "Vortex" },
+		Rare = { "Marksman", "Demolisher", "TacticalKnife" },
+		Legendary = { "Rail", "Vortex", "ThanosGauntlet", "ShadowKnives" },
 	},
 	DuplicateCoins = { Common = 8, Rare = 18, Legendary = 40 },
 }
@@ -90,6 +105,18 @@ Catalog.Upgrades = {
 	Armor = { Name = "БРОНЯ", MaxLevel = 5, Costs = { 45, 85, 135, 200, 280 }, RequiredLevels = { 2, 3, 4, 5, 6 }, Description = "4% сопротивления урону за уровень" },
 	Engineering = { Name = "ИНЖЕНЕРИЯ", MaxLevel = 3, Costs = { 40, 90, 160 }, RequiredLevels = { 1, 3, 5 }, Description = "+2 дополнительные постройки за уровень" },
 }
+
+-- Оборонительные чертежи покупаются только за заработанные монеты, не за Robux.
+Catalog.DefenseOrder = { "SpikeTrap", "ShockMine", "FlameTrap" }
+Catalog.Defenses = {
+	SpikeTrap = { Name = "SPIKE TRAP", Price = 60, RequiredLevel = 1, Description = "35 урона и повторное срабатывание каждые 2 секунды" },
+	ShockMine = { Name = "SHOCK MINE", Price = 90, RequiredLevel = 2, Description = "70 урона по области, одноразовая мина" },
+	FlameTrap = { Name = "FLAME TRAP", Price = 120, RequiredLevel = 3, Description = "24 урона огнём каждые 1,5 секунды" },
+}
+
+function Catalog.GetDefense(id)
+	return type(id) == "string" and Catalog.Defenses[id] or nil
+end
 
 -- Только косметика за Robux: никаких преимуществ в уроне, скорости или броне.
 Catalog.CosmeticOrder = { "GoldenArsenal", "AuroraAura", "RoyalTrail" }
@@ -206,6 +233,35 @@ local Config = {
 			Size = Vector3.new(8, 18, 8),
 			Health = 560,
 		},
+		SpikeTrap = {
+			Name = "ШИПЫ",
+			Size = Vector3.new(8, 0.8, 8),
+			Health = 150,
+			Trap = true,
+			TriggerRadius = 7,
+			Damage = 35,
+			Cooldown = 2,
+		},
+		ShockMine = {
+			Name = "МИНА",
+			Size = Vector3.new(5, 1, 5),
+			Health = 100,
+			Trap = true,
+			TriggerRadius = 8,
+			BlastRadius = 13,
+			Damage = 70,
+			Cooldown = 99,
+			OneShot = true,
+		},
+		FlameTrap = {
+			Name = "ОГНЕМЁТ",
+			Size = Vector3.new(7, 1.2, 7),
+			Health = 180,
+			Trap = true,
+			TriggerRadius = 9,
+			Damage = 24,
+			Cooldown = 1.5,
+		},
 	},
 }
 
@@ -251,6 +307,8 @@ local function block(model, name, size, cframe, color, material)
 	part.CanCollide = false
 	part.CanTouch = false
 	part.CanQuery = false
+	part.Transparency = 0
+	part.CastShadow = true
 	part.Massless = true
 	part.TopSurface = Enum.SurfaceType.Smooth
 	part.BottomSurface = Enum.SurfaceType.Smooth
@@ -315,6 +373,49 @@ function WeaponModels.Build(weaponId)
 			block(model, "VortexFin", Vector3.new(0.3, 1.2, 1.7), CFrame.new(side * 0.9, 0.55, -1.15) * CFrame.Angles(0, 0, math.rad(side * 18)), accent)
 		end
 		block(model, "VortexStock", Vector3.new(1.1, 0.8, 1.2), CFrame.new(0, 0.25, 0.85), DARK)
+	elseif weapon.Model == "Gauntlet" then
+		handle.Color = Color3.fromRGB(164, 112, 38)
+		handle.Material = Enum.Material.Metal
+		block(model, "GauntletCuff", Vector3.new(2.5, 1.55, 1.4), CFrame.new(0, 0.05, 0.25), accent, Enum.Material.Metal)
+		block(model, "GauntletPalm", Vector3.new(2.25, 1.8, 2), CFrame.new(0, 0.55, -1.15), accent, Enum.Material.Metal)
+		block(model, "PalmPlate", Vector3.new(1.65, 0.35, 1.5), CFrame.new(0, 1.55, -1.2), Color3.fromRGB(255, 220, 104), Enum.Material.DiamondPlate)
+		for index = 0, 3 do
+			local x = -0.78 + index * 0.52
+			block(model, "GauntletFinger", Vector3.new(0.44, 0.62, 1.65), CFrame.new(x, 0.85, -2.75), accent, Enum.Material.Metal)
+			block(model, "GauntletKnuckle", Vector3.new(0.5, 0.7, 0.65), CFrame.new(x, 1.05, -3.65), Color3.fromRGB(255, 214, 91), Enum.Material.Metal)
+		end
+		block(model, "GauntletThumb", Vector3.new(0.7, 0.75, 1.5), CFrame.new(1.35, 0.3, -1.65) * CFrame.Angles(0, math.rad(-24), 0), accent, Enum.Material.Metal)
+		local gemColors = {
+			Color3.fromRGB(255, 80, 70), Color3.fromRGB(70, 160, 255), Color3.fromRGB(105, 240, 130),
+			Color3.fromRGB(190, 95, 255), Color3.fromRGB(255, 205, 60), Color3.fromRGB(255, 125, 45),
+		}
+		for index, gemColor in ipairs(gemColors) do
+			local x = -0.65 + ((index - 1) % 3) * 0.65
+			local z = index <= 3 and -0.85 or -1.65
+			local gem = block(model, "InfinityGem", Vector3.new(0.42, 0.28, 0.42), CFrame.new(x, 1.78, z), gemColor, Enum.Material.Neon)
+			if index == 1 then
+				local glow = Instance.new("PointLight")
+				glow.Name = "InfinityGlow"
+				glow.Color = Color3.fromRGB(203, 126, 255)
+				glow.Brightness = 1.4
+				glow.Range = 8
+				glow.Parent = gem
+			end
+		end
+		block(model, "InfinityScope", Vector3.new(0.5, 0.5, 2.6), CFrame.new(0, 2.05, -1.75), Color3.fromRGB(188, 104, 255), Enum.Material.Neon)
+		block(model, "InfinityEmitter", Vector3.new(0.8, 0.8, 1.4), CFrame.new(0, 0.55, -4.45), Color3.fromRGB(222, 173, 255), Enum.Material.Neon)
+	elseif weapon.Model == "Knife" or weapon.Model == "DualKnives" then
+		handle.Color = DARK
+		handle.Material = Enum.Material.Fabric
+		local sides = weapon.Model == "DualKnives" and { -1, 1 } or { 1 }
+		for _, side in ipairs(sides) do
+			local x = weapon.Model == "DualKnives" and side * 0.7 or 0
+			local rotation = weapon.Model == "DualKnives" and CFrame.Angles(0, math.rad(side * 12), math.rad(side * 8)) or CFrame.new()
+			block(model, "KnifeGuard", Vector3.new(1.35, 0.28, 0.45), CFrame.new(x, 0.15, -0.75) * rotation, accent, Enum.Material.Metal)
+			block(model, "KnifeBlade", Vector3.new(0.62, 0.22, 3.3), CFrame.new(x, 0.35, -2.55) * rotation, Color3.fromRGB(190, 211, 218), Enum.Material.Metal)
+			block(model, "KnifeTip", Vector3.new(0.32, 0.16, 1.1), CFrame.new(x, 0.35, -4.65) * rotation, LIGHT, Enum.Material.Metal)
+			block(model, "BladeEdge", Vector3.new(0.12, 0.28, 3.8), CFrame.new(x + 0.31, 0.35, -2.8) * rotation, accent, Enum.Material.Neon)
+		end
 	else
 		block(model, "Body", Vector3.new(1.15, 0.82, 2.6), CFrame.new(0, 0.35, -1), accent)
 		block(model, "Barrel", Vector3.new(0.42, 0.42, 2.25), CFrame.new(0, 0.43, -3.35), METAL, Enum.Material.Metal)
@@ -334,7 +435,7 @@ function WeaponModels.ApplySkin(model, skinId)
 		if part:IsA("BasePart") then
 			part.Color = Color3.fromRGB(244, 190, 55)
 			part.Material = Enum.Material.Metal
-			if part.Name == "Sight" or part.Name == "ScopeGlass" or part.Name == "EnergyRing" then
+			if part.Name == "Sight" or part.Name == "ScopeGlass" or part.Name == "EnergyRing" or part.Name == "InfinityGem" or part.Name == "BladeEdge" then
 				part.Material = Enum.Material.Neon
 				part.Color = Color3.fromRGB(255, 232, 128)
 			end
@@ -374,8 +475,17 @@ function WeaponModels.Equip(character, weaponId, skinId)
 		end
 	end
 	model.Parent = character
+	local definition = Catalog.GetWeapon(weaponId)
+	local outline = Instance.new("Highlight")
+	outline.Name = "WeaponVisibilityOutline"
+	outline.FillTransparency = 1
+	outline.OutlineTransparency = 0.55
+	outline.OutlineColor = definition and definition.Color or LIGHT
+	outline.DepthMode = Enum.HighlightDepthMode.Occluded
+	outline.Parent = model
 	character:SetAttribute("WeaponId", weaponId)
 	character:SetAttribute("WeaponSkin", skinId or "Default")
+	character:SetAttribute("WeaponVisible", model.PrimaryPart ~= nil)
 	return model
 end
 
@@ -407,6 +517,8 @@ local services = script.Parent:WaitForChild("Services")
 local WorldBuilder = require(services:WaitForChild("WorldBuilder"))
 local DataService = require(services:WaitForChild("DataService"))
 local FortressService = require(services:WaitForChild("FortressService"))
+local GeodataService = require(services:WaitForChild("GeodataService"))
+local CaptureService = require(services:WaitForChild("CaptureService"))
 local WeaponService = require(services:WaitForChild("WeaponService"))
 local BotService = require(services:WaitForChild("BotService"))
 local CaseService = require(services:WaitForChild("CaseService"))
@@ -417,7 +529,7 @@ local MatchService = require(services:WaitForChild("MatchService"))
 local remotes = Instance.new("Folder")
 remotes.Name = "Remotes"
 for _, name in ipairs({
-	"Notify", "ProfileUpdate", "CaseOpened", "Results", "CombatFX", "BuildFX",
+	"Notify", "ProfileUpdate", "CaseOpened", "Results", "CombatFX", "BuildFX", "TrapFX", "CaptureFX",
 	"LobbyAction", "CaseAction", "FireRequest", "BuildRequest", "BuildPreviewRequest", "BuildPreview", "OpenPanel",
 	"ProgressionAction", "ShopAction",
 }) do
@@ -435,10 +547,12 @@ local world = WorldBuilder.Build()
 DataService.Init({ Remotes = remotes })
 ProgressionService.Init({ DataService = DataService, WeaponService = WeaponService, Remotes = remotes })
 FortressService.Init({ World = world, Remotes = remotes, State = state })
+GeodataService.Init({ World = world, FortressService = FortressService, State = state })
 WeaponService.Init({ DataService = DataService, FortressService = FortressService, Remotes = remotes })
-BotService.Init({ World = world, FortressService = FortressService, WeaponService = WeaponService })
+BotService.Init({ World = world, FortressService = FortressService, WeaponService = WeaponService, GeodataService = GeodataService, CaptureService = CaptureService })
 CaseService.Init({ DataService = DataService, Remotes = remotes })
 ShopService.Init({ DataService = DataService, ProgressionService = ProgressionService, Remotes = remotes })
+CaptureService.Init({ World = world, State = state, BotService = BotService, Remotes = remotes })
 MatchService.Init({
 	World = world,
 	DataService = DataService,
@@ -446,6 +560,7 @@ MatchService.Init({
 	WeaponService = WeaponService,
 	BotService = BotService,
 	ProgressionService = ProgressionService,
+	CaptureService = CaptureService,
 	Remotes = remotes,
 	State = state,
 })
@@ -476,11 +591,11 @@ end)
 remotes.FireRequest.OnServerEvent:Connect(function(player, targetPosition)
 	WeaponService.FirePlayer(player, targetPosition)
 end)
-remotes.BuildRequest.OnServerEvent:Connect(function(player, kind, position)
-	MatchService.HandleBuild(player, kind, position)
+remotes.BuildRequest.OnServerEvent:Connect(function(player, kind, position, rotation)
+	MatchService.HandleBuild(player, kind, position, rotation)
 end)
-remotes.BuildPreviewRequest.OnServerEvent:Connect(function(player, kind, position)
-	MatchService.HandleBuildPreview(player, kind, position)
+remotes.BuildPreviewRequest.OnServerEvent:Connect(function(player, kind, position, rotation)
+	MatchService.HandleBuildPreview(player, kind, position, rotation)
 end)
 remotes.ProgressionAction.OnServerEvent:Connect(function(player, action, value)
 	ProgressionService.HandleAction(player, action, value)
@@ -503,13 +618,19 @@ end)
 world.ShopPrompt.Triggered:Connect(function(player)
 	remotes.OpenPanel:FireClient(player, "Shop")
 end)
+world.DefensePrompt.Triggered:Connect(function(player)
+	remotes.OpenPanel:FireClient(player, "Defense")
+end)
 
 local accumulator = 0
 RunService.Heartbeat:Connect(function(deltaTime)
 	accumulator = accumulator + math.min(deltaTime, 0.15)
 	while accumulator >= 1 / 20 do
 		MatchService.Step(1 / 20)
+		GeodataService.Step(1 / 20)
+		FortressService.Step(1 / 20)
 		BotService.Step(1 / 20)
+		CaptureService.Step(1 / 20)
 		DataService.Step(1 / 20)
 		accumulator = accumulator - 1 / 20
 	end
@@ -549,6 +670,8 @@ local BotService = {}
 local world
 local fortressService
 local weaponService
+local geodataService
+local captureService
 local phaseProvider = function()
 	return "Lobby"
 end
@@ -560,8 +683,16 @@ local active = false
 local matchId = 0
 local nextBotId = 0
 
-local botWeapons = { "Carbine", "SMG", "Scatter", "Marksman", "Demolisher", "Vortex" }
+local botWeapons = { "Carbine", "SMG", "Scatter", "Marksman", "Demolisher", "Vortex", "ThanosGauntlet", "TacticalKnife", "ShadowKnives" }
 local roles = { "Defender", "Assault", "Support", "Defender", "Assault", "Support" }
+local botSkins = {
+	{ Id = "Scout", Name = "SCOUT", Primary = Color3.fromRGB(66, 168, 164), Secondary = Color3.fromRGB(35, 74, 83), Accent = Color3.fromRGB(156, 255, 224), Head = Color3.fromRGB(224, 190, 145) },
+	{ Id = "Heavy", Name = "HEAVY", Primary = Color3.fromRGB(128,  90, 76), Secondary = Color3.fromRGB(62, 53, 55), Accent = Color3.fromRGB(255, 190,  70), Head = Color3.fromRGB(193, 153, 119) },
+	{ Id = "Medic", Name = "MEDIC", Primary = Color3.fromRGB(213, 231, 218), Secondary = Color3.fromRGB( 70, 130, 111), Accent = Color3.fromRGB( 90, 255, 164), Head = Color3.fromRGB(235, 198, 160) },
+	{ Id = "Ranger", Name = "RANGER", Primary = Color3.fromRGB(104, 128, 77), Secondary = Color3.fromRGB(49, 65, 45), Accent = Color3.fromRGB(215, 194, 104), Head = Color3.fromRGB(204, 165, 126) },
+	{ Id = "Engineer", Name = "ENGINEER", Primary = Color3.fromRGB(211, 139, 49), Secondary = Color3.fromRGB(83,  60, 42), Accent = Color3.fromRGB(255, 222,  90), Head = Color3.fromRGB(224, 190, 145) },
+	{ Id = "Shadow", Name = "SHADOW", Primary = Color3.fromRGB(77, 66, 112), Secondary = Color3.fromRGB(32,  30, 52), Accent = Color3.fromRGB(201, 127, 255), Head = Color3.fromRGB(177, 143, 126) },
+}
 
 local function bodyPart(model, root, name, size, offset, color)
 	local part = Instance.new("Part")
@@ -606,7 +737,7 @@ local function addNameTag(head, entry)
 	role.Size = UDim2.fromScale(1, 0.35)
 	role.BackgroundTransparency = 1
 	role.Font = Enum.Font.Code
-	role.Text = entry.Role == "Defender" and "DEFENSE" or (entry.Role == "Support" and "SUPPORT" or "ASSAULT")
+	role.Text = (entry.Role == "Defender" and "DEFENSE" or (entry.Role == "Support" and "SUPPORT" or "ASSAULT")) .. " · " .. entry.Skin.Name
 	role.TextColor3 = Color3.fromRGB(235, 240, 235)
 	role.TextStrokeTransparency = 0.4
 	role.TextScaled = true
@@ -628,6 +759,7 @@ local function spawnModel(entry)
 	model:SetAttribute("BotId", entry.Id)
 	model:SetAttribute("IsBot", true)
 	model:SetAttribute("Role", entry.Role)
+	model:SetAttribute("SkinId", entry.Skin.Id)
 	model:SetAttribute("Level", 1)
 	model:SetAttribute("Armor", 0)
 	model.Parent = world.Bots
@@ -651,13 +783,28 @@ local function spawnModel(entry)
 	humanoid.RequiresNeck = false
 	humanoid.BreakJointsOnDeath = false
 	humanoid.Parent = model
-	local color = Config.Teams[entry.Team].Color
-	bodyPart(model, root, "Torso", Vector3.new(3, 2.2, 1.8), Vector3.new(0, 0.3, 0), color)
-	bodyPart(model, root, "Head", Vector3.new(2.1, 1.8, 2.1), Vector3.new(0, 2.5, 0), Color3.fromRGB(224, 190, 145))
-	bodyPart(model, root, "Left Arm", Vector3.new(1, 2.4, 1.4), Vector3.new(-2, 0.3, 0), color)
-	bodyPart(model, root, "Right Arm", Vector3.new(1, 2.4, 1.4), Vector3.new(2, 0.3, 0), color)
-	bodyPart(model, root, "Left Leg", Vector3.new(1.2, 2, 1.5), Vector3.new(-0.8, -1.8, 0), Config.Teams[entry.Team].Dark)
-	bodyPart(model, root, "Right Leg", Vector3.new(1.2, 2, 1.5), Vector3.new(0.8, -1.8, 0), Config.Teams[entry.Team].Dark)
+	local teamColor = Config.Teams[entry.Team].Color
+	local skin = entry.Skin
+	bodyPart(model, root, "Torso", Vector3.new(3, 2.2, 1.8), Vector3.new(0, 0.3, 0), skin.Primary)
+	bodyPart(model, root, "ChestPlate", Vector3.new(2.2, 1.1, 0.35), Vector3.new(0, 0.55, -1.05), skin.Accent)
+	bodyPart(model, root, "TeamBand", Vector3.new(3.1, 0.35, 1.9), Vector3.new(0, 1.15, 0), teamColor)
+	bodyPart(model, root, "Head", Vector3.new(2.1, 1.8, 2.1), Vector3.new(0, 2.5, 0), skin.Head)
+	bodyPart(model, root, "Helmet", Vector3.new(2.35, 0.65, 2.35), Vector3.new(0, 3.45, 0), skin.Secondary)
+	bodyPart(model, root, "Visor", Vector3.new(1.7, 0.35, 0.25), Vector3.new(0, 2.65, -1.1), skin.Accent)
+	bodyPart(model, root, "Backpack", Vector3.new(1.8, 2, 0.7), Vector3.new(0, 0.45, 1.15), skin.Secondary)
+	bodyPart(model, root, "Left Arm", Vector3.new(1, 2.4, 1.4), Vector3.new(-2, 0.3, 0), skin.Primary)
+	bodyPart(model, root, "Right Arm", Vector3.new(1, 2.4, 1.4), Vector3.new(2, 0.3, 0), skin.Primary)
+	bodyPart(model, root, "Left Leg", Vector3.new(1.2, 2, 1.5), Vector3.new(-0.8, -1.8, 0), skin.Secondary)
+	bodyPart(model, root, "Right Leg", Vector3.new(1.2, 2, 1.5), Vector3.new(0.8, -1.8, 0), skin.Secondary)
+	if skin.Id == "Heavy" then
+		bodyPart(model, root, "LeftShoulder", Vector3.new(1.4, 0.7, 1.7), Vector3.new(-2, 1.35, 0), skin.Accent)
+		bodyPart(model, root, "RightShoulder", Vector3.new(1.4, 0.7, 1.7), Vector3.new(2, 1.35, 0), skin.Accent)
+	elseif skin.Id == "Medic" then
+		bodyPart(model, root, "MedicCross", Vector3.new(0.35, 1.1, 0.15), Vector3.new(0, 0.55, -1.25), Color3.fromRGB(255, 90, 95))
+		bodyPart(model, root, "MedicCross", Vector3.new(1.1, 0.35, 0.15), Vector3.new(0, 0.55, -1.25), Color3.fromRGB(255, 90, 95))
+	elseif skin.Id == "Engineer" then
+		bodyPart(model, root, "HardHat", Vector3.new(2.6, 0.35, 2.6), Vector3.new(0, 3.85, 0), Color3.fromRGB(255, 211, 65))
+	end
 	addNameTag(model:FindFirstChild("Head"), entry)
 	entry.Model = model
 	entry.Humanoid = humanoid
@@ -692,7 +839,8 @@ local function addBot(team, slot)
 		Team = team,
 		Slot = slot,
 		Role = roles[((slot - 1) % #roles) + 1],
-		WeaponId = botWeapons[((slot - 1) % #botWeapons) + 1],
+		Skin = botSkins[((nextBotId - 1) % #botSkins) + 1],
+		WeaponId = botWeapons[((nextBotId - 1) % #botWeapons) + 1],
 		MatchId = matchId,
 		Builds = 0,
 		NextBuild = os.clock() + 1 + slot * 0.15,
@@ -707,6 +855,8 @@ function BotService.Init(dependencies)
 	world = dependencies.World
 	fortressService = dependencies.FortressService
 	weaponService = dependencies.WeaponService
+	geodataService = dependencies.GeodataService
+	captureService = dependencies.CaptureService
 end
 
 function BotService.SetProviders(phase, targets)
@@ -907,8 +1057,15 @@ local function followDestination(entry, destination, now)
 		return
 	end
 	local goalChanged = not entry.PathGoal or (entry.PathGoal - destination).Magnitude > 10
+	local navigationDestination = destination
 	if goalChanged or now >= (entry.NextPath or 0) then
-		entry.Path = computePath(entry, destination, now)
+		if geodataService then
+			local avoidance = geodataService.GetAvoidancePoint(root.Position, destination, entry.Slot)
+			if avoidance and (avoidance - root.Position).Magnitude > 5 and (avoidance - destination).Magnitude > 5 then
+				navigationDestination = avoidance
+			end
+		end
+		entry.Path = computePath(entry, navigationDestination, now)
 		entry.PathIndex = 1
 		entry.PathGoal = destination
 		entry.NextPath = now + 1.4
@@ -935,7 +1092,7 @@ local function followDestination(entry, destination, now)
 			end
 		end
 	end
-	humanoid:MoveTo(destination)
+	humanoid:MoveTo(navigationDestination)
 	jumpForObstacle(entry, root, humanoid, now)
 end
 
@@ -1014,13 +1171,21 @@ local function battleThink(entry, now)
 			destination = basePoint(entry.Team, (entry.Slot - 3.5) * 7, 8)
 			targetPosition = enemyCore
 		end
-	else -- Assault: keep pressure on the core, but respond to a close defender.
+	else -- Assault: keep pressure on the core, but respond to a close defender and contest 67.
 		if enemy and enemyDistance < 72 then
 			targetPosition = modelPosition(enemy) + Vector3.new(0, 1.5, 0)
 			destination = targetPosition
 		else
-			destination = enemyCore
-			targetPosition = enemyCore + Vector3.new(0, 1, 0)
+			local capturePosition = captureService and captureService.GetPosition() or nil
+			local captureOwner = captureService and captureService.GetOwner() or nil
+			if capturePosition and captureOwner ~= entry.Team and entry.Slot % 2 == 0 then
+				destination = capturePosition
+				targetPosition = enemyCore + Vector3.new(0, 1, 0)
+				shouldFire = false
+			else
+				destination = enemyCore
+				targetPosition = enemyCore + Vector3.new(0, 1, 0)
+			end
 		end
 	end
 
@@ -1091,6 +1256,173 @@ return BotService
           </Properties>
         </Item>
         <Item class="ModuleScript" referent="12">
+          <Properties>
+            <string name="Name">CaptureService</string>
+            <string name="Source"><![CDATA[-- Secondary capture objective: the fortress/core victory rule remains unchanged.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("BlockSiege")
+local Config = require(Shared:WaitForChild("Config"))
+
+local CaptureService = {}
+local world
+local state
+local botService
+local remotes
+local phaseProvider = function()
+	return "Lobby"
+end
+local owner = ""
+local progress = 0
+local progressTeam = ""
+local contested = false
+local published
+
+local function point()
+	return world and world.CapturePoint
+end
+
+local function colorFor(team)
+	return Config.Teams[team] and Config.Teams[team].Color or Color3.fromRGB(237, 190, 64)
+end
+
+local function publish()
+	local signature = table.concat({ owner, progressTeam, tostring(math.floor(progress * 10)), tostring(contested) }, ":")
+	if published == signature then
+		return
+	end
+	published = signature
+	if state then
+		state:SetAttribute("Capture67Owner", owner)
+		state:SetAttribute("Capture67Team", progressTeam)
+		state:SetAttribute("Capture67Progress", math.floor(progress + 0.5))
+		state:SetAttribute("Capture67Contested", contested)
+		state:SetAttribute("Capture67Radius", 22)
+	end
+	local capture = point()
+	if capture then
+		local color = colorFor(owner ~= "" and owner or progressTeam)
+		capture.Model:SetAttribute("Owner", owner)
+		capture.Model:SetAttribute("Progress", math.floor(progress + 0.5))
+		capture.Model:SetAttribute("Contested", contested)
+		capture.Light.Color = color
+		for _, item in ipairs(capture.Model:GetDescendants()) do
+			if item:IsA("BasePart") and (item.Name == "CaptureCrystal" or item.Name == "CaptureGlow" or item.Name == "CaptureRing") then
+				item.Color = color
+			end
+		end
+	end
+end
+
+function CaptureService.Init(dependencies)
+	world = dependencies.World
+	state = dependencies.State
+	botService = dependencies.BotService
+	remotes = dependencies.Remotes
+	CaptureService.Reset()
+end
+
+function CaptureService.SetPhaseProvider(provider)
+	phaseProvider = provider
+end
+
+function CaptureService.Reset()
+	owner = ""
+	progress = 0
+	progressTeam = ""
+	contested = false
+	published = nil
+	publish()
+end
+
+function CaptureService.GetPosition()
+	local capture = point()
+	return capture and capture.Root.Position or Vector3.zero
+end
+
+function CaptureService.GetOwner()
+	return owner ~= "" and owner or nil
+end
+
+function CaptureService.GetProgress()
+	return progress, progressTeam, contested
+end
+
+local function presence(team)
+	local count = 0
+	local position = CaptureService.GetPosition()
+	if botService then
+		for _, model in ipairs(botService.GetModels(team)) do
+			local root = model:FindFirstChild("HumanoidRootPart")
+			local humanoid = model:FindFirstChildOfClass("Humanoid")
+			if root and humanoid and humanoid.Health > 0 and (root.Position - position).Magnitude <= 22 then
+				count = count + 1
+			end
+		end
+	end
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player:GetAttribute("Team") == team and player:GetAttribute("InMatch") == true then
+			local character = player.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+			if root and humanoid and humanoid.Health > 0 and (root.Position - position).Magnitude <= 22 then
+				count = count + 1
+			end
+		end
+	end
+	return count
+end
+
+function CaptureService.Step(deltaTime)
+	if phaseProvider() ~= "Battle" then
+		return
+	end
+	local blue = presence("Blue")
+	local orange = presence("Orange")
+	contested = blue > 0 and orange > 0
+	local presentTeam = blue > 0 and "Blue" or (orange > 0 and "Orange" or nil)
+	local rate = 25 * deltaTime
+	if not contested and presentTeam then
+		if owner == presentTeam then
+			progressTeam = presentTeam
+			progress = 100
+		else
+			if progressTeam ~= presentTeam then
+				if owner ~= "" or progress > 0 then
+					progress = progress - rate
+					if progress <= 0 then
+						owner = ""
+						progressTeam = presentTeam
+						progress = 0
+					end
+				else
+					progressTeam = presentTeam
+					progress = 0
+				end
+			end
+			if progressTeam == presentTeam then
+				progress = math.min(100, progress + rate)
+				if progress >= 100 and owner ~= presentTeam then
+					owner = presentTeam
+					progressTeam = presentTeam
+					if remotes then
+						remotes.Notify:FireAllClients("Точка 67 захвачена: " .. Config.Teams[presentTeam].Name)
+						remotes.CaptureFX:FireAllClients({ Kind = "Captured", Position = CaptureService.GetPosition(), Team = presentTeam })
+					end
+				end
+			end
+		end
+	elseif not presentTeam and owner == "" then
+		progress = math.max(0, progress - rate * 0.35)
+	end
+	publish()
+end
+
+return CaptureService
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="13">
           <Properties>
             <string name="Name">CaseService</string>
             <string name="Source"><![CDATA[-- Игровые лутбоксы: серверный бросок, опубликованные шансы и pity без Robux.
@@ -1214,7 +1546,7 @@ return CaseService
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="13">
+        <Item class="ModuleScript" referent="14">
           <Properties>
             <string name="Name">DataService</string>
             <string name="Source"><![CDATA[-- Профили, игровая валюта и инвентарь. В Studio по умолчанию используется память.
@@ -1250,6 +1582,7 @@ local function defaults()
 		OwnedWeapons = { Carbine = true },
 		SelectedWeapon = "Carbine",
 		Upgrades = { Speed = 0, Health = 0, Armor = 0, Engineering = 0 },
+		OwnedDefenses = {},
 		OwnedCosmetics = {},
 		SelectedCosmetics = { WeaponSkin = "Default", Aura = "Default", Trail = "Default" },
 		LastDailyClaim = 0,
@@ -1298,6 +1631,18 @@ local function cosmeticDictionary(value)
 	return result
 end
 
+local function defenseDictionary(value)
+	local result = {}
+	if type(value) == "table" then
+		for id, owned in pairs(value) do
+			if owned == true and Catalog.GetDefense(id) then
+				result[id] = true
+			end
+		end
+	end
+	return result
+end
+
 local function sanitize(value)
 	local result = defaults()
 	if type(value) ~= "table" then
@@ -1310,6 +1655,7 @@ local function sanitize(value)
 	result.LastDailyClaim = math.floor(number(value.LastDailyClaim, 0, 2000000000))
 	result.OwnedWeapons = weaponDictionary(value.OwnedWeapons)
 	result.Upgrades = upgradeDictionary(value.Upgrades)
+	result.OwnedDefenses = defenseDictionary(value.OwnedDefenses)
 	result.OwnedCosmetics = cosmeticDictionary(value.OwnedCosmetics)
 	result.SelectedCosmetics = { WeaponSkin = "Default", Aura = "Default", Trail = "Default" }
 	if type(value.SelectedCosmetics) == "table" then
@@ -1365,6 +1711,9 @@ local function apply(player)
 	stats.Level.Value = Catalog.LevelForXP(data.XP)
 	for id, level in pairs(data.Upgrades) do
 		player:SetAttribute("Upgrade_" .. id, level)
+	end
+	for _, id in ipairs(Catalog.DefenseOrder) do
+		player:SetAttribute("Defense_" .. id, data.OwnedDefenses[id] == true)
 	end
 	for _, slot in ipairs({ "WeaponSkin", "Aura", "Trail" }) do
 		player:SetAttribute("Cosmetic_" .. slot, data.SelectedCosmetics[slot])
@@ -1545,7 +1894,7 @@ return DataService
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="14">
+        <Item class="ModuleScript" referent="15">
           <Properties>
             <string name="Name">FortressService</string>
             <string name="Source"><![CDATA[-- Разрушаемые крепости, строительная сетка и серверная проверка урона.
@@ -1570,6 +1919,12 @@ local buildCounts = {}
 local nextId = 0
 local buildCapacityProvider = function()
 	return Config.Arena.MaxBuildPerPlayer
+end
+local buildAccessProvider = function()
+	return true
+end
+local targetsProvider = function()
+	return {}
 end
 
 local function makeBlock(model, name, size, cframe, color, material, collide)
@@ -1672,17 +2027,48 @@ local function createStructure(team, kind, cframe)
 	model.Parent = world.Structures
 	local color = Config.Teams[team].Color
 	local dark = Config.Teams[team].Dark
-	local root = makeBlock(model, "Root", definition.Size, cframe, dark, kind == "Barricade" and Enum.Material.WoodPlanks or Enum.Material.Cobblestone, true)
+	local root = makeBlock(model, "Root", definition.Size, cframe, dark, definition.Trap and Enum.Material.Metal or (kind == "Barricade" and Enum.Material.WoodPlanks or Enum.Material.Cobblestone), true)
 	model.PrimaryPart = root
-	makeBlock(model, "TeamBand", Vector3.new(definition.Size.X + 0.25, 0.8, definition.Size.Z + 0.25), cframe * CFrame.new(0, definition.Size.Y * 0.25, 0), color, Enum.Material.Metal, false)
-	if kind == "Wall" or kind == "Tower" then
-		for _, side in ipairs({ -1, 0, 1 }) do
-			makeBlock(model, "Battlement", Vector3.new(math.max(1.5, definition.Size.X / 4), 2, definition.Size.Z), cframe * CFrame.new(side * definition.Size.X * 0.32, definition.Size.Y / 2 + 1, 0), dark, Enum.Material.Cobblestone, true)
+	if definition.Trap then
+		model:SetAttribute("IsTrap", true)
+		model:SetAttribute("DefenseId", kind)
+		if kind == "SpikeTrap" then
+			for index = 1, 5 do
+				local angle = math.rad(index * 72)
+				local offset = Vector3.new(math.cos(angle) * 2.4, 1.8, math.sin(angle) * 2.4)
+				makeBlock(model, "Spike", Vector3.new(1.1, 3.8, 1.1), cframe * CFrame.new(offset) * CFrame.Angles(0, angle, math.rad(18)), Color3.fromRGB(193, 205, 198), Enum.Material.Metal, true)
+				makeBlock(model, "SpikeTip", Vector3.new(1.2, 0.45, 1.2), cframe * CFrame.new(offset + Vector3.new(0, 1.9, 0)), color, Enum.Material.Neon, false)
+			end
+		elseif kind == "ShockMine" then
+			local core = makeBlock(model, "MineCore", Vector3.new(3.2, 2.2, 3.2), cframe * CFrame.new(0, 1.1, 0), Color3.fromRGB(75, 198, 255), Enum.Material.Neon, false)
+			core.Shape = Enum.PartType.Ball
+			makeBlock(model, "MineRing", Vector3.new(5.5, 0.35, 1), cframe * CFrame.new(0, 0.8, 0), color, Enum.Material.Metal, false)
+			makeBlock(model, "MineRing", Vector3.new(1, 0.35, 5.5), cframe * CFrame.new(0, 0.8, 0), color, Enum.Material.Metal, false)
+			local light = Instance.new("PointLight")
+			light.Name = "MineGlow"
+			light.Color = Color3.fromRGB(75, 198, 255)
+			light.Brightness = 1.5
+			light.Range = 10
+			light.Parent = core
+		elseif kind == "FlameTrap" then
+			makeBlock(model, "FlameNozzle", Vector3.new(2, 2.4, 2), cframe * CFrame.new(0, 1.5, 0), Color3.fromRGB(238, 113, 48), Enum.Material.Metal, true)
+			makeBlock(model, "FlameCore", Vector3.new(1.2, 2.8, 1.2), cframe * CFrame.new(0, 3.5, 0), Color3.fromRGB(255, 207, 70), Enum.Material.Neon, false)
 		end
-	elseif kind == "Barricade" then
-		makeBlock(model, "WoodBrace", Vector3.new(1, definition.Size.Y + 1, definition.Size.Z + 0.4), cframe * CFrame.new(0, 0, 0) * CFrame.Angles(0, 0, math.rad(28)), Color3.fromRGB(164, 111, 55), Enum.Material.WoodPlanks, true)
+	else
+		makeBlock(model, "TeamBand", Vector3.new(definition.Size.X + 0.25, 0.8, definition.Size.Z + 0.25), cframe * CFrame.new(0, definition.Size.Y * 0.25, 0), color, Enum.Material.Metal, false)
+		if kind == "Wall" or kind == "Tower" then
+			for _, side in ipairs({ -1, 0, 1 }) do
+				makeBlock(model, "Battlement", Vector3.new(math.max(1.5, definition.Size.X / 4), 2, definition.Size.Z), cframe * CFrame.new(side * definition.Size.X * 0.32, definition.Size.Y / 2 + 1, 0), dark, Enum.Material.Cobblestone, true)
+			end
+		elseif kind == "Barricade" then
+			makeBlock(model, "WoodBrace", Vector3.new(1, definition.Size.Y + 1, definition.Size.Z + 0.4), cframe * CFrame.new(0, 0, 0) * CFrame.Angles(0, 0, math.rad(28)), Color3.fromRGB(164, 111, 55), Enum.Material.WoodPlanks, true)
+		end
 	end
-	return registerEntry(model, team, kind, definition.Health)
+	local entry = registerEntry(model, team, kind, definition.Health)
+	entry.IsTrap = definition.Trap == true
+	entry.ArmedAt = os.clock() + 1
+	entry.NextTrigger = 0
+	return entry
 end
 
 local function removeEntry(entry)
@@ -1723,6 +2109,18 @@ function FortressService.SetBuildCapacityProvider(provider)
 	end
 end
 
+function FortressService.SetBuildAccessProvider(provider)
+	buildAccessProvider = provider or function()
+		return true
+	end
+end
+
+function FortressService.SetTargetsProvider(provider)
+	targetsProvider = provider or function()
+		return {}
+	end
+end
+
 function FortressService.Clear()
 	for _, entry in pairs(entries) do
 		entry.Active = false
@@ -1755,7 +2153,19 @@ local function validPosition(position)
 		and math.abs(position.X) < 10000 and math.abs(position.Y) < 10000 and math.abs(position.Z) < 10000
 end
 
-local function placement(team, kind, position)
+local function normalizeRotation(rotation)
+	if type(rotation) ~= "number" or rotation ~= rotation or rotation == math.huge or rotation == -math.huge then
+		return 0
+	end
+	local degrees = rotation % 360
+	return math.floor(degrees / 90 + 0.5) % 4
+end
+
+function FortressService.GetRotationDegrees(rotation)
+	return normalizeRotation(rotation) * 90
+end
+
+local function placement(team, kind, position, rotation)
 	local definition = Config.BuildKinds[kind]
 	if not definition or not validPosition(position) then
 		return nil, "Неверная позиция"
@@ -1782,10 +2192,10 @@ local function placement(team, kind, position)
 			end
 		end
 	end
-	return baseCFrame * CFrame.new(x, definition.Size.Y / 2, z)
+	return baseCFrame * CFrame.new(x, definition.Size.Y / 2, z) * CFrame.Angles(0, math.rad(normalizeRotation(rotation) * 90), 0)
 end
 
-function FortressService.GetPlayerPlacement(player, team, kind, position)
+function FortressService.GetPlayerPlacement(player, team, kind, position, rotation)
 	if phaseProvider() ~= "Build" then
 		return nil, "Строительство уже закончено"
 	end
@@ -1794,6 +2204,9 @@ function FortressService.GetPlayerPlacement(player, team, kind, position)
 	end
 	if not Config.Teams[team] then
 		return nil, "Вы не участвуете в матче"
+	end
+	if not buildAccessProvider(player, kind) then
+		return nil, "Сначала купите этот чертёж в магазине"
 	end
 	local count = buildCounts[player.UserId] or 0
 	local capacity = buildCapacityProvider(player)
@@ -1805,11 +2218,11 @@ function FortressService.GetPlayerPlacement(player, team, kind, position)
 	if not root or (root.Position - position).Magnitude > Config.Arena.MaxBuildDistance then
 		return nil, "Подойдите ближе к месту постройки"
 	end
-	return placement(team, kind, position)
+	return placement(team, kind, position, rotation)
 end
 
-function FortressService.BuildPlayer(player, team, kind, position)
-	local cframe, reason = FortressService.GetPlayerPlacement(player, team, kind, position)
+function FortressService.BuildPlayer(player, team, kind, position, rotation)
+	local cframe, reason = FortressService.GetPlayerPlacement(player, team, kind, position, rotation)
 	if not cframe then
 		return false, reason
 	end
@@ -1940,11 +2353,228 @@ function FortressService.GetEntry(part)
 	return partIndex[part]
 end
 
+function FortressService.GetEntries()
+	local result = {}
+	for _, entry in pairs(entries) do
+		if entry.Active then
+			table.insert(result, entry)
+		end
+	end
+	return result
+end
+
+local function applyTrapDamage(model, amount)
+	local humanoid = model and model:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then
+		return false
+	end
+	local armor = tonumber(model:GetAttribute("Armor")) or 0
+	humanoid:TakeDamage(amount * (1 - math.clamp(armor, 0, 0.65)))
+	return true
+end
+
+function FortressService.Step()
+	if phaseProvider() ~= "Battle" then
+		return
+	end
+	local now = os.clock()
+	local destroyAfter = {}
+	for _, entry in pairs(entries) do
+		local definition = Config.BuildKinds[entry.Kind]
+		local root = entry.Model and entry.Model.PrimaryPart
+		if entry.Active and entry.IsTrap and definition and root and now >= (entry.ArmedAt or 0) and now >= (entry.NextTrigger or 0) then
+			local targets = targetsProvider(entry.Team)
+			for _, model in ipairs(targets) do
+				local targetRoot = model and model:FindFirstChild("HumanoidRootPart")
+				local humanoid = model and model:FindFirstChildOfClass("Humanoid")
+				if targetRoot and humanoid and humanoid.Health > 0 and (targetRoot.Position - root.Position).Magnitude <= definition.TriggerRadius then
+					if definition.OneShot then
+						for _, blastTarget in ipairs(targets) do
+							local blastRoot = blastTarget and blastTarget:FindFirstChild("HumanoidRootPart")
+							if blastRoot and (blastRoot.Position - root.Position).Magnitude <= (definition.BlastRadius or definition.TriggerRadius) then
+								applyTrapDamage(blastTarget, definition.Damage)
+							end
+						end
+						destroyAfter[entry] = true
+					else
+						applyTrapDamage(model, definition.Damage)
+						entry.NextTrigger = now + definition.Cooldown
+					end
+					entry.Model:SetAttribute("Triggered", true)
+					remotes.TrapFX:FireAllClients({ Kind = entry.Kind, Position = root.Position, Team = entry.Team })
+					break
+				end
+			end
+		end
+	end
+	for entry in pairs(destroyAfter) do
+		removeEntry(entry)
+	end
+end
+
 return FortressService
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="15">
+        <Item class="ModuleScript" referent="16">
+          <Properties>
+            <string name="Name">GeodataService</string>
+            <string name="Source"><![CDATA[-- Lightweight server geodata: static collision geometry + live fortress/trap obstacles.
+-- PathfindingService remains the final navmesh solver; this map gives bots tactical obstacle context.
+
+local GeodataService = {}
+local world
+local fortressService
+local state
+local staticObstacles = {}
+local obstacles = {}
+local refreshClock = 0
+local revision = 0
+
+local ignoredNames = {
+	ArenaDirt = true,
+	ArenaGrass = true,
+	CenterLane = true,
+	SideLane = true,
+	BlueBasePlatform = true,
+	OrangeBasePlatform = true,
+	BlueBaseGrass = true,
+	OrangeBaseGrass = true,
+	BlueSpawn = true,
+	OrangeSpawn = true,
+}
+
+local function addPart(list, part, source, team, kind)
+	if not part or not part:IsA("BasePart") or part.CanCollide == false then
+		return
+	end
+	table.insert(list, {
+		Part = part,
+		Position = part.Position,
+		Size = part.Size,
+		Source = source,
+		Team = team,
+		Kind = kind,
+	})
+end
+
+local function collectStatic()
+	staticObstacles = {}
+	if not world or not world.Arena then
+		return
+	end
+	for _, part in ipairs(world.Arena:GetDescendants()) do
+		if part:IsA("BasePart") and not ignoredNames[part.Name] and not string.find(part.Name, "BasePlatform", 1, true) and not string.find(part.Name, "BaseGrass", 1, true) then
+			addPart(staticObstacles, part, "Static")
+		end
+	end
+end
+
+function GeodataService.Init(dependencies)
+	world = dependencies.World
+	fortressService = dependencies.FortressService
+	state = dependencies.State
+	collectStatic()
+	GeodataService.Refresh()
+end
+
+function GeodataService.Refresh()
+	obstacles = {}
+	for _, obstacle in ipairs(staticObstacles) do
+		table.insert(obstacles, obstacle)
+	end
+	if fortressService then
+		for _, entry in ipairs(fortressService.GetEntries()) do
+			for _, part in ipairs(entry.Parts) do
+				addPart(obstacles, part, "Structure", entry.Team, entry.Kind)
+			end
+		end
+	end
+	revision = revision + 1
+	if state then
+		state:SetAttribute("GeodataObstacles", #obstacles)
+		state:SetAttribute("GeodataRevision", revision)
+	end
+end
+
+function GeodataService.Step(deltaTime)
+	refreshClock = refreshClock + deltaTime
+	if refreshClock >= 0.4 then
+		refreshClock = 0
+		GeodataService.Refresh()
+	end
+end
+
+function GeodataService.GetObstacles()
+	return obstacles
+end
+
+function GeodataService.GetObstacleCount()
+	return #obstacles
+end
+
+function GeodataService.GetNearestObstacle(position, maximumDistance)
+	local best
+	local bestDistance = maximumDistance or math.huge
+	for _, obstacle in ipairs(obstacles) do
+		local radius = math.max(obstacle.Size.X, obstacle.Size.Z) * 0.5
+		local distance = (obstacle.Position - position).Magnitude - radius
+		if distance < bestDistance then
+			best = obstacle
+			bestDistance = distance
+		end
+	end
+	return best, bestDistance
+end
+
+local function horizontal(vector)
+	return Vector3.new(vector.X, 0, vector.Z)
+end
+
+-- Return a side waypoint when a registered obstacle intersects the direct route.
+function GeodataService.GetAvoidancePoint(start, destination, side)
+	local delta = horizontal(destination - start)
+	local length = delta.Magnitude
+	if length < 14 then
+		return nil
+	end
+	local direction = delta.Unit
+	local best
+	local bestDistance = math.huge
+	for _, obstacle in ipairs(obstacles) do
+		local relative = horizontal(obstacle.Position - start)
+		local projection = relative:Dot(direction)
+		if projection > 4 and projection < length - 4 then
+			local closest = start + direction * projection
+			local lateral = horizontal(obstacle.Position - closest).Magnitude
+			local radius = math.max(obstacle.Size.X, obstacle.Size.Z) * 0.5
+			if lateral < radius + 4 and lateral < bestDistance and obstacle.Position.Y < start.Y + 14 then
+				best = obstacle
+				bestDistance = lateral
+			end
+		end
+	end
+	if not best then
+		return nil
+	end
+	local radius = math.max(best.Size.X, best.Size.Z) * 0.5
+	local sign = (side or 1) % 2 == 0 and 1 or -1
+	local perpendicular = Vector3.new(-direction.Z, 0, direction.X) * sign
+	local candidate = best.Position + perpendicular * (radius + 8)
+	if math.abs(candidate.X) > 205 or math.abs(candidate.Z) > 88 then
+		candidate = best.Position - perpendicular * (radius + 8)
+	end
+	if math.abs(candidate.X) > 205 or math.abs(candidate.Z) > 88 then
+		return nil
+	end
+	return Vector3.new(candidate.X, destination.Y, candidate.Z)
+end
+
+return GeodataService
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="17">
           <Properties>
             <string name="Name">MatchService</string>
             <string name="Source"><![CDATA[-- Очередь, команды 6x6, фазы Build/Battle/Results и возврат в лобби.
@@ -1961,6 +2591,7 @@ local fortressService
 local weaponService
 local botService
 local progressionService
+local captureService
 local remotes
 local state
 local phase = "Lobby"
@@ -2170,6 +2801,9 @@ function MatchService.StartMatch()
 	state:SetAttribute("OrangePower", power.Orange)
 	state:SetAttribute("MatchLevelDraft", true)
 	intermission = nil
+	if captureService then
+		captureService.Reset()
+	end
 	fortressService.Reset()
 	setPhase("Build", Config.BuildDuration)
 	for _, player in ipairs(players) do
@@ -2218,25 +2852,26 @@ function MatchService.HandleLobbyAction(player, action)
 	return false
 end
 
-function MatchService.HandleBuild(player, kind, position)
+function MatchService.HandleBuild(player, kind, position, rotation)
 	local team = participants[player.UserId]
 	if phase ~= "Build" or not team then
 		notify(player, "Строить можно только во время подготовки")
 		return false
 	end
-	local success, reason = fortressService.BuildPlayer(player, team, kind, position)
+	local success, reason = fortressService.BuildPlayer(player, team, kind, position, rotation)
 	if not success then
 		notify(player, reason)
 	end
 	return success, reason
 end
 
-function MatchService.HandleBuildPreview(player, kind, position)
+function MatchService.HandleBuildPreview(player, kind, position, rotation)
 	local team = participants[player.UserId]
-	local cframe, reason = fortressService.GetPlayerPlacement(player, team, kind, position)
+	local cframe, reason = fortressService.GetPlayerPlacement(player, team, kind, position, rotation)
 	local valid = cframe ~= nil
 	remotes.BuildPreview:FireClient(player, {
 		Kind = kind,
+		Rotation = fortressService.GetRotationDegrees(rotation),
 		Valid = valid,
 		Reason = reason or "Можно строить",
 		Position = cframe and cframe.Position or position,
@@ -2302,6 +2937,9 @@ end
 local function resetToLobby()
 	botService.Stop()
 	fortressService.Clear()
+	if captureService then
+		captureService.Reset()
+	end
 	participants = {}
 	queued = {}
 	intermission = nil
@@ -2345,6 +2983,7 @@ function MatchService.Init(dependencies)
 	weaponService = dependencies.WeaponService
 	botService = dependencies.BotService
 	progressionService = dependencies.ProgressionService
+	captureService = dependencies.CaptureService
 	remotes = dependencies.Remotes
 	state = dependencies.State
 	fortressService.SetPhaseProvider(MatchService.GetPhase)
@@ -2354,8 +2993,15 @@ function MatchService.Init(dependencies)
 		local stats = progressionService and progressionService.GetStats(player)
 		return stats and stats.BuildCapacity or Config.Arena.MaxBuildPerPlayer
 	end)
+	fortressService.SetBuildAccessProvider(function(player, kind)
+		return not progressionService or progressionService.CanBuildDefense(player, kind)
+	end)
+	fortressService.SetTargetsProvider(MatchService.GetTargets)
 	weaponService.SetProviders(MatchService.GetPhase, MatchService.GetTeam, MatchService.OnKill)
 	botService.SetProviders(MatchService.GetPhase, MatchService.GetTargets)
+	if captureService then
+		captureService.SetPhaseProvider(MatchService.GetPhase)
+	end
 	state:SetAttribute("Phase", "Lobby")
 	state:SetAttribute("Time", 0)
 	state:SetAttribute("Winner", "")
@@ -2417,7 +3063,7 @@ return MatchService
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="16">
+        <Item class="ModuleScript" referent="18">
           <Properties>
             <string name="Name">ProgressionService</string>
             <string name="Source"><![CDATA[-- Persistent character progression, lobby upgrades, daily rewards and cosmetic loadout.
@@ -2638,6 +3284,44 @@ function ProgressionService.ClaimDaily(player)
 	return true, { Coins = coins, XP = 20, CaseTokens = 1 }
 end
 
+function ProgressionService.CanBuildDefense(player, kind)
+	local definition = Catalog.GetDefense(kind)
+	if not definition then
+		return true
+	end
+	local data = DataService and DataService.Get(player)
+	return data ~= nil and data.OwnedDefenses[kind] == true
+end
+
+function ProgressionService.BuyDefense(player, id)
+	local data = DataService and DataService.Get(player)
+	local definition = Catalog.GetDefense(id)
+	if not data or not definition then
+		return false
+	end
+	if player:GetAttribute("InMatch") == true then
+		notify(player, "Чертежи покупаются в лобби", Color3.fromRGB(255, 180, 90))
+		return false
+	end
+	if data.OwnedDefenses[id] then
+		notify(player, "Чертёж уже куплен", Color3.fromRGB(130, 220, 255))
+		return false
+	end
+	if getLevel(data) < definition.RequiredLevel then
+		notify(player, "Нужен уровень " .. definition.RequiredLevel, Color3.fromRGB(255, 180, 90))
+		return false
+	end
+	if data.Coins < definition.Price then
+		notify(player, "Недостаточно монет: нужно " .. definition.Price, Color3.fromRGB(255, 110, 100))
+		return false
+	end
+	data.Coins = data.Coins - definition.Price
+	data.OwnedDefenses[id] = true
+	DataService.Commit(player, true)
+	notify(player, "Чертёж куплен: " .. definition.Name, Color3.fromRGB(120, 255, 180))
+	return true
+end
+
 function ProgressionService.EquipCosmetic(player, id)
 	local data = DataService and DataService.Get(player)
 	local cosmetic = Catalog.GetCosmetic(id)
@@ -2656,6 +3340,8 @@ function ProgressionService.HandleAction(player, action, value)
 		return ProgressionService.Upgrade(player, value)
 	elseif action == "Daily" then
 		return ProgressionService.ClaimDaily(player)
+	elseif action == "BuyDefense" then
+		return ProgressionService.BuyDefense(player, value)
 	elseif action == "EquipCosmetic" then
 		return ProgressionService.EquipCosmetic(player, value)
 	elseif action == "Refresh" then
@@ -2669,7 +3355,7 @@ return ProgressionService
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="17">
+        <Item class="ModuleScript" referent="19">
           <Properties>
             <string name="Name">ShopService</string>
             <string name="Source"><![CDATA[-- Cosmetic-only Robux shop. Game Pass IDs are deliberately zero until configured by the owner.
@@ -2788,7 +3474,7 @@ return ShopService
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="18">
+        <Item class="ModuleScript" referent="20">
           <Properties>
             <string name="Name">WeaponService</string>
             <string name="Source"><![CDATA[-- Server-authoritative hitscan, видимые модели оружия и нелетальный friendly-fire filter.
@@ -2930,6 +3616,7 @@ local function fire(character, weapon, targetPosition, attackingTeam, player, ke
 			Finish = finish,
 			Color = weapon.Color,
 			WeaponId = weapon.Id,
+			Melee = weapon.Melee == true,
 		})
 	end
 	return true
@@ -2956,7 +3643,7 @@ return WeaponService
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="19">
+        <Item class="ModuleScript" referent="21">
           <Properties>
             <string name="Name">WorldBuilder</string>
             <string name="Source"><![CDATA[-- Симметричная voxel-арена и свободное лобби с витриной оружия и лутбоксом.
@@ -3128,6 +3815,22 @@ local function buildLobby(lobby)
 	spawn.Neutral = true
 	spawn.CanQuery = false
 
+	-- Decorative rails plus continuous glass safety walls: the lobby cannot be fallen off.
+	for _, side in ipairs({ -1, 1 }) do
+		makePart(lobby, "LobbySafetyWall", Vector3.new(1.5, 18, 126), CFrame.new(side * 82, 53, 330), Color3.fromRGB(110, 170, 175), Enum.Material.Glass, true).Transparency = 0.72
+		makePart(lobby, "LobbyFenceRail", Vector3.new(1.2, 1, 126), CFrame.new(side * 81.5, 48, 330), C.Gold, Enum.Material.Metal, true)
+		for index = 0, 8 do
+			makePart(lobby, "LobbyFencePost", Vector3.new(2, 7, 2), CFrame.new(side * 81.5, 47.5, 268 + index * 15.5), C.StoneDark, Enum.Material.Cobblestone, true)
+		end
+	end
+	for _, side in ipairs({ -1, 1 }) do
+		makePart(lobby, "LobbySafetyWall", Vector3.new(166, 18, 1.5), CFrame.new(0, 53, 330 + side * 62), Color3.fromRGB(110, 170, 175), Enum.Material.Glass, true).Transparency = 0.72
+		makePart(lobby, "LobbyFenceRail", Vector3.new(166, 1, 1.2), CFrame.new(0, 48, 330 + side * 61.5), C.Gold, Enum.Material.Metal, true)
+		for index = 0, 10 do
+			makePart(lobby, "LobbyFencePost", Vector3.new(2, 7, 2), CFrame.new(-77 + index * 15.5, 47.5, 330 + side * 61.5), C.StoneDark, Enum.Material.Cobblestone, true)
+		end
+	end
+
 	local crate = makePart(lobby, "LobbyLootbox", Vector3.new(9, 7, 9), CFrame.new(0, 48, 318), C.Gold, Enum.Material.Metal, true)
 	local crateLight = Instance.new("PointLight")
 	crateLight.Color = C.Gold
@@ -3143,18 +3846,21 @@ local function buildLobby(lobby)
 	local startPrompt = prompt(board, "В БОЙ", "Быстрый старт · боты заполняют команды")
 
 	for index, weaponId in ipairs(Catalog.WeaponOrder) do
-		local x = -63 + (index - 1) * 21
-		makePart(lobby, "WeaponPedestal", Vector3.new(10, 3, 10), CFrame.new(x, 46, 292), C.Stone, Enum.Material.Cobblestone, true)
+		local row = math.floor((index - 1) / 5)
+		local column = (index - 1) % 5
+		local x = -56 + column * 28
+		local z = 292 - row * 16
+		makePart(lobby, "WeaponPedestal", Vector3.new(10, 3, 10), CFrame.new(x, 46, z), C.Stone, Enum.Material.Cobblestone, true)
 		local weapon = WeaponModels.Build(weaponId)
 		weapon.Name = "Display_" .. weaponId
 		weapon.Parent = lobby
-		weapon:PivotTo(CFrame.new(x, 50, 292) * CFrame.Angles(0, math.rad(90), 0))
+		weapon:PivotTo(CFrame.new(x, 50, z) * CFrame.Angles(0, math.rad(90), 0))
 		for _, item in ipairs(weapon:GetDescendants()) do
 			if item:IsA("BasePart") then
 				item.Anchored = true
 			end
 		end
-		local labelAnchor = makePart(lobby, "WeaponLabelAnchor", Vector3.new(1, 1, 1), CFrame.new(x, 52, 292), C.White, Enum.Material.SmoothPlastic, false)
+		local labelAnchor = makePart(lobby, "WeaponLabelAnchor", Vector3.new(1, 1, 1), CFrame.new(x, 52, z), C.White, Enum.Material.SmoothPlastic, false)
 		labelAnchor.Transparency = 1
 		labelAnchor.CanQuery = false
 		local definition = Catalog.GetWeapon(weaponId)
@@ -3164,17 +3870,61 @@ local function buildLobby(lobby)
 	local upgradePrompt = buildNpc(lobby, "UpgradeForge", Vector3.new(-48, 44.5, 344), Color3.fromRGB(88, 220, 255), "FORGE // УЛУЧШЕНИЯ", "УЛУЧШИТЬ", "HP · броня · скорость · постройки")
 	local dailyPrompt = buildNpc(lobby, "DailyBonus", Vector3.new(48, 44.5, 344), Color3.fromRGB(255, 211, 78), "DAILY // БОНУС", "ПОЛУЧИТЬ", "Монеты · XP · жетон кейса")
 	local shopPrompt = buildNpc(lobby, "CosmeticShop", Vector3.new(48, 44.5, 300), Color3.fromRGB(195, 117, 255), "ROBUX // КОСМЕТИКА", "МАГАЗИН", "Только внешний вид · без pay-to-win")
+	local defensePrompt = buildNpc(lobby, "DefenseWorkshop", Vector3.new(-48, 44.5, 300), Color3.fromRGB(255, 133, 71), "DEFENSE // ЛОВУШКИ", "КУПИТЬ ЧЕРТЁЖ", "Шипы · мины · огнемёт за монеты")
 	local upgradePad = makePart(lobby, "UpgradePad", Vector3.new(16, 0.35, 12), CFrame.new(-48, 44.8, 344), Color3.fromRGB(40, 120, 145), Enum.Material.Metal, false)
 	upgradePad.CanQuery = false
 	local dailyPad = makePart(lobby, "DailyPad", Vector3.new(16, 0.35, 12), CFrame.new(48, 44.8, 344), Color3.fromRGB(150, 110, 35), Enum.Material.Metal, false)
 	dailyPad.CanQuery = false
 	local shopPad = makePart(lobby, "ShopPad", Vector3.new(16, 0.35, 12), CFrame.new(48, 44.8, 300), Color3.fromRGB(105, 55, 145), Enum.Material.Metal, false)
 	shopPad.CanQuery = false
+	local defensePad = makePart(lobby, "DefensePad", Vector3.new(16, 0.35, 12), CFrame.new(-48, 44.8, 300), Color3.fromRGB(150, 65, 35), Enum.Material.Metal, false)
+	defensePad.CanQuery = false
 
 	for _, position in ipairs({ Vector3.new(-70, 44.5, 370), Vector3.new(70, 44.5, 370), Vector3.new(-70, 44.5, 280), Vector3.new(70, 44.5, 280) }) do
 		buildTree(lobby, position, 0.8)
 	end
-	return spawnCFrame, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt
+	return spawnCFrame, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt, defensePrompt
+end
+
+local function buildCapturePoint(parent)
+	local model = Instance.new("Model")
+	model.Name = "Capture67"
+	model.Parent = parent
+	local base = makePart(model, "CaptureBase", Vector3.new(28, 0.8, 28), CFrame.new(0, 0.4, 0), C.StoneDark, Enum.Material.Cobblestone, true)
+	base:SetAttribute("CaptureGeometry", true)
+	local crystal = makePart(model, "CaptureCrystal", Vector3.new(7, 10, 7), CFrame.new(0, 6, 0) * CFrame.Angles(0, math.rad(45), 0), Color3.fromRGB(237, 190, 64), Enum.Material.DiamondPlate, true)
+	model.PrimaryPart = crystal
+	for _, side in ipairs({ -1, 1 }) do
+		for _, forward in ipairs({ -1, 1 }) do
+			makePart(model, "CapturePylon", Vector3.new(2.2, 7, 2.2), CFrame.new(side * 11, 3.5, forward * 11), C.Stone, Enum.Material.Metal, true)
+			makePart(model, "CaptureGlow", Vector3.new(2.5, 0.6, 2.5), CFrame.new(side * 11, 7.2, forward * 11), Color3.fromRGB(237, 190, 64), Enum.Material.Neon, false)
+		end
+	end
+	for index = 1, 4 do
+		local angle = math.rad(index * 90)
+		makePart(model, "CaptureRing", Vector3.new(8, 0.3, 1), CFrame.new(math.cos(angle) * 9, 1.1, math.sin(angle) * 9) * CFrame.Angles(0, -angle, 0), Color3.fromRGB(237, 190, 64), Enum.Material.Neon, false)
+	end
+	local light = Instance.new("PointLight")
+	light.Name = "CaptureLight"
+	light.Color = Color3.fromRGB(237, 190, 64)
+	light.Brightness = 2.5
+	light.Range = 30
+	light.Parent = crystal
+	local sparkles = Instance.new("Sparkles")
+	sparkles.Name = "CaptureSparkles"
+	sparkles.SparkleColor = Color3.fromRGB(237, 190, 64)
+	sparkles.Parent = crystal
+	local gui = billboard(crystal, "67", Color3.fromRGB(255, 222, 105), Vector3.new(0, 8, 0), UDim2.fromScale(1, 1))
+	gui.Name = "Capture67Label"
+	gui.Size = UDim2.fromOffset(250, 140)
+	local label = gui:FindFirstChild("TextLabel")
+	label.TextStrokeTransparency = 0.05
+	local subtitleAnchor = makePart(model, "CaptureSubtitleAnchor", Vector3.new(1, 1, 1), CFrame.new(0, 2, 0), C.White, Enum.Material.SmoothPlastic, false)
+	subtitleAnchor.Transparency = 1
+	subtitleAnchor.CanQuery = false
+	billboard(subtitleAnchor, "CAPTURE // КОНТРОЛЬ", C.White, Vector3.new(0, 4, 0), UDim2.fromScale(1, 1))
+	model:SetAttribute("CaptureRadius", 22)
+	return { Model = model, Root = crystal, Label = label, Light = light }
 end
 
 function WorldBuilder.Build()
@@ -3249,7 +3999,8 @@ function WorldBuilder.Build()
 		makePart(arena, "StoneCover", entry[2], CFrame.new(entry[1]), C.Stone, Enum.Material.Cobblestone, true)
 	end
 
-	local lobbySpawn, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt = buildLobby(lobby)
+	local capturePoint = buildCapturePoint(arena)
+	local lobbySpawn, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt, defensePrompt = buildLobby(lobby)
 	Lighting.Brightness = 2
 	Lighting.ClockTime = 14.5
 	Lighting.EnvironmentDiffuseScale = 0.35
@@ -3292,6 +4043,8 @@ function WorldBuilder.Build()
 		UpgradePrompt = upgradePrompt,
 		DailyPrompt = dailyPrompt,
 		ShopPrompt = shopPrompt,
+		DefensePrompt = defensePrompt,
+		CapturePoint = capturePoint,
 	}
 end
 
@@ -3302,15 +4055,15 @@ return WorldBuilder
       </Item>
     </Item>
   </Item>
-  <Item class="StarterPlayer" referent="20">
+  <Item class="StarterPlayer" referent="22">
     <Properties>
       <string name="Name">StarterPlayer</string>
     </Properties>
-    <Item class="StarterPlayerScripts" referent="21">
+    <Item class="StarterPlayerScripts" referent="23">
       <Properties>
         <string name="Name">StarterPlayerScripts</string>
       </Properties>
-      <Item class="LocalScript" referent="22">
+      <Item class="LocalScript" referent="24">
         <Properties>
           <string name="Name">AudioClient</string>
           <string name="Source"><![CDATA[-- Локальная музыка фаз, SFX и mute. Asset ID настраиваются в Config.Audio.
@@ -3440,9 +4193,11 @@ UserInputService.InputBegan:Connect(function(input, processed)
 end)
 
 remotes.CombatFX.OnClientEvent:Connect(function(payload)
-	if payload.Kind == "Shot" then
-		local heavy = payload.WeaponId == "Rail" or payload.WeaponId == "Demolisher" or payload.WeaponId == "Marksman"
-		local pitch = payload.WeaponId == "SMG" and 1.16 or (payload.WeaponId == "Scatter" and 0.86 or (payload.WeaponId == "Rail" and 0.78 or 1))
+	if payload.Melee == true or payload.Kind == "Melee" then
+		playSfx("Hit", 0.58, 1.18)
+	elseif payload.Kind == "Shot" then
+		local heavy = payload.WeaponId == "Rail" or payload.WeaponId == "Demolisher" or payload.WeaponId == "Marksman" or payload.WeaponId == "ThanosGauntlet"
+		local pitch = payload.WeaponId == "SMG" and 1.16 or (payload.WeaponId == "Scatter" and 0.86 or ((payload.WeaponId == "Rail" or payload.WeaponId == "ThanosGauntlet") and 0.78 or 1))
 		playSfx(heavy and "HeavyShot" or "Shot", heavy and 0.7 or 0.42, pitch)
 	elseif payload.Kind == "StructureHit" then
 		playSfx("Hit", 0.32, 0.95 + math.random() * 0.1)
@@ -3454,6 +4209,12 @@ remotes.CombatFX.OnClientEvent:Connect(function(payload)
 end)
 remotes.BuildFX.OnClientEvent:Connect(function()
 	playSfx("Build", 0.55, 0.96 + math.random() * 0.08)
+end)
+remotes.TrapFX.OnClientEvent:Connect(function(payload)
+	playSfx(payload.Kind == "ShockMine" and "Destroy" or "Hit", 0.62, payload.Kind == "FlameTrap" and 0.82 or 1.08)
+end)
+remotes.CaptureFX.OnClientEvent:Connect(function()
+	playSfx("CaseOpened", 0.72, 1.12)
 end)
 remotes.CaseOpened.OnClientEvent:Connect(function()
 	playSfx("CaseOpened", 0.8, 1)
@@ -3473,7 +4234,7 @@ updateMusic()
 ]]></string>
         </Properties>
       </Item>
-      <Item class="LocalScript" referent="23">
+      <Item class="LocalScript" referent="25">
         <Properties>
           <string name="Name">Client</string>
           <string name="Source"><![CDATA[-- BLOCKSIEGE: HUD, строительство, огонь, инвентарь и игровые кейсы.
@@ -3608,8 +4369,27 @@ for index, entry in ipairs({ { "Wall", "1 СТЕНА" }, { "Barricade", "2 БА�
 	local buildButton = button(buildDock, entry[2], UDim2.new(0.31, 0, 0, 38), UDim2.new((index - 1) * 0.345 + 0.015, 0, 0, 38), C.Panel)
 	buildButtons[entry[1]] = buildButton
 end
-local buildRemaining = text(buildDock, "", UDim2.new(0.62, 0, 0, 30), UDim2.new(0.02, 0, 0, 84), 17, C.Muted)
+local buildRemaining = text(buildDock, "", UDim2.new(0.45, 0, 0, 30), UDim2.new(0.02, 0, 0, 84), 16, C.Muted)
+local rotateButton = button(buildDock, "R ⟳ 0°", UDim2.new(0.15, 0, 0, 34), UDim2.new(0.49, 0, 0, 82), C.Panel)
 local placeButton = button(buildDock, "ПОСТАВИТЬ", UDim2.new(0.32, 0, 0, 34), UDim2.new(0.66, 0, 0, 82), C.Green)
+local trapDock = new("Frame", {
+	AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -144), Size = UDim2.new(0, 530, 0, 44), BackgroundTransparency = 1,
+}, gui)
+for index, id in ipairs(Catalog.DefenseOrder) do
+	local definition = Catalog.Defenses[id]
+	local trapButton = button(trapDock, tostring(index + 3) .. " " .. definition.Name, UDim2.new(0.31, 0, 0, 40), UDim2.new((index - 1) * 0.345 + 0.015, 0, 0, 0), Color3.fromRGB(126, 70, 48))
+	buildButtons[id] = trapButton
+end
+
+local captureFrame = new("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 118), Size = UDim2.new(0, 350, 0, 62), BackgroundColor3 = C.Background,
+}, gui)
+corner(captureFrame)
+local captureTitle = text(captureFrame, "67 // ЗАХВАТ", UDim2.new(1, -16, 0, 27), UDim2.new(0, 8, 0, 4), 17, C.Gold)
+local captureTrack = new("Frame", { Position = UDim2.new(0, 10, 0, 36), Size = UDim2.new(1, -20, 0, 14), BackgroundColor3 = Color3.fromRGB(47, 57, 57), BorderSizePixel = 0 }, captureFrame)
+corner(captureTrack, 4)
+local captureFill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = C.Gold, BorderSizePixel = 0 }, captureTrack)
+corner(captureFill, 4)
 
 local crosshair = text(gui, "+", UDim2.new(0, 46, 0, 46), UDim2.new(0.5, -23, 0.5, -23), 34, C.Text)
 crosshair.TextStrokeTransparency = 0.2
@@ -3668,6 +4448,7 @@ local resultReward = text(resultsPanel, "", UDim2.new(1, -30, 0, 46), UDim2.new(
 
 local profile
 local selectedBuild = "Wall"
+local buildRotation = 0
 local buildGhost
 local buildGhostOutline
 local ghostKind
@@ -3703,9 +4484,17 @@ local function setBuildKind(kind)
 		object.TextColor3 = id == kind and Color3.fromRGB(24, 32, 32) or C.Text
 	end
 end
+local function selectBuildKind(kind)
+	local defense = Catalog.GetDefense(kind)
+	if defense and player:GetAttribute("Defense_" .. kind) ~= true then
+		notify(defense.Name .. ": купите чертёж у DEFENSE в лобби")
+		return
+	end
+	setBuildKind(kind)
+end
 for id, object in pairs(buildButtons) do
 	object.Activated:Connect(function()
-		setBuildKind(id)
+		selectBuildKind(id)
 	end)
 end
 setBuildKind("Wall")
@@ -3776,6 +4565,8 @@ local function refresh()
 	lobbyDock.Visible = phase == "Lobby"
 	lobbyHint.Visible = phase == "Lobby"
 	buildDock.Visible = phase == "Build"
+	trapDock.Visible = phase == "Build"
+	captureFrame.Visible = phase == "Build" or phase == "Battle"
 	if phase ~= "Build" and buildGhost then
 		clearBuildGhost()
 	end
@@ -3799,6 +4590,14 @@ local function refresh()
 		coreFills[teamName].Size = UDim2.fromScale(math.clamp(health / maximum, 0, 1), 1)
 		coreLabels[teamName].Text = (teamName == "Blue" and "СИНИЕ · " or "ОРАНЖЕВЫЕ · ") .. tostring(health)
 	end
+	local captureOwner = state:GetAttribute("Capture67Owner") or ""
+	local captureProgress = state:GetAttribute("Capture67Progress") or 0
+	local captureContested = state:GetAttribute("Capture67Contested") == true
+	local ownerText = captureOwner == "" and "НЕЙТРАЛЬНАЯ" or (captureOwner == team and "ВАША" or (captureOwner == "Blue" and "СИНИЕ" or "ОРАНЖЕВЫЕ"))
+	captureTitle.Text = phase == "Build" and "67 // ЗАХВАТ ОТКРОЕТСЯ В БОЮ" or ("67 // " .. ownerText .. (captureContested and " · ОСПАРИВАЕТСЯ" or ""))
+	captureTitle.TextColor3 = captureContested and C.Orange or (C[captureOwner] or C.Gold)
+	captureFill.BackgroundColor3 = C[captureOwner] or C.Gold
+	captureFill.Size = UDim2.fromScale(math.clamp(captureProgress / 100, 0, 1), 1)
 	if phase == "Results" then
 		updateResults()
 	end
@@ -3843,9 +4642,16 @@ local function buildPosition()
 	return hit and hit.Position or camera.CFrame.Position + camera.CFrame.LookVector * 32
 end
 
+local function rotateBuild()
+	buildRotation = (buildRotation + 90) % 360
+	rotateButton.Text = "R ⟳ " .. tostring(buildRotation) .. "°"
+	ghostHasServerPreview = false
+end
+rotateButton.Activated:Connect(rotateBuild)
+
 local function requestBuild()
 	if state:GetAttribute("Phase") == "Build" then
-		remotes.BuildRequest:FireServer(selectedBuild, buildPosition())
+		remotes.BuildRequest:FireServer(selectedBuild, buildPosition(), buildRotation)
 	end
 end
 placeButton.Activated:Connect(requestBuild)
@@ -3872,11 +4678,16 @@ UserInputService.InputBegan:Connect(function(input, processed)
 			fire()
 		end
 	elseif input.KeyCode == Enum.KeyCode.One then
-		setBuildKind("Wall")
+		selectBuildKind("Wall")
 	elseif input.KeyCode == Enum.KeyCode.Two then
-		setBuildKind("Barricade")
+		selectBuildKind("Barricade")
 	elseif input.KeyCode == Enum.KeyCode.Three then
-		setBuildKind("Tower")
+		selectBuildKind("Tower")
+	elseif input.KeyCode == Enum.KeyCode.Four or input.KeyCode == Enum.KeyCode.Five or input.KeyCode == Enum.KeyCode.Six then
+		local index = input.KeyCode == Enum.KeyCode.Four and 1 or (input.KeyCode == Enum.KeyCode.Five and 2 or 3)
+		selectBuildKind(Catalog.DefenseOrder[index])
+	elseif input.KeyCode == Enum.KeyCode.R then
+		rotateBuild()
 	elseif input.KeyCode == Enum.KeyCode.B then
 		requestBuild()
 	elseif input.KeyCode == Enum.KeyCode.L then
@@ -3910,13 +4721,13 @@ RunService.RenderStepped:Connect(function()
 			local ok, position = pcall(buildPosition)
 			if ok and position then
 				if not ghostHasServerPreview then
-					buildGhost.CFrame = CFrame.new(position)
+					buildGhost.CFrame = CFrame.new(position) * CFrame.Angles(0, math.rad(buildRotation), 0)
 				end
 				local now = os.clock()
 				if now >= nextPreviewRequest then
 					nextPreviewRequest = now + 0.14
 					ghostHasServerPreview = false
-					remotes.BuildPreviewRequest:FireServer(selectedBuild, position)
+					remotes.BuildPreviewRequest:FireServer(selectedBuild, position, buildRotation)
 				end
 			end
 		end
@@ -3952,7 +4763,11 @@ local function burst(position, color, count, power)
 end
 
 remotes.CombatFX.OnClientEvent:Connect(function(payload)
-	if payload.Kind == "Shot" then
+	if payload.Melee == true or payload.Kind == "Melee" then
+		local color = payload.Color or C.Gold
+		effect(payload.Finish or payload.Position, color, 1.8, 0.12)
+		burst(payload.Finish or payload.Position, color, 5, 3)
+	elseif payload.Kind == "Shot" then
 		local distance = (payload.Finish - payload.Origin).Magnitude
 		if distance > 0.1 then
 			local width = payload.WeaponId == "Rail" and 0.3 or 0.12
@@ -3981,8 +4796,26 @@ remotes.BuildFX.OnClientEvent:Connect(function(payload)
 	effect(payload.Position, color, 3, 0.2)
 	burst(payload.Position, color, 6, 5)
 end)
+remotes.TrapFX.OnClientEvent:Connect(function(payload)
+	local color = payload.Kind == "FlameTrap" and Color3.fromRGB(255, 105, 35) or (payload.Kind == "ShockMine" and Color3.fromRGB(93, 190, 255) or Color3.fromRGB(255, 213, 92))
+	local position = payload.Position
+	if position then
+		effect(position, color, payload.Kind == "ShockMine" and 5 or 3, 0.35)
+		burst(position, color, 12, 8)
+	end
+end)
+remotes.CaptureFX.OnClientEvent:Connect(function(payload)
+	if payload.Position then
+		local color = C[payload.Team] or C.Gold
+		effect(payload.Position, color, 8, 0.5)
+		burst(payload.Position, color, 18, 14)
+	end
+	if payload.Team then
+		notify("67 ЗАХВАЧЕНА · " .. (payload.Team == "Blue" and "СИНИЕ" or "ОРАНЖЕВЫЕ"))
+	end
+end)
 remotes.BuildPreview.OnClientEvent:Connect(function(payload)
-	if payload.Kind ~= selectedBuild or state:GetAttribute("Phase") ~= "Build" then
+	if payload.Kind ~= selectedBuild or (payload.Rotation or 0) ~= buildRotation or state:GetAttribute("Phase") ~= "Build" then
 		return
 	end
 	ensureBuildGhost(payload.Kind)
@@ -4000,7 +4833,7 @@ remotes.BuildPreview.OnClientEvent:Connect(function(payload)
 	if payload.CFrame then
 		buildGhost.CFrame = payload.CFrame
 	elseif payload.Position then
-		buildGhost.CFrame = CFrame.new(payload.Position)
+		buildGhost.CFrame = CFrame.new(payload.Position) * CFrame.Angles(0, math.rad(payload.Rotation or buildRotation), 0)
 	end
 	placeButton.BackgroundColor3 = payload.Valid and C.Green or Color3.fromRGB(170, 65, 65)
 	buildTitle.Text = payload.Valid and "РАЗРЕШЕНО СЕРВЕРОМ · клик, чтобы поставить" or ("НЕЛЬЗЯ: " .. tostring(payload.Reason))
@@ -4042,10 +4875,10 @@ refresh()
 ]]></string>
         </Properties>
       </Item>
-      <Item class="LocalScript" referent="24">
+      <Item class="LocalScript" referent="26">
         <Properties>
           <string name="Name">LobbyClient</string>
-          <string name="Source"><![CDATA[-- Lobby progression HUD and NPC panels: upgrades, daily rewards and cosmetic-only Robux shop.
+          <string name="Source"><![CDATA[-- Lobby progression HUD and NPC panels: upgrades, daily rewards, coin defenses and cosmetic-only Robux shop.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -4136,7 +4969,7 @@ local coinsLabel = label(statsPanel, "COINS 0 · CASE TOKENS 0", UDim2.new(1, -2
 local lobbyDock = new("Frame", {
 	AnchorPoint = Vector2.new(1, 0),
 	Position = UDim2.new(1, -16, 0, 122),
-	Size = UDim2.new(0, 286, 0, 150),
+	Size = UDim2.new(0, 286, 0, 200),
 	BackgroundTransparency = 1,
 }, gui)
 local upgradeButton = button(lobbyDock, "FORGE · УЛУЧШЕНИЯ  [U]", UDim2.new(1, 0, 0, 42), UDim2.new(), C.Cyan)
@@ -4144,6 +4977,7 @@ upgradeButton.TextColor3 = Color3.fromRGB(22, 37, 40)
 local dailyButton = button(lobbyDock, "DAILY · ЕЖЕДНЕВНЫЙ БОНУС", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 49), C.Gold)
 dailyButton.TextColor3 = Color3.fromRGB(35, 32, 22)
 local shopButton = button(lobbyDock, "ROBUX · КОСМЕТИКА  [K]", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 98), C.Purple)
+local defenseButton = button(lobbyDock, "DEFENSE · ЛОВУШКИ / МИНЫ", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 147), Color3.fromRGB(211, 111, 57))
 
 local panel = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5),
@@ -4162,6 +4996,7 @@ local panelHint = label(panel, "", UDim2.new(1, -32, 0, 35), UDim2.new(0, 16, 0,
 local upgradeFrame = new("Frame", { Size = UDim2.new(1, -32, 1, -100), Position = UDim2.new(0, 16, 0, 91), BackgroundTransparency = 1, Visible = false }, panel)
 local dailyFrame = new("Frame", { Size = UDim2.new(1, -32, 1, -100), Position = UDim2.new(0, 16, 0, 91), BackgroundTransparency = 1, Visible = false }, panel)
 local shopFrame = new("Frame", { Size = UDim2.new(1, -32, 1, -100), Position = UDim2.new(0, 16, 0, 91), BackgroundTransparency = 1, Visible = false }, panel)
+local defenseFrame = new("Frame", { Size = UDim2.new(1, -32, 1, -100), Position = UDim2.new(0, 16, 0, 91), BackgroundTransparency = 1, Visible = false }, panel)
 
 local upgradeRows = {}
 for index, id in ipairs(Catalog.UpgradeOrder) do
@@ -4202,6 +5037,21 @@ for index, id in ipairs(Catalog.CosmeticOrder) do
 	shopRows[id] = { Action = action }
 end
 
+local defenseRows = {}
+for index, id in ipairs(Catalog.DefenseOrder) do
+	local definition = Catalog.Defenses[id]
+	local row = new("Frame", { Size = UDim2.new(1, 0, 0, 98), Position = UDim2.new(0, 0, 0, (index - 1) * 106), BackgroundColor3 = C.Panel }, defenseFrame)
+	corner(row)
+	label(row, definition.Name, UDim2.new(0.58, 0, 0, 26), UDim2.new(0, 10, 0, 6), 18, Color3.fromRGB(255, 151, 82))
+	local description = label(row, definition.Description, UDim2.new(0.58, 0, 0, 54), UDim2.new(0, 10, 0, 34), 13, C.Muted)
+	description.TextXAlignment = Enum.TextXAlignment.Left
+	local action = button(row, "", UDim2.new(0.36, 0, 0, 70), UDim2.new(0.62, 0, 0, 14), Color3.fromRGB(211, 111, 57))
+	action.Activated:Connect(function()
+		remotes.ProgressionAction:FireServer("BuyDefense", id)
+	end)
+	defenseRows[id] = { Action = action }
+end
+
 local profile
 local activePanel
 local function refreshPanels()
@@ -4235,6 +5085,17 @@ local function refreshPanels()
 				row.Action.BackgroundColor3 = C.Purple
 			end
 		end
+		for id, row in pairs(defenseRows) do
+			local definition = Catalog.Defenses[id]
+			local owned = profile.OwnedDefenses and profile.OwnedDefenses[id]
+			if owned then
+				row.Action.Text = "ЧЕРТЁЖ КУПЛЕН"
+				row.Action.BackgroundColor3 = C.Green
+			else
+				row.Action.Text = string.format("%d монет\nLv %d+", definition.Price, definition.RequiredLevel)
+				row.Action.BackgroundColor3 = Color3.fromRGB(211, 111, 57)
+			end
+		end
 		local elapsed = os.time() - (profile.LastDailyClaim or 0)
 		if elapsed >= Config.DailyCooldown then
 			dailyStatus.Text = "БОНУС ГОТОВ · +" .. tostring(50 + (profile.XP and Catalog.LevelForXP(profile.XP) or 1) * 5) .. " монет"
@@ -4255,6 +5116,7 @@ local function showPanel(name)
 	upgradeFrame.Visible = name == "Upgrades"
 	dailyFrame.Visible = name == "Daily"
 	shopFrame.Visible = name == "Shop"
+	defenseFrame.Visible = name == "Defense"
 	if name == "Upgrades" then
 		panelTitle.Text = "FORGE // УЛУЧШЕНИЯ ПЕРСОНАЖА"
 		panelHint.Text = "Монеты и уровни открывают реальные бонусы. Улучшения доступны в лобби."
@@ -4264,6 +5126,9 @@ local function showPanel(name)
 	elseif name == "Shop" then
 		panelTitle.Text = "ROBUX // КОСМЕТИЧЕСКИЙ МАГАЗИН"
 		panelHint.Text = "Только внешний вид: никаких преимуществ в уроне, HP, скорости или matchmaking."
+	elseif name == "Defense" then
+		panelTitle.Text = "DEFENSE // ЛОВУШКИ И МИНЫ"
+		panelHint.Text = "Чертежи покупаются за монеты. В бою выбирайте ловушку клавишами 4 / 5 / 6."
 	end
 	refreshPanels()
 	if name then
@@ -4274,9 +5139,10 @@ end
 upgradeButton.Activated:Connect(function() showPanel("Upgrades") end)
 dailyButton.Activated:Connect(function() showPanel("Daily") end)
 shopButton.Activated:Connect(function() showPanel("Shop") end)
+defenseButton.Activated:Connect(function() showPanel("Defense") end)
 closeButton.Activated:Connect(function() showPanel(nil) end)
 remotes.OpenPanel.OnClientEvent:Connect(function(name)
-	if name == "Upgrades" or name == "Daily" or name == "Shop" then
+	if name == "Upgrades" or name == "Daily" or name == "Shop" or name == "Defense" then
 		showPanel(name)
 	end
 end)
@@ -4325,9 +5191,100 @@ refreshStats()
 ]]></string>
         </Properties>
       </Item>
+      <Item class="LocalScript" referent="27">
+        <Properties>
+          <string name="Name">WeaponViewClient</string>
+          <string name="Source"><![CDATA[-- Local first-person weapon viewmodel. Server models remain equipped for other players.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+local Shared = ReplicatedStorage:WaitForChild("BlockSiege")
+local Catalog = require(Shared:WaitForChild("Catalog"))
+local WeaponModels = require(Shared:WaitForChild("WeaponModels"))
+local state = Shared:WaitForChild("MatchState")
+
+local viewModel
+local viewKey
+
+local function clearViewmodel()
+	if viewModel then
+		viewModel:Destroy()
+	end
+	viewModel = nil
+	viewKey = nil
+end
+
+local function ensureViewmodel()
+	local camera = Workspace.CurrentCamera
+	if not camera then
+		return
+	end
+	local weaponId = player:GetAttribute("SelectedWeapon") or "Carbine"
+	local weapon = Catalog.GetWeapon(weaponId) or Catalog.Weapons.Carbine
+	local skin = player:GetAttribute("Cosmetic_WeaponSkin") or "Default"
+	local key = weapon.Id .. ":" .. skin
+	if viewModel and viewKey == key then
+		return
+	end
+	clearViewmodel()
+	local model = WeaponModels.Build(weapon.Id)
+	model.Name = "LocalWeaponViewModel"
+	WeaponModels.ApplySkin(model, skin)
+	if type(model.ScaleTo) == "function" then
+		model:ScaleTo(0.55)
+	end
+	for _, part in ipairs(model:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Anchored = true
+			part.CanCollide = false
+			part.CanTouch = false
+			part.CanQuery = false
+			part.CastShadow = false
+			part.Transparency = 0
+			part.LocalTransparencyModifier = 0
+		end
+	end
+	model:SetAttribute("Viewmodel", true)
+	model.Parent = camera
+	viewModel = model
+	viewKey = key
+end
+
+RunService.RenderStepped:Connect(function()
+	local phase = state:GetAttribute("Phase") or "Lobby"
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if phase ~= "Battle" or not character or not humanoid or humanoid.Health <= 0 then
+		clearViewmodel()
+		return
+	end
+	ensureViewmodel()
+	local camera = Workspace.CurrentCamera
+	if not viewModel or not camera then
+		return
+	end
+	local weapon = Catalog.GetWeapon(player:GetAttribute("SelectedWeapon") or "Carbine") or Catalog.Weapons.Carbine
+	local moving = humanoid.MoveDirection and humanoid.MoveDirection.Magnitude > 0.1
+	local bob = moving and math.sin(os.clock() * 9) * 0.045 or 0
+	local sway = moving and math.cos(os.clock() * 4.5) * 0.025 or 0
+	local offset = weapon.Melee and CFrame.new(0.95, -0.85 + bob, -2.1) or CFrame.new(1.15, -0.95 + bob, -2.8)
+	viewModel:PivotTo(camera.CFrame * offset * CFrame.Angles(math.rad(-5), sway, math.rad(5)))
+end)
+
+player:GetAttributeChangedSignal("SelectedWeapon"):Connect(clearViewmodel)
+player:GetAttributeChangedSignal("Cosmetic_WeaponSkin"):Connect(clearViewmodel)
+player.CharacterAdded:Connect(function()
+	task.defer(clearViewmodel)
+end)
+]]></string>
+        </Properties>
+      </Item>
     </Item>
   </Item>
-  <Item class="Workspace" referent="25">
+  <Item class="Workspace" referent="28">
     <Properties>
       <string name="Name">Workspace</string>
       <bool name="NeedsPivotMigration">false</bool>

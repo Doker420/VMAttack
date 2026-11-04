@@ -130,8 +130,27 @@ for index, entry in ipairs({ { "Wall", "1 СТЕНА" }, { "Barricade", "2 БА�
 	local buildButton = button(buildDock, entry[2], UDim2.new(0.31, 0, 0, 38), UDim2.new((index - 1) * 0.345 + 0.015, 0, 0, 38), C.Panel)
 	buildButtons[entry[1]] = buildButton
 end
-local buildRemaining = text(buildDock, "", UDim2.new(0.62, 0, 0, 30), UDim2.new(0.02, 0, 0, 84), 17, C.Muted)
+local buildRemaining = text(buildDock, "", UDim2.new(0.45, 0, 0, 30), UDim2.new(0.02, 0, 0, 84), 16, C.Muted)
+local rotateButton = button(buildDock, "R ⟳ 0°", UDim2.new(0.15, 0, 0, 34), UDim2.new(0.49, 0, 0, 82), C.Panel)
 local placeButton = button(buildDock, "ПОСТАВИТЬ", UDim2.new(0.32, 0, 0, 34), UDim2.new(0.66, 0, 0, 82), C.Green)
+local trapDock = new("Frame", {
+	AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -144), Size = UDim2.new(0, 530, 0, 44), BackgroundTransparency = 1,
+}, gui)
+for index, id in ipairs(Catalog.DefenseOrder) do
+	local definition = Catalog.Defenses[id]
+	local trapButton = button(trapDock, tostring(index + 3) .. " " .. definition.Name, UDim2.new(0.31, 0, 0, 40), UDim2.new((index - 1) * 0.345 + 0.015, 0, 0, 0), Color3.fromRGB(126, 70, 48))
+	buildButtons[id] = trapButton
+end
+
+local captureFrame = new("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 118), Size = UDim2.new(0, 350, 0, 62), BackgroundColor3 = C.Background,
+}, gui)
+corner(captureFrame)
+local captureTitle = text(captureFrame, "67 // ЗАХВАТ", UDim2.new(1, -16, 0, 27), UDim2.new(0, 8, 0, 4), 17, C.Gold)
+local captureTrack = new("Frame", { Position = UDim2.new(0, 10, 0, 36), Size = UDim2.new(1, -20, 0, 14), BackgroundColor3 = Color3.fromRGB(47, 57, 57), BorderSizePixel = 0 }, captureFrame)
+corner(captureTrack, 4)
+local captureFill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = C.Gold, BorderSizePixel = 0 }, captureTrack)
+corner(captureFill, 4)
 
 local crosshair = text(gui, "+", UDim2.new(0, 46, 0, 46), UDim2.new(0.5, -23, 0.5, -23), 34, C.Text)
 crosshair.TextStrokeTransparency = 0.2
@@ -190,6 +209,7 @@ local resultReward = text(resultsPanel, "", UDim2.new(1, -30, 0, 46), UDim2.new(
 
 local profile
 local selectedBuild = "Wall"
+local buildRotation = 0
 local buildGhost
 local buildGhostOutline
 local ghostKind
@@ -225,9 +245,17 @@ local function setBuildKind(kind)
 		object.TextColor3 = id == kind and Color3.fromRGB(24, 32, 32) or C.Text
 	end
 end
+local function selectBuildKind(kind)
+	local defense = Catalog.GetDefense(kind)
+	if defense and player:GetAttribute("Defense_" .. kind) ~= true then
+		notify(defense.Name .. ": купите чертёж у DEFENSE в лобби")
+		return
+	end
+	setBuildKind(kind)
+end
 for id, object in pairs(buildButtons) do
 	object.Activated:Connect(function()
-		setBuildKind(id)
+		selectBuildKind(id)
 	end)
 end
 setBuildKind("Wall")
@@ -298,6 +326,8 @@ local function refresh()
 	lobbyDock.Visible = phase == "Lobby"
 	lobbyHint.Visible = phase == "Lobby"
 	buildDock.Visible = phase == "Build"
+	trapDock.Visible = phase == "Build"
+	captureFrame.Visible = phase == "Build" or phase == "Battle"
 	if phase ~= "Build" and buildGhost then
 		clearBuildGhost()
 	end
@@ -321,6 +351,14 @@ local function refresh()
 		coreFills[teamName].Size = UDim2.fromScale(math.clamp(health / maximum, 0, 1), 1)
 		coreLabels[teamName].Text = (teamName == "Blue" and "СИНИЕ · " or "ОРАНЖЕВЫЕ · ") .. tostring(health)
 	end
+	local captureOwner = state:GetAttribute("Capture67Owner") or ""
+	local captureProgress = state:GetAttribute("Capture67Progress") or 0
+	local captureContested = state:GetAttribute("Capture67Contested") == true
+	local ownerText = captureOwner == "" and "НЕЙТРАЛЬНАЯ" or (captureOwner == team and "ВАША" or (captureOwner == "Blue" and "СИНИЕ" or "ОРАНЖЕВЫЕ"))
+	captureTitle.Text = phase == "Build" and "67 // ЗАХВАТ ОТКРОЕТСЯ В БОЮ" or ("67 // " .. ownerText .. (captureContested and " · ОСПАРИВАЕТСЯ" or ""))
+	captureTitle.TextColor3 = captureContested and C.Orange or (C[captureOwner] or C.Gold)
+	captureFill.BackgroundColor3 = C[captureOwner] or C.Gold
+	captureFill.Size = UDim2.fromScale(math.clamp(captureProgress / 100, 0, 1), 1)
 	if phase == "Results" then
 		updateResults()
 	end
@@ -365,9 +403,16 @@ local function buildPosition()
 	return hit and hit.Position or camera.CFrame.Position + camera.CFrame.LookVector * 32
 end
 
+local function rotateBuild()
+	buildRotation = (buildRotation + 90) % 360
+	rotateButton.Text = "R ⟳ " .. tostring(buildRotation) .. "°"
+	ghostHasServerPreview = false
+end
+rotateButton.Activated:Connect(rotateBuild)
+
 local function requestBuild()
 	if state:GetAttribute("Phase") == "Build" then
-		remotes.BuildRequest:FireServer(selectedBuild, buildPosition())
+		remotes.BuildRequest:FireServer(selectedBuild, buildPosition(), buildRotation)
 	end
 end
 placeButton.Activated:Connect(requestBuild)
@@ -394,11 +439,16 @@ UserInputService.InputBegan:Connect(function(input, processed)
 			fire()
 		end
 	elseif input.KeyCode == Enum.KeyCode.One then
-		setBuildKind("Wall")
+		selectBuildKind("Wall")
 	elseif input.KeyCode == Enum.KeyCode.Two then
-		setBuildKind("Barricade")
+		selectBuildKind("Barricade")
 	elseif input.KeyCode == Enum.KeyCode.Three then
-		setBuildKind("Tower")
+		selectBuildKind("Tower")
+	elseif input.KeyCode == Enum.KeyCode.Four or input.KeyCode == Enum.KeyCode.Five or input.KeyCode == Enum.KeyCode.Six then
+		local index = input.KeyCode == Enum.KeyCode.Four and 1 or (input.KeyCode == Enum.KeyCode.Five and 2 or 3)
+		selectBuildKind(Catalog.DefenseOrder[index])
+	elseif input.KeyCode == Enum.KeyCode.R then
+		rotateBuild()
 	elseif input.KeyCode == Enum.KeyCode.B then
 		requestBuild()
 	elseif input.KeyCode == Enum.KeyCode.L then
@@ -432,13 +482,13 @@ RunService.RenderStepped:Connect(function()
 			local ok, position = pcall(buildPosition)
 			if ok and position then
 				if not ghostHasServerPreview then
-					buildGhost.CFrame = CFrame.new(position)
+					buildGhost.CFrame = CFrame.new(position) * CFrame.Angles(0, math.rad(buildRotation), 0)
 				end
 				local now = os.clock()
 				if now >= nextPreviewRequest then
 					nextPreviewRequest = now + 0.14
 					ghostHasServerPreview = false
-					remotes.BuildPreviewRequest:FireServer(selectedBuild, position)
+					remotes.BuildPreviewRequest:FireServer(selectedBuild, position, buildRotation)
 				end
 			end
 		end
@@ -474,7 +524,11 @@ local function burst(position, color, count, power)
 end
 
 remotes.CombatFX.OnClientEvent:Connect(function(payload)
-	if payload.Kind == "Shot" then
+	if payload.Melee == true or payload.Kind == "Melee" then
+		local color = payload.Color or C.Gold
+		effect(payload.Finish or payload.Position, color, 1.8, 0.12)
+		burst(payload.Finish or payload.Position, color, 5, 3)
+	elseif payload.Kind == "Shot" then
 		local distance = (payload.Finish - payload.Origin).Magnitude
 		if distance > 0.1 then
 			local width = payload.WeaponId == "Rail" and 0.3 or 0.12
@@ -503,8 +557,26 @@ remotes.BuildFX.OnClientEvent:Connect(function(payload)
 	effect(payload.Position, color, 3, 0.2)
 	burst(payload.Position, color, 6, 5)
 end)
+remotes.TrapFX.OnClientEvent:Connect(function(payload)
+	local color = payload.Kind == "FlameTrap" and Color3.fromRGB(255, 105, 35) or (payload.Kind == "ShockMine" and Color3.fromRGB(93, 190, 255) or Color3.fromRGB(255, 213, 92))
+	local position = payload.Position
+	if position then
+		effect(position, color, payload.Kind == "ShockMine" and 5 or 3, 0.35)
+		burst(position, color, 12, 8)
+	end
+end)
+remotes.CaptureFX.OnClientEvent:Connect(function(payload)
+	if payload.Position then
+		local color = C[payload.Team] or C.Gold
+		effect(payload.Position, color, 8, 0.5)
+		burst(payload.Position, color, 18, 14)
+	end
+	if payload.Team then
+		notify("67 ЗАХВАЧЕНА · " .. (payload.Team == "Blue" and "СИНИЕ" or "ОРАНЖЕВЫЕ"))
+	end
+end)
 remotes.BuildPreview.OnClientEvent:Connect(function(payload)
-	if payload.Kind ~= selectedBuild or state:GetAttribute("Phase") ~= "Build" then
+	if payload.Kind ~= selectedBuild or (payload.Rotation or 0) ~= buildRotation or state:GetAttribute("Phase") ~= "Build" then
 		return
 	end
 	ensureBuildGhost(payload.Kind)
@@ -522,7 +594,7 @@ remotes.BuildPreview.OnClientEvent:Connect(function(payload)
 	if payload.CFrame then
 		buildGhost.CFrame = payload.CFrame
 	elseif payload.Position then
-		buildGhost.CFrame = CFrame.new(payload.Position)
+		buildGhost.CFrame = CFrame.new(payload.Position) * CFrame.Angles(0, math.rad(payload.Rotation or buildRotation), 0)
 	end
 	placeButton.BackgroundColor3 = payload.Valid and C.Green or Color3.fromRGB(170, 65, 65)
 	buildTitle.Text = payload.Valid and "РАЗРЕШЕНО СЕРВЕРОМ · клик, чтобы поставить" or ("НЕЛЬЗЯ: " .. tostring(payload.Reason))

@@ -21,6 +21,12 @@ local nextId = 0
 local buildCapacityProvider = function()
 	return Config.Arena.MaxBuildPerPlayer
 end
+local buildAccessProvider = function()
+	return true
+end
+local targetsProvider = function()
+	return {}
+end
 
 local function makeBlock(model, name, size, cframe, color, material, collide)
 	local part = Instance.new("Part")
@@ -122,17 +128,48 @@ local function createStructure(team, kind, cframe)
 	model.Parent = world.Structures
 	local color = Config.Teams[team].Color
 	local dark = Config.Teams[team].Dark
-	local root = makeBlock(model, "Root", definition.Size, cframe, dark, kind == "Barricade" and Enum.Material.WoodPlanks or Enum.Material.Cobblestone, true)
+	local root = makeBlock(model, "Root", definition.Size, cframe, dark, definition.Trap and Enum.Material.Metal or (kind == "Barricade" and Enum.Material.WoodPlanks or Enum.Material.Cobblestone), true)
 	model.PrimaryPart = root
-	makeBlock(model, "TeamBand", Vector3.new(definition.Size.X + 0.25, 0.8, definition.Size.Z + 0.25), cframe * CFrame.new(0, definition.Size.Y * 0.25, 0), color, Enum.Material.Metal, false)
-	if kind == "Wall" or kind == "Tower" then
-		for _, side in ipairs({ -1, 0, 1 }) do
-			makeBlock(model, "Battlement", Vector3.new(math.max(1.5, definition.Size.X / 4), 2, definition.Size.Z), cframe * CFrame.new(side * definition.Size.X * 0.32, definition.Size.Y / 2 + 1, 0), dark, Enum.Material.Cobblestone, true)
+	if definition.Trap then
+		model:SetAttribute("IsTrap", true)
+		model:SetAttribute("DefenseId", kind)
+		if kind == "SpikeTrap" then
+			for index = 1, 5 do
+				local angle = math.rad(index * 72)
+				local offset = Vector3.new(math.cos(angle) * 2.4, 1.8, math.sin(angle) * 2.4)
+				makeBlock(model, "Spike", Vector3.new(1.1, 3.8, 1.1), cframe * CFrame.new(offset) * CFrame.Angles(0, angle, math.rad(18)), Color3.fromRGB(193, 205, 198), Enum.Material.Metal, true)
+				makeBlock(model, "SpikeTip", Vector3.new(1.2, 0.45, 1.2), cframe * CFrame.new(offset + Vector3.new(0, 1.9, 0)), color, Enum.Material.Neon, false)
+			end
+		elseif kind == "ShockMine" then
+			local core = makeBlock(model, "MineCore", Vector3.new(3.2, 2.2, 3.2), cframe * CFrame.new(0, 1.1, 0), Color3.fromRGB(75, 198, 255), Enum.Material.Neon, false)
+			core.Shape = Enum.PartType.Ball
+			makeBlock(model, "MineRing", Vector3.new(5.5, 0.35, 1), cframe * CFrame.new(0, 0.8, 0), color, Enum.Material.Metal, false)
+			makeBlock(model, "MineRing", Vector3.new(1, 0.35, 5.5), cframe * CFrame.new(0, 0.8, 0), color, Enum.Material.Metal, false)
+			local light = Instance.new("PointLight")
+			light.Name = "MineGlow"
+			light.Color = Color3.fromRGB(75, 198, 255)
+			light.Brightness = 1.5
+			light.Range = 10
+			light.Parent = core
+		elseif kind == "FlameTrap" then
+			makeBlock(model, "FlameNozzle", Vector3.new(2, 2.4, 2), cframe * CFrame.new(0, 1.5, 0), Color3.fromRGB(238, 113, 48), Enum.Material.Metal, true)
+			makeBlock(model, "FlameCore", Vector3.new(1.2, 2.8, 1.2), cframe * CFrame.new(0, 3.5, 0), Color3.fromRGB(255, 207, 70), Enum.Material.Neon, false)
 		end
-	elseif kind == "Barricade" then
-		makeBlock(model, "WoodBrace", Vector3.new(1, definition.Size.Y + 1, definition.Size.Z + 0.4), cframe * CFrame.new(0, 0, 0) * CFrame.Angles(0, 0, math.rad(28)), Color3.fromRGB(164, 111, 55), Enum.Material.WoodPlanks, true)
+	else
+		makeBlock(model, "TeamBand", Vector3.new(definition.Size.X + 0.25, 0.8, definition.Size.Z + 0.25), cframe * CFrame.new(0, definition.Size.Y * 0.25, 0), color, Enum.Material.Metal, false)
+		if kind == "Wall" or kind == "Tower" then
+			for _, side in ipairs({ -1, 0, 1 }) do
+				makeBlock(model, "Battlement", Vector3.new(math.max(1.5, definition.Size.X / 4), 2, definition.Size.Z), cframe * CFrame.new(side * definition.Size.X * 0.32, definition.Size.Y / 2 + 1, 0), dark, Enum.Material.Cobblestone, true)
+			end
+		elseif kind == "Barricade" then
+			makeBlock(model, "WoodBrace", Vector3.new(1, definition.Size.Y + 1, definition.Size.Z + 0.4), cframe * CFrame.new(0, 0, 0) * CFrame.Angles(0, 0, math.rad(28)), Color3.fromRGB(164, 111, 55), Enum.Material.WoodPlanks, true)
+		end
 	end
-	return registerEntry(model, team, kind, definition.Health)
+	local entry = registerEntry(model, team, kind, definition.Health)
+	entry.IsTrap = definition.Trap == true
+	entry.ArmedAt = os.clock() + 1
+	entry.NextTrigger = 0
+	return entry
 end
 
 local function removeEntry(entry)
@@ -173,6 +210,18 @@ function FortressService.SetBuildCapacityProvider(provider)
 	end
 end
 
+function FortressService.SetBuildAccessProvider(provider)
+	buildAccessProvider = provider or function()
+		return true
+	end
+end
+
+function FortressService.SetTargetsProvider(provider)
+	targetsProvider = provider or function()
+		return {}
+	end
+end
+
 function FortressService.Clear()
 	for _, entry in pairs(entries) do
 		entry.Active = false
@@ -205,7 +254,19 @@ local function validPosition(position)
 		and math.abs(position.X) < 10000 and math.abs(position.Y) < 10000 and math.abs(position.Z) < 10000
 end
 
-local function placement(team, kind, position)
+local function normalizeRotation(rotation)
+	if type(rotation) ~= "number" or rotation ~= rotation or rotation == math.huge or rotation == -math.huge then
+		return 0
+	end
+	local degrees = rotation % 360
+	return math.floor(degrees / 90 + 0.5) % 4
+end
+
+function FortressService.GetRotationDegrees(rotation)
+	return normalizeRotation(rotation) * 90
+end
+
+local function placement(team, kind, position, rotation)
 	local definition = Config.BuildKinds[kind]
 	if not definition or not validPosition(position) then
 		return nil, "Неверная позиция"
@@ -232,10 +293,10 @@ local function placement(team, kind, position)
 			end
 		end
 	end
-	return baseCFrame * CFrame.new(x, definition.Size.Y / 2, z)
+	return baseCFrame * CFrame.new(x, definition.Size.Y / 2, z) * CFrame.Angles(0, math.rad(normalizeRotation(rotation) * 90), 0)
 end
 
-function FortressService.GetPlayerPlacement(player, team, kind, position)
+function FortressService.GetPlayerPlacement(player, team, kind, position, rotation)
 	if phaseProvider() ~= "Build" then
 		return nil, "Строительство уже закончено"
 	end
@@ -244,6 +305,9 @@ function FortressService.GetPlayerPlacement(player, team, kind, position)
 	end
 	if not Config.Teams[team] then
 		return nil, "Вы не участвуете в матче"
+	end
+	if not buildAccessProvider(player, kind) then
+		return nil, "Сначала купите этот чертёж в магазине"
 	end
 	local count = buildCounts[player.UserId] or 0
 	local capacity = buildCapacityProvider(player)
@@ -255,11 +319,11 @@ function FortressService.GetPlayerPlacement(player, team, kind, position)
 	if not root or (root.Position - position).Magnitude > Config.Arena.MaxBuildDistance then
 		return nil, "Подойдите ближе к месту постройки"
 	end
-	return placement(team, kind, position)
+	return placement(team, kind, position, rotation)
 end
 
-function FortressService.BuildPlayer(player, team, kind, position)
-	local cframe, reason = FortressService.GetPlayerPlacement(player, team, kind, position)
+function FortressService.BuildPlayer(player, team, kind, position, rotation)
+	local cframe, reason = FortressService.GetPlayerPlacement(player, team, kind, position, rotation)
 	if not cframe then
 		return false, reason
 	end
@@ -388,6 +452,65 @@ end
 
 function FortressService.GetEntry(part)
 	return partIndex[part]
+end
+
+function FortressService.GetEntries()
+	local result = {}
+	for _, entry in pairs(entries) do
+		if entry.Active then
+			table.insert(result, entry)
+		end
+	end
+	return result
+end
+
+local function applyTrapDamage(model, amount)
+	local humanoid = model and model:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then
+		return false
+	end
+	local armor = tonumber(model:GetAttribute("Armor")) or 0
+	humanoid:TakeDamage(amount * (1 - math.clamp(armor, 0, 0.65)))
+	return true
+end
+
+function FortressService.Step()
+	if phaseProvider() ~= "Battle" then
+		return
+	end
+	local now = os.clock()
+	local destroyAfter = {}
+	for _, entry in pairs(entries) do
+		local definition = Config.BuildKinds[entry.Kind]
+		local root = entry.Model and entry.Model.PrimaryPart
+		if entry.Active and entry.IsTrap and definition and root and now >= (entry.ArmedAt or 0) and now >= (entry.NextTrigger or 0) then
+			local targets = targetsProvider(entry.Team)
+			for _, model in ipairs(targets) do
+				local targetRoot = model and model:FindFirstChild("HumanoidRootPart")
+				local humanoid = model and model:FindFirstChildOfClass("Humanoid")
+				if targetRoot and humanoid and humanoid.Health > 0 and (targetRoot.Position - root.Position).Magnitude <= definition.TriggerRadius then
+					if definition.OneShot then
+						for _, blastTarget in ipairs(targets) do
+							local blastRoot = blastTarget and blastTarget:FindFirstChild("HumanoidRootPart")
+							if blastRoot and (blastRoot.Position - root.Position).Magnitude <= (definition.BlastRadius or definition.TriggerRadius) then
+								applyTrapDamage(blastTarget, definition.Damage)
+							end
+						end
+						destroyAfter[entry] = true
+					else
+						applyTrapDamage(model, definition.Damage)
+						entry.NextTrigger = now + definition.Cooldown
+					end
+					entry.Model:SetAttribute("Triggered", true)
+					remotes.TrapFX:FireAllClients({ Kind = entry.Kind, Position = root.Position, Team = entry.Team })
+					break
+				end
+			end
+		end
+	end
+	for entry in pairs(destroyAfter) do
+		removeEntry(entry)
+	end
 end
 
 return FortressService

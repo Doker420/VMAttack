@@ -20,6 +20,8 @@ local function block(model, name, size, cframe, color, material)
 	part.CanCollide = false
 	part.CanTouch = false
 	part.CanQuery = false
+	part.Transparency = 0
+	part.CastShadow = true
 	part.Massless = true
 	part.TopSurface = Enum.SurfaceType.Smooth
 	part.BottomSurface = Enum.SurfaceType.Smooth
@@ -84,6 +86,49 @@ function WeaponModels.Build(weaponId)
 			block(model, "VortexFin", Vector3.new(0.3, 1.2, 1.7), CFrame.new(side * 0.9, 0.55, -1.15) * CFrame.Angles(0, 0, math.rad(side * 18)), accent)
 		end
 		block(model, "VortexStock", Vector3.new(1.1, 0.8, 1.2), CFrame.new(0, 0.25, 0.85), DARK)
+	elseif weapon.Model == "Gauntlet" then
+		handle.Color = Color3.fromRGB(164, 112, 38)
+		handle.Material = Enum.Material.Metal
+		block(model, "GauntletCuff", Vector3.new(2.5, 1.55, 1.4), CFrame.new(0, 0.05, 0.25), accent, Enum.Material.Metal)
+		block(model, "GauntletPalm", Vector3.new(2.25, 1.8, 2), CFrame.new(0, 0.55, -1.15), accent, Enum.Material.Metal)
+		block(model, "PalmPlate", Vector3.new(1.65, 0.35, 1.5), CFrame.new(0, 1.55, -1.2), Color3.fromRGB(255, 220, 104), Enum.Material.DiamondPlate)
+		for index = 0, 3 do
+			local x = -0.78 + index * 0.52
+			block(model, "GauntletFinger", Vector3.new(0.44, 0.62, 1.65), CFrame.new(x, 0.85, -2.75), accent, Enum.Material.Metal)
+			block(model, "GauntletKnuckle", Vector3.new(0.5, 0.7, 0.65), CFrame.new(x, 1.05, -3.65), Color3.fromRGB(255, 214, 91), Enum.Material.Metal)
+		end
+		block(model, "GauntletThumb", Vector3.new(0.7, 0.75, 1.5), CFrame.new(1.35, 0.3, -1.65) * CFrame.Angles(0, math.rad(-24), 0), accent, Enum.Material.Metal)
+		local gemColors = {
+			Color3.fromRGB(255, 80, 70), Color3.fromRGB(70, 160, 255), Color3.fromRGB(105, 240, 130),
+			Color3.fromRGB(190, 95, 255), Color3.fromRGB(255, 205, 60), Color3.fromRGB(255, 125, 45),
+		}
+		for index, gemColor in ipairs(gemColors) do
+			local x = -0.65 + ((index - 1) % 3) * 0.65
+			local z = index <= 3 and -0.85 or -1.65
+			local gem = block(model, "InfinityGem", Vector3.new(0.42, 0.28, 0.42), CFrame.new(x, 1.78, z), gemColor, Enum.Material.Neon)
+			if index == 1 then
+				local glow = Instance.new("PointLight")
+				glow.Name = "InfinityGlow"
+				glow.Color = Color3.fromRGB(203, 126, 255)
+				glow.Brightness = 1.4
+				glow.Range = 8
+				glow.Parent = gem
+			end
+		end
+		block(model, "InfinityScope", Vector3.new(0.5, 0.5, 2.6), CFrame.new(0, 2.05, -1.75), Color3.fromRGB(188, 104, 255), Enum.Material.Neon)
+		block(model, "InfinityEmitter", Vector3.new(0.8, 0.8, 1.4), CFrame.new(0, 0.55, -4.45), Color3.fromRGB(222, 173, 255), Enum.Material.Neon)
+	elseif weapon.Model == "Knife" or weapon.Model == "DualKnives" then
+		handle.Color = DARK
+		handle.Material = Enum.Material.Fabric
+		local sides = weapon.Model == "DualKnives" and { -1, 1 } or { 1 }
+		for _, side in ipairs(sides) do
+			local x = weapon.Model == "DualKnives" and side * 0.7 or 0
+			local rotation = weapon.Model == "DualKnives" and CFrame.Angles(0, math.rad(side * 12), math.rad(side * 8)) or CFrame.new()
+			block(model, "KnifeGuard", Vector3.new(1.35, 0.28, 0.45), CFrame.new(x, 0.15, -0.75) * rotation, accent, Enum.Material.Metal)
+			block(model, "KnifeBlade", Vector3.new(0.62, 0.22, 3.3), CFrame.new(x, 0.35, -2.55) * rotation, Color3.fromRGB(190, 211, 218), Enum.Material.Metal)
+			block(model, "KnifeTip", Vector3.new(0.32, 0.16, 1.1), CFrame.new(x, 0.35, -4.65) * rotation, LIGHT, Enum.Material.Metal)
+			block(model, "BladeEdge", Vector3.new(0.12, 0.28, 3.8), CFrame.new(x + 0.31, 0.35, -2.8) * rotation, accent, Enum.Material.Neon)
+		end
 	else
 		block(model, "Body", Vector3.new(1.15, 0.82, 2.6), CFrame.new(0, 0.35, -1), accent)
 		block(model, "Barrel", Vector3.new(0.42, 0.42, 2.25), CFrame.new(0, 0.43, -3.35), METAL, Enum.Material.Metal)
@@ -103,7 +148,7 @@ function WeaponModels.ApplySkin(model, skinId)
 		if part:IsA("BasePart") then
 			part.Color = Color3.fromRGB(244, 190, 55)
 			part.Material = Enum.Material.Metal
-			if part.Name == "Sight" or part.Name == "ScopeGlass" or part.Name == "EnergyRing" then
+			if part.Name == "Sight" or part.Name == "ScopeGlass" or part.Name == "EnergyRing" or part.Name == "InfinityGem" or part.Name == "BladeEdge" then
 				part.Material = Enum.Material.Neon
 				part.Color = Color3.fromRGB(255, 232, 128)
 			end
@@ -143,8 +188,17 @@ function WeaponModels.Equip(character, weaponId, skinId)
 		end
 	end
 	model.Parent = character
+	local definition = Catalog.GetWeapon(weaponId)
+	local outline = Instance.new("Highlight")
+	outline.Name = "WeaponVisibilityOutline"
+	outline.FillTransparency = 1
+	outline.OutlineTransparency = 0.55
+	outline.OutlineColor = definition and definition.Color or LIGHT
+	outline.DepthMode = Enum.HighlightDepthMode.Occluded
+	outline.Parent = model
 	character:SetAttribute("WeaponId", weaponId)
 	character:SetAttribute("WeaponSkin", skinId or "Default")
+	character:SetAttribute("WeaponVisible", model.PrimaryPart ~= nil)
 	return model
 end
 

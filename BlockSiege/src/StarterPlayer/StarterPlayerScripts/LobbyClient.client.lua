@@ -1,4 +1,4 @@
--- Lobby progression HUD and NPC panels: upgrades, daily rewards and cosmetic-only Robux shop.
+-- Lobby progression HUD and NPC panels: upgrades, daily rewards, coin defenses and cosmetic-only Robux shop.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -89,7 +89,7 @@ local coinsLabel = label(statsPanel, "COINS 0 · CASE TOKENS 0", UDim2.new(1, -2
 local lobbyDock = new("Frame", {
 	AnchorPoint = Vector2.new(1, 0),
 	Position = UDim2.new(1, -16, 0, 122),
-	Size = UDim2.new(0, 286, 0, 150),
+	Size = UDim2.new(0, 286, 0, 200),
 	BackgroundTransparency = 1,
 }, gui)
 local upgradeButton = button(lobbyDock, "FORGE · УЛУЧШЕНИЯ  [U]", UDim2.new(1, 0, 0, 42), UDim2.new(), C.Cyan)
@@ -97,6 +97,7 @@ upgradeButton.TextColor3 = Color3.fromRGB(22, 37, 40)
 local dailyButton = button(lobbyDock, "DAILY · ЕЖЕДНЕВНЫЙ БОНУС", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 49), C.Gold)
 dailyButton.TextColor3 = Color3.fromRGB(35, 32, 22)
 local shopButton = button(lobbyDock, "ROBUX · КОСМЕТИКА  [K]", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 98), C.Purple)
+local defenseButton = button(lobbyDock, "DEFENSE · ЛОВУШКИ / МИНЫ", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 147), Color3.fromRGB(211, 111, 57))
 
 local panel = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5),
@@ -115,6 +116,7 @@ local panelHint = label(panel, "", UDim2.new(1, -32, 0, 35), UDim2.new(0, 16, 0,
 local upgradeFrame = new("Frame", { Size = UDim2.new(1, -32, 1, -100), Position = UDim2.new(0, 16, 0, 91), BackgroundTransparency = 1, Visible = false }, panel)
 local dailyFrame = new("Frame", { Size = UDim2.new(1, -32, 1, -100), Position = UDim2.new(0, 16, 0, 91), BackgroundTransparency = 1, Visible = false }, panel)
 local shopFrame = new("Frame", { Size = UDim2.new(1, -32, 1, -100), Position = UDim2.new(0, 16, 0, 91), BackgroundTransparency = 1, Visible = false }, panel)
+local defenseFrame = new("Frame", { Size = UDim2.new(1, -32, 1, -100), Position = UDim2.new(0, 16, 0, 91), BackgroundTransparency = 1, Visible = false }, panel)
 
 local upgradeRows = {}
 for index, id in ipairs(Catalog.UpgradeOrder) do
@@ -155,6 +157,21 @@ for index, id in ipairs(Catalog.CosmeticOrder) do
 	shopRows[id] = { Action = action }
 end
 
+local defenseRows = {}
+for index, id in ipairs(Catalog.DefenseOrder) do
+	local definition = Catalog.Defenses[id]
+	local row = new("Frame", { Size = UDim2.new(1, 0, 0, 98), Position = UDim2.new(0, 0, 0, (index - 1) * 106), BackgroundColor3 = C.Panel }, defenseFrame)
+	corner(row)
+	label(row, definition.Name, UDim2.new(0.58, 0, 0, 26), UDim2.new(0, 10, 0, 6), 18, Color3.fromRGB(255, 151, 82))
+	local description = label(row, definition.Description, UDim2.new(0.58, 0, 0, 54), UDim2.new(0, 10, 0, 34), 13, C.Muted)
+	description.TextXAlignment = Enum.TextXAlignment.Left
+	local action = button(row, "", UDim2.new(0.36, 0, 0, 70), UDim2.new(0.62, 0, 0, 14), Color3.fromRGB(211, 111, 57))
+	action.Activated:Connect(function()
+		remotes.ProgressionAction:FireServer("BuyDefense", id)
+	end)
+	defenseRows[id] = { Action = action }
+end
+
 local profile
 local activePanel
 local function refreshPanels()
@@ -188,6 +205,17 @@ local function refreshPanels()
 				row.Action.BackgroundColor3 = C.Purple
 			end
 		end
+		for id, row in pairs(defenseRows) do
+			local definition = Catalog.Defenses[id]
+			local owned = profile.OwnedDefenses and profile.OwnedDefenses[id]
+			if owned then
+				row.Action.Text = "ЧЕРТЁЖ КУПЛЕН"
+				row.Action.BackgroundColor3 = C.Green
+			else
+				row.Action.Text = string.format("%d монет\nLv %d+", definition.Price, definition.RequiredLevel)
+				row.Action.BackgroundColor3 = Color3.fromRGB(211, 111, 57)
+			end
+		end
 		local elapsed = os.time() - (profile.LastDailyClaim or 0)
 		if elapsed >= Config.DailyCooldown then
 			dailyStatus.Text = "БОНУС ГОТОВ · +" .. tostring(50 + (profile.XP and Catalog.LevelForXP(profile.XP) or 1) * 5) .. " монет"
@@ -208,6 +236,7 @@ local function showPanel(name)
 	upgradeFrame.Visible = name == "Upgrades"
 	dailyFrame.Visible = name == "Daily"
 	shopFrame.Visible = name == "Shop"
+	defenseFrame.Visible = name == "Defense"
 	if name == "Upgrades" then
 		panelTitle.Text = "FORGE // УЛУЧШЕНИЯ ПЕРСОНАЖА"
 		panelHint.Text = "Монеты и уровни открывают реальные бонусы. Улучшения доступны в лобби."
@@ -217,6 +246,9 @@ local function showPanel(name)
 	elseif name == "Shop" then
 		panelTitle.Text = "ROBUX // КОСМЕТИЧЕСКИЙ МАГАЗИН"
 		panelHint.Text = "Только внешний вид: никаких преимуществ в уроне, HP, скорости или matchmaking."
+	elseif name == "Defense" then
+		panelTitle.Text = "DEFENSE // ЛОВУШКИ И МИНЫ"
+		panelHint.Text = "Чертежи покупаются за монеты. В бою выбирайте ловушку клавишами 4 / 5 / 6."
 	end
 	refreshPanels()
 	if name then
@@ -227,9 +259,10 @@ end
 upgradeButton.Activated:Connect(function() showPanel("Upgrades") end)
 dailyButton.Activated:Connect(function() showPanel("Daily") end)
 shopButton.Activated:Connect(function() showPanel("Shop") end)
+defenseButton.Activated:Connect(function() showPanel("Defense") end)
 closeButton.Activated:Connect(function() showPanel(nil) end)
 remotes.OpenPanel.OnClientEvent:Connect(function(name)
-	if name == "Upgrades" or name == "Daily" or name == "Shop" then
+	if name == "Upgrades" or name == "Daily" or name == "Shop" or name == "Defense" then
 		showPanel(name)
 	end
 end)

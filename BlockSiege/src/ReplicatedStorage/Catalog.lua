@@ -1,7 +1,7 @@
 -- Оружие и честные игровые кейсы. Случайные награды нельзя купить за Robux.
 local Catalog = {}
 
-Catalog.WeaponOrder = { "Carbine", "SMG", "Scatter", "Marksman", "Demolisher", "Rail", "Vortex" }
+Catalog.WeaponOrder = { "Carbine", "SMG", "Scatter", "Marksman", "Demolisher", "Rail", "Vortex", "ThanosGauntlet", "TacticalKnife", "ShadowKnives" }
 Catalog.Weapons = {
 	Carbine = {
 		Id = "Carbine", Name = "BLOCK CARBINE", Rarity = "Starter", Model = "Carbine",
@@ -38,6 +38,21 @@ Catalog.Weapons = {
 		Damage = 22, Cooldown = 0.22, Range = 165, Spread = 0.01, Pellets = 1, StructureMultiplier = 1.5,
 		Color = Color3.fromRGB(235, 112, 51),
 	},
+	ThanosGauntlet = {
+		Id = "ThanosGauntlet", Name = "THANOS GAUNTLET · SNIPER", Rarity = "Legendary", Model = "Gauntlet",
+		Damage = 120, Cooldown = 1.6, Range = 320, Spread = 0, Pellets = 1, StructureMultiplier = 2,
+		Color = Color3.fromRGB(232, 184, 55),
+	},
+	TacticalKnife = {
+		Id = "TacticalKnife", Name = "TACTICAL KNIFE", Rarity = "Rare", Model = "Knife",
+		Damage = 58, Cooldown = 0.42, Range = 14, Spread = 0, Pellets = 1, StructureMultiplier = 0.65, Melee = true,
+		Color = Color3.fromRGB(107, 224, 220),
+	},
+	ShadowKnives = {
+		Id = "ShadowKnives", Name = "SHADOW DUAL KNIVES", Rarity = "Legendary", Model = "DualKnives",
+		Damage = 82, Cooldown = 0.65, Range = 16, Spread = 0, Pellets = 1, StructureMultiplier = 0.8, Melee = true,
+		Color = Color3.fromRGB(186, 104, 255),
+	},
 }
 
 Catalog.RarityNames = { Starter = "СТАРТОВОЕ", Common = "ОБЫЧНОЕ", Rare = "РЕДКОЕ", Legendary = "ЛЕГЕНДАРНОЕ" }
@@ -54,8 +69,8 @@ Catalog.Case = {
 	LegendaryPity = 20,
 	Pool = {
 		Common = { "SMG", "Scatter" },
-		Rare = { "Marksman", "Demolisher" },
-		Legendary = { "Rail", "Vortex" },
+		Rare = { "Marksman", "Demolisher", "TacticalKnife" },
+		Legendary = { "Rail", "Vortex", "ThanosGauntlet", "ShadowKnives" },
 	},
 	DuplicateCoins = { Common = 8, Rare = 18, Legendary = 40 },
 }
@@ -67,6 +82,18 @@ Catalog.Upgrades = {
 	Armor = { Name = "БРОНЯ", MaxLevel = 5, Costs = { 45, 85, 135, 200, 280 }, RequiredLevels = { 2, 3, 4, 5, 6 }, Description = "4% сопротивления урону за уровень" },
 	Engineering = { Name = "ИНЖЕНЕРИЯ", MaxLevel = 3, Costs = { 40, 90, 160 }, RequiredLevels = { 1, 3, 5 }, Description = "+2 дополнительные постройки за уровень" },
 }
+
+-- Оборонительные чертежи покупаются только за заработанные монеты, не за Robux.
+Catalog.DefenseOrder = { "SpikeTrap", "ShockMine", "FlameTrap" }
+Catalog.Defenses = {
+	SpikeTrap = { Name = "SPIKE TRAP", Price = 60, RequiredLevel = 1, Description = "35 урона и повторное срабатывание каждые 2 секунды" },
+	ShockMine = { Name = "SHOCK MINE", Price = 90, RequiredLevel = 2, Description = "70 урона по области, одноразовая мина" },
+	FlameTrap = { Name = "FLAME TRAP", Price = 120, RequiredLevel = 3, Description = "24 урона огнём каждые 1,5 секунды" },
+}
+
+function Catalog.GetDefense(id)
+	return type(id) == "string" and Catalog.Defenses[id] or nil
+end
 
 -- Только косметика за Robux: никаких преимуществ в уроне, скорости или броне.
 Catalog.CosmeticOrder = { "GoldenArsenal", "AuroraAura", "RoyalTrail" }

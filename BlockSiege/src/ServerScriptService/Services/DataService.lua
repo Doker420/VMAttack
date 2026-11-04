@@ -31,6 +31,7 @@ local function defaults()
 		OwnedWeapons = { Carbine = true },
 		SelectedWeapon = "Carbine",
 		Upgrades = { Speed = 0, Health = 0, Armor = 0, Engineering = 0 },
+		OwnedDefenses = {},
 		OwnedCosmetics = {},
 		SelectedCosmetics = { WeaponSkin = "Default", Aura = "Default", Trail = "Default" },
 		LastDailyClaim = 0,
@@ -79,6 +80,18 @@ local function cosmeticDictionary(value)
 	return result
 end
 
+local function defenseDictionary(value)
+	local result = {}
+	if type(value) == "table" then
+		for id, owned in pairs(value) do
+			if owned == true and Catalog.GetDefense(id) then
+				result[id] = true
+			end
+		end
+	end
+	return result
+end
+
 local function sanitize(value)
 	local result = defaults()
 	if type(value) ~= "table" then
@@ -91,6 +104,7 @@ local function sanitize(value)
 	result.LastDailyClaim = math.floor(number(value.LastDailyClaim, 0, 2000000000))
 	result.OwnedWeapons = weaponDictionary(value.OwnedWeapons)
 	result.Upgrades = upgradeDictionary(value.Upgrades)
+	result.OwnedDefenses = defenseDictionary(value.OwnedDefenses)
 	result.OwnedCosmetics = cosmeticDictionary(value.OwnedCosmetics)
 	result.SelectedCosmetics = { WeaponSkin = "Default", Aura = "Default", Trail = "Default" }
 	if type(value.SelectedCosmetics) == "table" then
@@ -146,6 +160,9 @@ local function apply(player)
 	stats.Level.Value = Catalog.LevelForXP(data.XP)
 	for id, level in pairs(data.Upgrades) do
 		player:SetAttribute("Upgrade_" .. id, level)
+	end
+	for _, id in ipairs(Catalog.DefenseOrder) do
+		player:SetAttribute("Defense_" .. id, data.OwnedDefenses[id] == true)
 	end
 	for _, slot in ipairs({ "WeaponSkin", "Aura", "Trail" }) do
 		player:SetAttribute("Cosmetic_" .. slot, data.SelectedCosmetics[slot])

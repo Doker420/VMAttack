@@ -216,6 +216,44 @@ function ProgressionService.ClaimDaily(player)
 	return true, { Coins = coins, XP = 20, CaseTokens = 1 }
 end
 
+function ProgressionService.CanBuildDefense(player, kind)
+	local definition = Catalog.GetDefense(kind)
+	if not definition then
+		return true
+	end
+	local data = DataService and DataService.Get(player)
+	return data ~= nil and data.OwnedDefenses[kind] == true
+end
+
+function ProgressionService.BuyDefense(player, id)
+	local data = DataService and DataService.Get(player)
+	local definition = Catalog.GetDefense(id)
+	if not data or not definition then
+		return false
+	end
+	if player:GetAttribute("InMatch") == true then
+		notify(player, "Чертежи покупаются в лобби", Color3.fromRGB(255, 180, 90))
+		return false
+	end
+	if data.OwnedDefenses[id] then
+		notify(player, "Чертёж уже куплен", Color3.fromRGB(130, 220, 255))
+		return false
+	end
+	if getLevel(data) < definition.RequiredLevel then
+		notify(player, "Нужен уровень " .. definition.RequiredLevel, Color3.fromRGB(255, 180, 90))
+		return false
+	end
+	if data.Coins < definition.Price then
+		notify(player, "Недостаточно монет: нужно " .. definition.Price, Color3.fromRGB(255, 110, 100))
+		return false
+	end
+	data.Coins = data.Coins - definition.Price
+	data.OwnedDefenses[id] = true
+	DataService.Commit(player, true)
+	notify(player, "Чертёж куплен: " .. definition.Name, Color3.fromRGB(120, 255, 180))
+	return true
+end
+
 function ProgressionService.EquipCosmetic(player, id)
 	local data = DataService and DataService.Get(player)
 	local cosmetic = Catalog.GetCosmetic(id)
@@ -234,6 +272,8 @@ function ProgressionService.HandleAction(player, action, value)
 		return ProgressionService.Upgrade(player, value)
 	elseif action == "Daily" then
 		return ProgressionService.ClaimDaily(player)
+	elseif action == "BuyDefense" then
+		return ProgressionService.BuyDefense(player, value)
 	elseif action == "EquipCosmetic" then
 		return ProgressionService.EquipCosmetic(player, value)
 	elseif action == "Refresh" then

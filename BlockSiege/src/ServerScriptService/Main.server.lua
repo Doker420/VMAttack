@@ -8,6 +8,8 @@ local services = script.Parent:WaitForChild("Services")
 local WorldBuilder = require(services:WaitForChild("WorldBuilder"))
 local DataService = require(services:WaitForChild("DataService"))
 local FortressService = require(services:WaitForChild("FortressService"))
+local GeodataService = require(services:WaitForChild("GeodataService"))
+local CaptureService = require(services:WaitForChild("CaptureService"))
 local WeaponService = require(services:WaitForChild("WeaponService"))
 local BotService = require(services:WaitForChild("BotService"))
 local CaseService = require(services:WaitForChild("CaseService"))
@@ -18,7 +20,7 @@ local MatchService = require(services:WaitForChild("MatchService"))
 local remotes = Instance.new("Folder")
 remotes.Name = "Remotes"
 for _, name in ipairs({
-	"Notify", "ProfileUpdate", "CaseOpened", "Results", "CombatFX", "BuildFX",
+	"Notify", "ProfileUpdate", "CaseOpened", "Results", "CombatFX", "BuildFX", "TrapFX", "CaptureFX",
 	"LobbyAction", "CaseAction", "FireRequest", "BuildRequest", "BuildPreviewRequest", "BuildPreview", "OpenPanel",
 	"ProgressionAction", "ShopAction",
 }) do
@@ -36,10 +38,12 @@ local world = WorldBuilder.Build()
 DataService.Init({ Remotes = remotes })
 ProgressionService.Init({ DataService = DataService, WeaponService = WeaponService, Remotes = remotes })
 FortressService.Init({ World = world, Remotes = remotes, State = state })
+GeodataService.Init({ World = world, FortressService = FortressService, State = state })
 WeaponService.Init({ DataService = DataService, FortressService = FortressService, Remotes = remotes })
-BotService.Init({ World = world, FortressService = FortressService, WeaponService = WeaponService })
+BotService.Init({ World = world, FortressService = FortressService, WeaponService = WeaponService, GeodataService = GeodataService, CaptureService = CaptureService })
 CaseService.Init({ DataService = DataService, Remotes = remotes })
 ShopService.Init({ DataService = DataService, ProgressionService = ProgressionService, Remotes = remotes })
+CaptureService.Init({ World = world, State = state, BotService = BotService, Remotes = remotes })
 MatchService.Init({
 	World = world,
 	DataService = DataService,
@@ -47,6 +51,7 @@ MatchService.Init({
 	WeaponService = WeaponService,
 	BotService = BotService,
 	ProgressionService = ProgressionService,
+	CaptureService = CaptureService,
 	Remotes = remotes,
 	State = state,
 })
@@ -77,11 +82,11 @@ end)
 remotes.FireRequest.OnServerEvent:Connect(function(player, targetPosition)
 	WeaponService.FirePlayer(player, targetPosition)
 end)
-remotes.BuildRequest.OnServerEvent:Connect(function(player, kind, position)
-	MatchService.HandleBuild(player, kind, position)
+remotes.BuildRequest.OnServerEvent:Connect(function(player, kind, position, rotation)
+	MatchService.HandleBuild(player, kind, position, rotation)
 end)
-remotes.BuildPreviewRequest.OnServerEvent:Connect(function(player, kind, position)
-	MatchService.HandleBuildPreview(player, kind, position)
+remotes.BuildPreviewRequest.OnServerEvent:Connect(function(player, kind, position, rotation)
+	MatchService.HandleBuildPreview(player, kind, position, rotation)
 end)
 remotes.ProgressionAction.OnServerEvent:Connect(function(player, action, value)
 	ProgressionService.HandleAction(player, action, value)
@@ -104,13 +109,19 @@ end)
 world.ShopPrompt.Triggered:Connect(function(player)
 	remotes.OpenPanel:FireClient(player, "Shop")
 end)
+world.DefensePrompt.Triggered:Connect(function(player)
+	remotes.OpenPanel:FireClient(player, "Defense")
+end)
 
 local accumulator = 0
 RunService.Heartbeat:Connect(function(deltaTime)
 	accumulator = accumulator + math.min(deltaTime, 0.15)
 	while accumulator >= 1 / 20 do
 		MatchService.Step(1 / 20)
+		GeodataService.Step(1 / 20)
+		FortressService.Step(1 / 20)
 		BotService.Step(1 / 20)
+		CaptureService.Step(1 / 20)
 		DataService.Step(1 / 20)
 		accumulator = accumulator - 1 / 20
 	end

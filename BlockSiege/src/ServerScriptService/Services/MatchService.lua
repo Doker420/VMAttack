@@ -12,6 +12,7 @@ local fortressService
 local weaponService
 local botService
 local progressionService
+local captureService
 local remotes
 local state
 local phase = "Lobby"
@@ -221,6 +222,9 @@ function MatchService.StartMatch()
 	state:SetAttribute("OrangePower", power.Orange)
 	state:SetAttribute("MatchLevelDraft", true)
 	intermission = nil
+	if captureService then
+		captureService.Reset()
+	end
 	fortressService.Reset()
 	setPhase("Build", Config.BuildDuration)
 	for _, player in ipairs(players) do
@@ -269,25 +273,26 @@ function MatchService.HandleLobbyAction(player, action)
 	return false
 end
 
-function MatchService.HandleBuild(player, kind, position)
+function MatchService.HandleBuild(player, kind, position, rotation)
 	local team = participants[player.UserId]
 	if phase ~= "Build" or not team then
 		notify(player, "Строить можно только во время подготовки")
 		return false
 	end
-	local success, reason = fortressService.BuildPlayer(player, team, kind, position)
+	local success, reason = fortressService.BuildPlayer(player, team, kind, position, rotation)
 	if not success then
 		notify(player, reason)
 	end
 	return success, reason
 end
 
-function MatchService.HandleBuildPreview(player, kind, position)
+function MatchService.HandleBuildPreview(player, kind, position, rotation)
 	local team = participants[player.UserId]
-	local cframe, reason = fortressService.GetPlayerPlacement(player, team, kind, position)
+	local cframe, reason = fortressService.GetPlayerPlacement(player, team, kind, position, rotation)
 	local valid = cframe ~= nil
 	remotes.BuildPreview:FireClient(player, {
 		Kind = kind,
+		Rotation = fortressService.GetRotationDegrees(rotation),
 		Valid = valid,
 		Reason = reason or "Можно строить",
 		Position = cframe and cframe.Position or position,
@@ -353,6 +358,9 @@ end
 local function resetToLobby()
 	botService.Stop()
 	fortressService.Clear()
+	if captureService then
+		captureService.Reset()
+	end
 	participants = {}
 	queued = {}
 	intermission = nil
@@ -396,6 +404,7 @@ function MatchService.Init(dependencies)
 	weaponService = dependencies.WeaponService
 	botService = dependencies.BotService
 	progressionService = dependencies.ProgressionService
+	captureService = dependencies.CaptureService
 	remotes = dependencies.Remotes
 	state = dependencies.State
 	fortressService.SetPhaseProvider(MatchService.GetPhase)
@@ -405,8 +414,15 @@ function MatchService.Init(dependencies)
 		local stats = progressionService and progressionService.GetStats(player)
 		return stats and stats.BuildCapacity or Config.Arena.MaxBuildPerPlayer
 	end)
+	fortressService.SetBuildAccessProvider(function(player, kind)
+		return not progressionService or progressionService.CanBuildDefense(player, kind)
+	end)
+	fortressService.SetTargetsProvider(MatchService.GetTargets)
 	weaponService.SetProviders(MatchService.GetPhase, MatchService.GetTeam, MatchService.OnKill)
 	botService.SetProviders(MatchService.GetPhase, MatchService.GetTargets)
+	if captureService then
+		captureService.SetPhaseProvider(MatchService.GetPhase)
+	end
 	state:SetAttribute("Phase", "Lobby")
 	state:SetAttribute("Time", 0)
 	state:SetAttribute("Winner", "")

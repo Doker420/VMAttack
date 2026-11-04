@@ -137,6 +137,7 @@ local function fire(character, weapon, targetPosition, attackingTeam, player, ke
 			Finish = finish,
 			Color = weapon.Color,
 			WeaponId = weapon.Id,
+			Melee = weapon.Melee == true,
 		})
 	end
 	return true

@@ -17,6 +17,8 @@ local BotService = {}
 local world
 local fortressService
 local weaponService
+local geodataService
+local captureService
 local phaseProvider = function()
 	return "Lobby"
 end
@@ -28,8 +30,16 @@ local active = false
 local matchId = 0
 local nextBotId = 0
 
-local botWeapons = { "Carbine", "SMG", "Scatter", "Marksman", "Demolisher", "Vortex" }
+local botWeapons = { "Carbine", "SMG", "Scatter", "Marksman", "Demolisher", "Vortex", "ThanosGauntlet", "TacticalKnife", "ShadowKnives" }
 local roles = { "Defender", "Assault", "Support", "Defender", "Assault", "Support" }
+local botSkins = {
+	{ Id = "Scout", Name = "SCOUT", Primary = Color3.fromRGB(66, 168, 164), Secondary = Color3.fromRGB(35, 74, 83), Accent = Color3.fromRGB(156, 255, 224), Head = Color3.fromRGB(224, 190, 145) },
+	{ Id = "Heavy", Name = "HEAVY", Primary = Color3.fromRGB(128,  90, 76), Secondary = Color3.fromRGB(62, 53, 55), Accent = Color3.fromRGB(255, 190,  70), Head = Color3.fromRGB(193, 153, 119) },
+	{ Id = "Medic", Name = "MEDIC", Primary = Color3.fromRGB(213, 231, 218), Secondary = Color3.fromRGB( 70, 130, 111), Accent = Color3.fromRGB( 90, 255, 164), Head = Color3.fromRGB(235, 198, 160) },
+	{ Id = "Ranger", Name = "RANGER", Primary = Color3.fromRGB(104, 128, 77), Secondary = Color3.fromRGB(49, 65, 45), Accent = Color3.fromRGB(215, 194, 104), Head = Color3.fromRGB(204, 165, 126) },
+	{ Id = "Engineer", Name = "ENGINEER", Primary = Color3.fromRGB(211, 139, 49), Secondary = Color3.fromRGB(83,  60, 42), Accent = Color3.fromRGB(255, 222,  90), Head = Color3.fromRGB(224, 190, 145) },
+	{ Id = "Shadow", Name = "SHADOW", Primary = Color3.fromRGB(77, 66, 112), Secondary = Color3.fromRGB(32,  30, 52), Accent = Color3.fromRGB(201, 127, 255), Head = Color3.fromRGB(177, 143, 126) },
+}
 
 local function bodyPart(model, root, name, size, offset, color)
 	local part = Instance.new("Part")
@@ -74,7 +84,7 @@ local function addNameTag(head, entry)
 	role.Size = UDim2.fromScale(1, 0.35)
 	role.BackgroundTransparency = 1
 	role.Font = Enum.Font.Code
-	role.Text = entry.Role == "Defender" and "DEFENSE" or (entry.Role == "Support" and "SUPPORT" or "ASSAULT")
+	role.Text = (entry.Role == "Defender" and "DEFENSE" or (entry.Role == "Support" and "SUPPORT" or "ASSAULT")) .. " · " .. entry.Skin.Name
 	role.TextColor3 = Color3.fromRGB(235, 240, 235)
 	role.TextStrokeTransparency = 0.4
 	role.TextScaled = true
@@ -96,6 +106,7 @@ local function spawnModel(entry)
 	model:SetAttribute("BotId", entry.Id)
 	model:SetAttribute("IsBot", true)
 	model:SetAttribute("Role", entry.Role)
+	model:SetAttribute("SkinId", entry.Skin.Id)
 	model:SetAttribute("Level", 1)
 	model:SetAttribute("Armor", 0)
 	model.Parent = world.Bots
@@ -119,13 +130,28 @@ local function spawnModel(entry)
 	humanoid.RequiresNeck = false
 	humanoid.BreakJointsOnDeath = false
 	humanoid.Parent = model
-	local color = Config.Teams[entry.Team].Color
-	bodyPart(model, root, "Torso", Vector3.new(3, 2.2, 1.8), Vector3.new(0, 0.3, 0), color)
-	bodyPart(model, root, "Head", Vector3.new(2.1, 1.8, 2.1), Vector3.new(0, 2.5, 0), Color3.fromRGB(224, 190, 145))
-	bodyPart(model, root, "Left Arm", Vector3.new(1, 2.4, 1.4), Vector3.new(-2, 0.3, 0), color)
-	bodyPart(model, root, "Right Arm", Vector3.new(1, 2.4, 1.4), Vector3.new(2, 0.3, 0), color)
-	bodyPart(model, root, "Left Leg", Vector3.new(1.2, 2, 1.5), Vector3.new(-0.8, -1.8, 0), Config.Teams[entry.Team].Dark)
-	bodyPart(model, root, "Right Leg", Vector3.new(1.2, 2, 1.5), Vector3.new(0.8, -1.8, 0), Config.Teams[entry.Team].Dark)
+	local teamColor = Config.Teams[entry.Team].Color
+	local skin = entry.Skin
+	bodyPart(model, root, "Torso", Vector3.new(3, 2.2, 1.8), Vector3.new(0, 0.3, 0), skin.Primary)
+	bodyPart(model, root, "ChestPlate", Vector3.new(2.2, 1.1, 0.35), Vector3.new(0, 0.55, -1.05), skin.Accent)
+	bodyPart(model, root, "TeamBand", Vector3.new(3.1, 0.35, 1.9), Vector3.new(0, 1.15, 0), teamColor)
+	bodyPart(model, root, "Head", Vector3.new(2.1, 1.8, 2.1), Vector3.new(0, 2.5, 0), skin.Head)
+	bodyPart(model, root, "Helmet", Vector3.new(2.35, 0.65, 2.35), Vector3.new(0, 3.45, 0), skin.Secondary)
+	bodyPart(model, root, "Visor", Vector3.new(1.7, 0.35, 0.25), Vector3.new(0, 2.65, -1.1), skin.Accent)
+	bodyPart(model, root, "Backpack", Vector3.new(1.8, 2, 0.7), Vector3.new(0, 0.45, 1.15), skin.Secondary)
+	bodyPart(model, root, "Left Arm", Vector3.new(1, 2.4, 1.4), Vector3.new(-2, 0.3, 0), skin.Primary)
+	bodyPart(model, root, "Right Arm", Vector3.new(1, 2.4, 1.4), Vector3.new(2, 0.3, 0), skin.Primary)
+	bodyPart(model, root, "Left Leg", Vector3.new(1.2, 2, 1.5), Vector3.new(-0.8, -1.8, 0), skin.Secondary)
+	bodyPart(model, root, "Right Leg", Vector3.new(1.2, 2, 1.5), Vector3.new(0.8, -1.8, 0), skin.Secondary)
+	if skin.Id == "Heavy" then
+		bodyPart(model, root, "LeftShoulder", Vector3.new(1.4, 0.7, 1.7), Vector3.new(-2, 1.35, 0), skin.Accent)
+		bodyPart(model, root, "RightShoulder", Vector3.new(1.4, 0.7, 1.7), Vector3.new(2, 1.35, 0), skin.Accent)
+	elseif skin.Id == "Medic" then
+		bodyPart(model, root, "MedicCross", Vector3.new(0.35, 1.1, 0.15), Vector3.new(0, 0.55, -1.25), Color3.fromRGB(255, 90, 95))
+		bodyPart(model, root, "MedicCross", Vector3.new(1.1, 0.35, 0.15), Vector3.new(0, 0.55, -1.25), Color3.fromRGB(255, 90, 95))
+	elseif skin.Id == "Engineer" then
+		bodyPart(model, root, "HardHat", Vector3.new(2.6, 0.35, 2.6), Vector3.new(0, 3.85, 0), Color3.fromRGB(255, 211, 65))
+	end
 	addNameTag(model:FindFirstChild("Head"), entry)
 	entry.Model = model
 	entry.Humanoid = humanoid
@@ -160,7 +186,8 @@ local function addBot(team, slot)
 		Team = team,
 		Slot = slot,
 		Role = roles[((slot - 1) % #roles) + 1],
-		WeaponId = botWeapons[((slot - 1) % #botWeapons) + 1],
+		Skin = botSkins[((nextBotId - 1) % #botSkins) + 1],
+		WeaponId = botWeapons[((nextBotId - 1) % #botWeapons) + 1],
 		MatchId = matchId,
 		Builds = 0,
 		NextBuild = os.clock() + 1 + slot * 0.15,
@@ -175,6 +202,8 @@ function BotService.Init(dependencies)
 	world = dependencies.World
 	fortressService = dependencies.FortressService
 	weaponService = dependencies.WeaponService
+	geodataService = dependencies.GeodataService
+	captureService = dependencies.CaptureService
 end
 
 function BotService.SetProviders(phase, targets)
@@ -375,8 +404,15 @@ local function followDestination(entry, destination, now)
 		return
 	end
 	local goalChanged = not entry.PathGoal or (entry.PathGoal - destination).Magnitude > 10
+	local navigationDestination = destination
 	if goalChanged or now >= (entry.NextPath or 0) then
-		entry.Path = computePath(entry, destination, now)
+		if geodataService then
+			local avoidance = geodataService.GetAvoidancePoint(root.Position, destination, entry.Slot)
+			if avoidance and (avoidance - root.Position).Magnitude > 5 and (avoidance - destination).Magnitude > 5 then
+				navigationDestination = avoidance
+			end
+		end
+		entry.Path = computePath(entry, navigationDestination, now)
 		entry.PathIndex = 1
 		entry.PathGoal = destination
 		entry.NextPath = now + 1.4
@@ -403,7 +439,7 @@ local function followDestination(entry, destination, now)
 			end
 		end
 	end
-	humanoid:MoveTo(destination)
+	humanoid:MoveTo(navigationDestination)
 	jumpForObstacle(entry, root, humanoid, now)
 end
 
@@ -482,13 +518,21 @@ local function battleThink(entry, now)
 			destination = basePoint(entry.Team, (entry.Slot - 3.5) * 7, 8)
 			targetPosition = enemyCore
 		end
-	else -- Assault: keep pressure on the core, but respond to a close defender.
+	else -- Assault: keep pressure on the core, but respond to a close defender and contest 67.
 		if enemy and enemyDistance < 72 then
 			targetPosition = modelPosition(enemy) + Vector3.new(0, 1.5, 0)
 			destination = targetPosition
 		else
-			destination = enemyCore
-			targetPosition = enemyCore + Vector3.new(0, 1, 0)
+			local capturePosition = captureService and captureService.GetPosition() or nil
+			local captureOwner = captureService and captureService.GetOwner() or nil
+			if capturePosition and captureOwner ~= entry.Team and entry.Slot % 2 == 0 then
+				destination = capturePosition
+				targetPosition = enemyCore + Vector3.new(0, 1, 0)
+				shouldFire = false
+			else
+				destination = enemyCore
+				targetPosition = enemyCore + Vector3.new(0, 1, 0)
+			end
 		end
 	end
 
