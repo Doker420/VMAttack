@@ -41,7 +41,7 @@ local botSkins = {
 	{ Id = "Shadow", Name = "SHADOW", Primary = Color3.fromRGB(77, 66, 112), Secondary = Color3.fromRGB(32,  30, 52), Accent = Color3.fromRGB(201, 127, 255), Head = Color3.fromRGB(177, 143, 126) },
 }
 
-local function bodyPart(model, root, name, size, offset, color)
+local function bodyPart(model, root, name, size, offset, color, jointParent, jointName, jointC0)
 	local part = Instance.new("Part")
 	part.Name = name
 	part.Size = size
@@ -49,15 +49,21 @@ local function bodyPart(model, root, name, size, offset, color)
 	part.Color = color
 	part.Material = Enum.Material.SmoothPlastic
 	part.Anchored = false
-	part.CanCollide = false
+	part.CanCollide = name == "Torso" or name == "Left Leg" or name == "Right Leg"
 	part.CanTouch = false
 	part.CanQuery = true
-	part.Massless = true
+	part.Massless = name ~= "Torso"
 	part.Parent = model
-	local weld = Instance.new("WeldConstraint")
-	weld.Part0 = root
-	weld.Part1 = part
-	weld.Parent = part
+
+	-- Humanoid navigation expects a real character assembly, not a collection of
+	-- welded props. C0 preserves the authored pose while Motor6D supplies the rig.
+	local joint = Instance.new("Motor6D")
+	joint.Name = jointName or (name .. "Joint")
+	joint.Part0 = jointParent or root
+	joint.Part1 = part
+	joint.C0 = jointC0 or CFrame.new(offset)
+	joint.C1 = CFrame.new()
+	joint.Parent = part
 	return part
 end
 
@@ -116,33 +122,24 @@ local function spawnModel(entry)
 	root.CFrame = spawn
 	root.Transparency = 1
 	root.Anchored = false
-	root.CanCollide = true
+	root.CanCollide = false
 	root.CanTouch = false
 	root.CanQuery = false
 	root.Parent = model
 	model.PrimaryPart = root
-	local humanoid = Instance.new("Humanoid")
-	humanoid.MaxHealth = 120
-	humanoid.Health = 120
-	humanoid.WalkSpeed = entry.Role == "Assault" and 20 or (entry.Role == "Defender" and 16 or 18)
-	humanoid.JumpPower = 50
-	humanoid.HipHeight = 0
-	humanoid.RequiresNeck = false
-	humanoid.BreakJointsOnDeath = false
-	humanoid.Parent = model
 	local teamColor = Config.Teams[entry.Team].Color
 	local skin = entry.Skin
-	bodyPart(model, root, "Torso", Vector3.new(3, 2.2, 1.8), Vector3.new(0, 0.3, 0), skin.Primary)
+	local torso = bodyPart(model, root, "Torso", Vector3.new(3, 2.2, 1.8), Vector3.new(0, 0.3, 0), skin.Primary, root, "RootJoint", CFrame.new(0, 0.3, 0))
 	bodyPart(model, root, "ChestPlate", Vector3.new(2.2, 1.1, 0.35), Vector3.new(0, 0.55, -1.05), skin.Accent)
 	bodyPart(model, root, "TeamBand", Vector3.new(3.1, 0.35, 1.9), Vector3.new(0, 1.15, 0), teamColor)
-	bodyPart(model, root, "Head", Vector3.new(2.1, 1.8, 2.1), Vector3.new(0, 2.5, 0), skin.Head)
+	local head = bodyPart(model, root, "Head", Vector3.new(2.1, 1.8, 2.1), Vector3.new(0, 2.5, 0), skin.Head, torso, "Neck", CFrame.new(0, 2.2, 0))
 	bodyPart(model, root, "Helmet", Vector3.new(2.35, 0.65, 2.35), Vector3.new(0, 3.45, 0), skin.Secondary)
 	bodyPart(model, root, "Visor", Vector3.new(1.7, 0.35, 0.25), Vector3.new(0, 2.65, -1.1), skin.Accent)
 	bodyPart(model, root, "Backpack", Vector3.new(1.8, 2, 0.7), Vector3.new(0, 0.45, 1.15), skin.Secondary)
-	bodyPart(model, root, "Left Arm", Vector3.new(1, 2.4, 1.4), Vector3.new(-2, 0.3, 0), skin.Primary)
-	bodyPart(model, root, "Right Arm", Vector3.new(1, 2.4, 1.4), Vector3.new(2, 0.3, 0), skin.Primary)
-	bodyPart(model, root, "Left Leg", Vector3.new(1.2, 2, 1.5), Vector3.new(-0.8, -1.8, 0), skin.Secondary)
-	bodyPart(model, root, "Right Leg", Vector3.new(1.2, 2, 1.5), Vector3.new(0.8, -1.8, 0), skin.Secondary)
+	bodyPart(model, root, "Left Arm", Vector3.new(1, 2.4, 1.4), Vector3.new(-2, 0.3, 0), skin.Primary, torso, "Left Shoulder", CFrame.new(-2, 0, 0))
+	bodyPart(model, root, "Right Arm", Vector3.new(1, 2.4, 1.4), Vector3.new(2, 0.3, 0), skin.Primary, torso, "Right Shoulder", CFrame.new(2, 0, 0))
+	bodyPart(model, root, "Left Leg", Vector3.new(1.2, 2, 1.5), Vector3.new(-0.8, -1.8, 0), skin.Secondary, torso, "Left Hip", CFrame.new(-0.8, -2.1, 0))
+	bodyPart(model, root, "Right Leg", Vector3.new(1.2, 2, 1.5), Vector3.new(0.8, -1.8, 0), skin.Secondary, torso, "Right Hip", CFrame.new(0.8, -2.1, 0))
 	if skin.Id == "Heavy" then
 		bodyPart(model, root, "LeftShoulder", Vector3.new(1.4, 0.7, 1.7), Vector3.new(-2, 1.35, 0), skin.Accent)
 		bodyPart(model, root, "RightShoulder", Vector3.new(1.4, 0.7, 1.7), Vector3.new(2, 1.35, 0), skin.Accent)
@@ -152,7 +149,28 @@ local function spawnModel(entry)
 	elseif skin.Id == "Engineer" then
 		bodyPart(model, root, "HardHat", Vector3.new(2.6, 0.35, 2.6), Vector3.new(0, 3.85, 0), Color3.fromRGB(255, 211, 65))
 	end
-	addNameTag(model:FindFirstChild("Head"), entry)
+	addNameTag(head, entry)
+
+	-- Parent Humanoid only after the complete rig exists; otherwise it can die while
+	-- the model is still being assembled and never receive MoveTo commands.
+	local humanoid = Instance.new("Humanoid")
+	humanoid.MaxHealth = 120
+	humanoid.Health = 120
+	humanoid.WalkSpeed = entry.Role == "Assault" and 20 or (entry.Role == "Defender" and 16 or 18)
+	humanoid.JumpPower = 50
+	humanoid.HipHeight = 0
+	humanoid.RigType = Enum.HumanoidRigType.R6
+	humanoid.RequiresNeck = false
+	humanoid.BreakJointsOnDeath = false
+	humanoid.AutoRotate = true
+	humanoid.Parent = model
+	humanoid.RootPart = root
+	model:SetAttribute("Rig", "Motor6D")
+	-- Set ownership after every joint/part exists so the complete assembly stays
+	-- server-simulated even when a player is standing next to the bot.
+	pcall(function()
+		root:SetNetworkOwner(nil)
+	end)
 	entry.Model = model
 	entry.Humanoid = humanoid
 	entry.LastPosition = root.Position

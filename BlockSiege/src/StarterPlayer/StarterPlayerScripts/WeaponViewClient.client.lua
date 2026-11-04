@@ -129,6 +129,7 @@ local skinLabel = label(panel, "WeaponSkin", "", UDim2.new(0.44, -14, 0, 22), UD
 skinLabel.TextXAlignment = Enum.TextXAlignment.Right
 
 local viewModel
+local worldViewModel
 local viewKey
 local modelCenter = Vector3.zero
 local modelDistance = 16
@@ -139,7 +140,11 @@ local function clearViewmodel()
 	if viewModel then
 		viewModel:Destroy()
 	end
+	if worldViewModel then
+		worldViewModel:Destroy()
+	end
 	viewModel = nil
+	worldViewModel = nil
 	viewKey = nil
 	modelReady = false
 	modelCenter = Vector3.zero
@@ -157,6 +162,31 @@ local function prepareParts(model)
 			part.LocalTransparencyModifier = 0
 		end
 	end
+end
+
+local function buildWorldViewmodel(weapon, skin)
+	local model = WeaponModels.Build(weapon.Id)
+	model.Name = "LocalBattleWeapon"
+	model:SetAttribute("Viewmodel", true)
+	model:SetAttribute("Presentation", "WorldSpaceAlwaysOnTop")
+	WeaponModels.ApplySkin(model, skin)
+	prepareParts(model)
+	-- Keep long railguns and large melee models inside a useful first-person size.
+	local _, initialSize = model:GetBoundingBox()
+	local largest = math.max(initialSize.X, initialSize.Y, initialSize.Z)
+	if largest > 0.01 and type(model.ScaleTo) == "function" then
+		model:ScaleTo(math.min(0.55, 3.2 / largest))
+	end
+	model.Parent = Workspace
+	local outline = new("Highlight", {
+		Name = "WeaponVisibility",
+		Adornee = model,
+		DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
+		FillTransparency = 1,
+		OutlineColor = weapon.Color or C.Cyan,
+		OutlineTransparency = 0.2,
+	}, model)
+	return model
 end
 
 local function frameModel(model)
@@ -183,7 +213,7 @@ local function ensureViewmodel()
 	local weapon = Catalog.GetWeapon(weaponId) or Catalog.Weapons.Carbine
 	local skin = player:GetAttribute("Cosmetic_WeaponSkin") or "Default"
 	local key = weapon.Id .. ":" .. tostring(skin)
-	if viewModel and viewKey == key and modelReady then
+	if viewModel and viewKey == key and modelReady and (not worldViewModel or worldViewModel.Parent) then
 		return
 	end
 	clearViewmodel()
@@ -198,6 +228,12 @@ local function ensureViewmodel()
 	viewModel = model
 	viewKey = key
 	frameModel(model)
+	-- This second presentation is deliberately world-space. BaseParts parented to a
+	-- Camera are not a dependable cross-device renderer; Workspace + AlwaysOnTop is.
+	local ok, battleModel = pcall(buildWorldViewmodel, weapon, skin)
+	if ok then
+		worldViewModel = battleModel
+	end
 end
 
 local function refreshLabels(phase)
@@ -233,7 +269,7 @@ RunService.RenderStepped:Connect(function()
 	local visible = phase == "Build" or phase == "Battle"
 	panel.Visible = visible
 	if not visible then
-		if viewModel then
+		if viewModel or worldViewModel then
 			clearViewmodel()
 		end
 		lastPhase = phase
@@ -248,17 +284,30 @@ RunService.RenderStepped:Connect(function()
 		updateLayout()
 		lastPhase = phase
 	end
-	if not viewModel or not modelReady then
-		return
+	local clock = os.clock()
+	if viewModel and modelReady then
+		local yaw = 78 + math.sin(clock * 0.65) * 9
+		local pitch = -7 + math.sin(clock * 0.9) * 2
+		local roll = -3 + math.cos(clock * 0.55) * 1.5
+		local rotation = CFrame.Angles(math.rad(pitch), math.rad(yaw), math.rad(roll))
+		viewModel:PivotTo(rotation * CFrame.new(-modelCenter))
+		previewCamera.CFrame = CFrame.lookAt(Vector3.new(0, 1.7 + math.sin(clock * 0.8) * 0.12, modelDistance), Vector3.zero)
 	end
 
-	local clock = os.clock()
-	local yaw = 78 + math.sin(clock * 0.65) * 9
-	local pitch = -7 + math.sin(clock * 0.9) * 2
-	local roll = -3 + math.cos(clock * 0.55) * 1.5
-	local rotation = CFrame.Angles(math.rad(pitch), math.rad(yaw), math.rad(roll))
-	viewModel:PivotTo(rotation * CFrame.new(-modelCenter))
-	previewCamera.CFrame = CFrame.lookAt(Vector3.new(0, 1.7 + math.sin(clock * 0.8) * 0.12, modelDistance), Vector3.zero)
+	-- First-person Battle model: rendered from Workspace, kept in front of the
+	-- camera, and outlined through occluders so it cannot disappear behind the rig.
+	local camera = Workspace.CurrentCamera
+	if worldViewModel and camera then
+		local weapon = Catalog.GetWeapon(player:GetAttribute("SelectedWeapon") or "Carbine") or Catalog.Weapons.Carbine
+		local character = player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local moving = humanoid and humanoid.MoveDirection.Magnitude > 0.1
+		local bob = moving and math.sin(clock * 10) * 0.045 or math.sin(clock * 1.7) * 0.018
+		local sway = moving and math.cos(clock * 5) * 0.025 or 0
+		local offset = weapon.Melee and Vector3.new(0.72, -0.78, -2.15) or Vector3.new(0.88, -0.82, -3.25)
+		local rotation = weapon.Melee and CFrame.Angles(-0.16, -0.28, -0.12) or CFrame.Angles(-0.04, 0.08, 0)
+		worldViewModel:PivotTo(camera.CFrame * CFrame.new(offset + Vector3.new(sway, bob, 0)) * rotation)
+	end
 end)
 
 player:GetAttributeChangedSignal("SelectedWeapon"):Connect(clearViewmodel)

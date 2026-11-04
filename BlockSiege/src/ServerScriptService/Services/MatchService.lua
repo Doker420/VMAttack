@@ -319,6 +319,11 @@ local function onCharacter(player, character)
 	task.defer(function()
 		if character.Parent then
 			character:PivotTo(spawn)
+			-- Re-equip after the avatar finishes loading so R15 hands and the server
+			-- weapon weld cannot be lost during character assembly or respawn.
+			if player.Character == character then
+				weaponService.EquipPlayer(player)
+			end
 		end
 	end)
 	local deathMatch = matchId
@@ -463,6 +468,8 @@ function MatchService.Step(deltaTime)
 		setPhase("Battle", Config.BattleDuration)
 		for _, player in ipairs(Players:GetPlayers()) do
 			if participants[player.UserId] then
+				-- Reassert the selected weapon and skin at the combat boundary.
+				weaponService.EquipPlayer(player)
 				notify(player, "ШТУРМ · уничтожьте вражеское ядро")
 			end
 		end
