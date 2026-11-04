@@ -28,6 +28,7 @@ local effectClasses = {
 	Beam = true,
 	Highlight = true,
 }
+local textureClasses = { Texture = true, Decal = true }
 
 local function remember(part)
 	local record = originals[part]
@@ -36,7 +37,9 @@ local function remember(part)
 		originals[part] = record
 	end
 	for _, item in ipairs(part:GetDescendants()) do
-		if effectClasses[item.ClassName] and not record.Effects[item] then
+		if textureClasses[item.ClassName] and not record.Effects[item] then
+			record.Effects[item] = { Transparency = item.Transparency }
+		elseif effectClasses[item.ClassName] and not record.Effects[item] then
 			record.Effects[item] = { Enabled = item.Enabled }
 		end
 	end
@@ -47,9 +50,13 @@ local function hidePart(part)
 	local record = remember(part)
 	part.LocalTransparencyModifier = 1
 	part.CastShadow = false
-	for item in pairs(record.Effects) do
+	for item, effect in pairs(record.Effects) do
 		if item.Parent then
-			item.Enabled = false
+			if effect.Transparency ~= nil then
+				item.Transparency = 1
+			elseif effect.Enabled ~= nil then
+				item.Enabled = false
+			end
 		end
 	end
 end
@@ -63,7 +70,11 @@ local function showPart(part)
 	part.CastShadow = record.CastShadow
 	for item, effect in pairs(record.Effects) do
 		if item.Parent then
-			item.Enabled = effect.Enabled
+			if effect.Transparency ~= nil then
+				item.Transparency = effect.Transparency
+			elseif effect.Enabled ~= nil then
+				item.Enabled = effect.Enabled
+			end
 		end
 	end
 	originals[part] = nil

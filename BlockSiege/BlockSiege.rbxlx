@@ -320,6 +320,32 @@ local LIGHT = Color3.fromRGB(238, 241, 218)
 local GOLD = Color3.fromRGB(235, 177, 50)
 local GOLD_LIGHT = Color3.fromRGB(255, 226, 137)
 
+local WEAPON_TEXTURES = {
+	[Enum.Material.WoodPlanks] = { Asset = "rbxassetid://9439658515", Tile = 1.2, Transparency = 0.08 },
+	[Enum.Material.Metal] = { Asset = "rbxassetid://9920574687", Tile = 1.4, Transparency = 0.16 },
+	[Enum.Material.DiamondPlate] = { Asset = "rbxassetid://10237720195", Tile = 1.3, Transparency = 0.12 },
+}
+local TEXTURED_PARTS = {
+	Handle = true, Stock = true, Body = true, HeavyBody = true, RailBody = true,
+	PrismReceiver = true, TeslaBody = true, GauntletPalm = true, MeteorHead = true, Armor = true,
+}
+
+local function addWeaponTexture(part, name, material)
+	local style = WEAPON_TEXTURES[material]
+	if not style or not TEXTURED_PARTS[name] then
+		return
+	end
+	local texture = Instance.new("Texture")
+	texture.Name = "WeaponSurfaceTexture"
+	texture.Texture = style.Asset
+	texture.Face = Enum.NormalId.Front
+	texture.StudsPerTileU = style.Tile
+	texture.StudsPerTileV = style.Tile
+	texture.Transparency = style.Transparency
+	texture.Parent = part
+	part:SetAttribute("SurfaceTextured", true)
+end
+
 local function block(model, name, size, cframe, color, material)
 	local part = Instance.new("Part")
 	part.Name = name
@@ -338,6 +364,7 @@ local function block(model, name, size, cframe, color, material)
 	part.TopSurface = Enum.SurfaceType.Smooth
 	part.BottomSurface = Enum.SurfaceType.Smooth
 	part.Parent = model
+	addWeaponTexture(part, name, part.Material)
 	return part
 end
 
@@ -361,15 +388,26 @@ local function polishModel(model, weapon)
 		for _, side in ipairs({ -1, 1 }) do
 			block(model, "AccentArmor", Vector3.new(0.1, math.max(0.18, body.Size.Y * 0.42), math.max(0.35, body.Size.Z * 0.56)), body.CFrame * CFrame.new(side * (body.Size.X * 0.5 + 0.055), 0, 0), weapon.Color, Enum.Material.Metal)
 		end
+		block(model, "BodySeam", Vector3.new(math.max(0.3, body.Size.X * 0.68), 0.07, 0.08), body.CFrame * CFrame.new(0, -body.Size.Y * 0.18, -body.Size.Z * 0.5 - 0.05), GRAPHITE, Enum.Material.Metal)
+		for _, side in ipairs({ -1, 1 }) do
+			for _, vertical in ipairs({ -1, 1 }) do
+				local bolt = block(model, "BodyBolt", Vector3.new(0.13, 0.13, 0.13), body.CFrame * CFrame.new(side * body.Size.X * 0.34, vertical * body.Size.Y * 0.28, -body.Size.Z * 0.5 - 0.09), LIGHT, Enum.Material.Metal)
+				bolt.Shape = Enum.PartType.Ball
+			end
+		end
 	end
 
 	local handle = model:FindFirstChild("Handle")
 	if handle and weapon.Model ~= "Gauntlet" then
 		block(model, "GripCollar", Vector3.new(handle.Size.X * 1.16, 0.14, handle.Size.Z * 1.16), handle.CFrame * CFrame.new(0, handle.Size.Y * 0.38, 0), weapon.Color, Enum.Material.Metal)
 		block(model, "GripBase", Vector3.new(handle.Size.X * 1.12, 0.16, handle.Size.Z * 1.12), handle.CFrame * CFrame.new(0, -handle.Size.Y * 0.5 - 0.08, 0), GRAPHITE, Enum.Material.Metal)
+		for index = 0, 3 do
+			block(model, "GripGroove", Vector3.new(handle.Size.X * 1.03, 0.055, 0.08), handle.CFrame * CFrame.new(0, -0.38 + index * 0.15, -handle.Size.Z * 0.52), GRAPHITE, Enum.Material.Metal)
+		end
 	end
 	model:SetAttribute("WeaponRarity", weapon.Rarity)
 	model:SetAttribute("Finish", "ContrastMetal")
+	model:SetAttribute("SurfaceDetail", "TexturedPanelsAndGrip")
 end
 
 function WeaponModels.Build(weaponId)
@@ -861,19 +899,46 @@ local botSkins = {
 	{ Id = "Shadow", Name = "SHADOW", Primary = Color3.fromRGB(77, 66, 112), Secondary = Color3.fromRGB(32,  30, 52), Accent = Color3.fromRGB(201, 127, 255), Head = Color3.fromRGB(177, 143, 126) },
 }
 
+local BOT_TEXTURES = {
+	Torso = "rbxassetid://9920517696",
+	Backpack = "rbxassetid://9920517696",
+	ChestPlate = "rbxassetid://9920574687",
+	Helmet = "rbxassetid://9920574687",
+	LeftShoulder = "rbxassetid://9920574687",
+	RightShoulder = "rbxassetid://9920574687",
+	HardHat = "rbxassetid://9920574687",
+}
+
+local function addBotTexture(part, name)
+	local asset = BOT_TEXTURES[name]
+	if not asset then
+		return
+	end
+	local texture = Instance.new("Texture")
+	texture.Name = "BotSurfaceTexture"
+	texture.Texture = asset
+	texture.Face = Enum.NormalId.Front
+	texture.StudsPerTileU = 2
+	texture.StudsPerTileV = 2
+	texture.Transparency = 0.12
+	texture.Parent = part
+	part:SetAttribute("SurfaceTextured", true)
+end
+
 local function bodyPart(model, root, name, size, offset, color, jointParent, jointName, jointC0)
 	local part = Instance.new("Part")
 	part.Name = name
 	part.Size = size
 	part.CFrame = root.CFrame * CFrame.new(offset)
 	part.Color = color
-	part.Material = Enum.Material.SmoothPlastic
+	part.Material = (name == "Torso" or name == "Backpack") and Enum.Material.Fabric or Enum.Material.SmoothPlastic
 	part.Anchored = false
 	part.CanCollide = name == "Torso" or name == "Left Leg" or name == "Right Leg"
 	part.CanTouch = false
 	part.CanQuery = true
 	part.Massless = name ~= "Torso"
 	part.Parent = model
+	addBotTexture(part, name)
 
 	-- Humanoid navigation expects a real character assembly, not a collection of
 	-- welded props. C0 preserves the authored pose while Motor6D supplies the rig.
@@ -984,7 +1049,8 @@ local function spawnModel(entry)
 	humanoid.BreakJointsOnDeath = false
 	humanoid.AutoRotate = true
 	humanoid.Parent = model
-	humanoid.RootPart = root
+	-- RootPart is read-only in current Roblox runtime. The correctly named
+	-- HumanoidRootPart and Motor6D RootJoint let Humanoid resolve it automatically.
 	model:SetAttribute("Rig", "Motor6D")
 	-- Set ownership after every joint/part exists so the complete assembly stays
 	-- server-simulated even when a player is standing next to the bot.
@@ -2112,6 +2178,33 @@ local targetsProvider = function()
 	return {}
 end
 
+local STRUCTURE_TEXTURES = {
+	[Enum.Material.Cobblestone] = { Asset = "rbxassetid://9438459300", Tile = 5, Transparency = 0.1 },
+	[Enum.Material.WoodPlanks] = { Asset = "rbxassetid://9439658515", Tile = 4, Transparency = 0.08 },
+	[Enum.Material.Metal] = { Asset = "rbxassetid://9920574687", Tile = 3, Transparency = 0.16 },
+}
+
+local function addStructureTextures(part, name, material)
+	if name ~= "Root" and name ~= "CorePedestal" and name ~= "CorePylon" then
+		return
+	end
+	local style = STRUCTURE_TEXTURES[material]
+	if not style then
+		return
+	end
+	for _, face in ipairs({ Enum.NormalId.Top, Enum.NormalId.Front }) do
+		local texture = Instance.new("Texture")
+		texture.Name = "StructureSurfaceTexture"
+		texture.Texture = style.Asset
+		texture.Face = face
+		texture.StudsPerTileU = style.Tile
+		texture.StudsPerTileV = style.Tile
+		texture.Transparency = style.Transparency
+		texture.Parent = part
+	end
+	part:SetAttribute("SurfaceTextured", true)
+end
+
 local function makeBlock(model, name, size, cframe, color, material, collide)
 	local part = Instance.new("Part")
 	part.Name = name
@@ -2126,6 +2219,7 @@ local function makeBlock(model, name, size, cframe, color, material, collide)
 	part.TopSurface = Enum.SurfaceType.Smooth
 	part.BottomSurface = Enum.SurfaceType.Smooth
 	part.Parent = model
+	addStructureTextures(part, name, part.Material)
 	return part
 end
 
@@ -3861,6 +3955,41 @@ local C = {
 	Gold = Color3.fromRGB(239, 179, 52),
 }
 
+-- Public Roblox material color maps add real tiled surface detail without a custom
+-- model upload. The underlying Material/Color remains as a loading-safe fallback.
+local SURFACE_TEXTURES = {
+	[Enum.Material.Cobblestone] = { Asset = "rbxassetid://9438459300", Tile = 6, Transparency = 0.1 },
+	[Enum.Material.WoodPlanks] = { Asset = "rbxassetid://9439658515", Tile = 4, Transparency = 0.08 },
+	[Enum.Material.Snow] = { Asset = "rbxassetid://9439632387", Tile = 5, Transparency = 0.04 },
+	[Enum.Material.Grass] = { Asset = "rbxassetid://9438956437", Tile = 7, Transparency = 0.12 },
+	[Enum.Material.Ground] = { Asset = "rbxassetid://9439044431", Tile = 7, Transparency = 0.12 },
+	[Enum.Material.Slate] = { Asset = "rbxassetid://9483106252", Tile = 6, Transparency = 0.12 },
+	[Enum.Material.Sand] = { Asset = "rbxassetid://9439585561", Tile = 6, Transparency = 0.1 },
+	[Enum.Material.Fabric] = { Asset = "rbxassetid://9920517696", Tile = 3, Transparency = 0.1 },
+}
+
+local function addSurfaceTextures(part, material, name)
+	local style = SURFACE_TEXTURES[material]
+	if not style then
+		return
+	end
+	local largest = math.max(part.Size.X, part.Size.Y, part.Size.Z)
+	if largest < 5 and name ~= "GiftBox" and name ~= "GiftLid" then
+		return
+	end
+	for _, face in ipairs({ Enum.NormalId.Top, Enum.NormalId.Front }) do
+		local texture = Instance.new("Texture")
+		texture.Name = "SurfaceTexture"
+		texture.Texture = style.Asset
+		texture.Face = face
+		texture.StudsPerTileU = style.Tile
+		texture.StudsPerTileV = style.Tile
+		texture.Transparency = style.Transparency
+		texture.Parent = part
+	end
+	part:SetAttribute("SurfaceTextured", true)
+end
+
 local function makePart(parent, name, size, cframe, color, material, collide, className)
 	local part = Instance.new(className or "Part")
 	part.Name = name
@@ -3875,6 +4004,7 @@ local function makePart(parent, name, size, cframe, color, material, collide, cl
 	part.TopSurface = Enum.SurfaceType.Smooth
 	part.BottomSurface = Enum.SurfaceType.Smooth
 	part.Parent = parent
+	addSurfaceTextures(part, part.Material, name)
 	return part
 end
 
@@ -4724,6 +4854,7 @@ local effectClasses = {
 	Beam = true,
 	Highlight = true,
 }
+local textureClasses = { Texture = true, Decal = true }
 
 local function remember(part)
 	local record = originals[part]
@@ -4732,7 +4863,9 @@ local function remember(part)
 		originals[part] = record
 	end
 	for _, item in ipairs(part:GetDescendants()) do
-		if effectClasses[item.ClassName] and not record.Effects[item] then
+		if textureClasses[item.ClassName] and not record.Effects[item] then
+			record.Effects[item] = { Transparency = item.Transparency }
+		elseif effectClasses[item.ClassName] and not record.Effects[item] then
 			record.Effects[item] = { Enabled = item.Enabled }
 		end
 	end
@@ -4743,9 +4876,13 @@ local function hidePart(part)
 	local record = remember(part)
 	part.LocalTransparencyModifier = 1
 	part.CastShadow = false
-	for item in pairs(record.Effects) do
+	for item, effect in pairs(record.Effects) do
 		if item.Parent then
-			item.Enabled = false
+			if effect.Transparency ~= nil then
+				item.Transparency = 1
+			elseif effect.Enabled ~= nil then
+				item.Enabled = false
+			end
 		end
 	end
 end
@@ -4759,7 +4896,11 @@ local function showPart(part)
 	part.CastShadow = record.CastShadow
 	for item, effect in pairs(record.Effects) do
 		if item.Parent then
-			item.Enabled = effect.Enabled
+			if effect.Transparency ~= nil then
+				item.Transparency = effect.Transparency
+			elseif effect.Enabled ~= nil then
+				item.Enabled = effect.Enabled
+			end
 		end
 	end
 	originals[part] = nil

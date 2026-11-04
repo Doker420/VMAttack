@@ -21,6 +21,41 @@ local C = {
 	Gold = Color3.fromRGB(239, 179, 52),
 }
 
+-- Public Roblox material color maps add real tiled surface detail without a custom
+-- model upload. The underlying Material/Color remains as a loading-safe fallback.
+local SURFACE_TEXTURES = {
+	[Enum.Material.Cobblestone] = { Asset = "rbxassetid://9438459300", Tile = 6, Transparency = 0.1 },
+	[Enum.Material.WoodPlanks] = { Asset = "rbxassetid://9439658515", Tile = 4, Transparency = 0.08 },
+	[Enum.Material.Snow] = { Asset = "rbxassetid://9439632387", Tile = 5, Transparency = 0.04 },
+	[Enum.Material.Grass] = { Asset = "rbxassetid://9438956437", Tile = 7, Transparency = 0.12 },
+	[Enum.Material.Ground] = { Asset = "rbxassetid://9439044431", Tile = 7, Transparency = 0.12 },
+	[Enum.Material.Slate] = { Asset = "rbxassetid://9483106252", Tile = 6, Transparency = 0.12 },
+	[Enum.Material.Sand] = { Asset = "rbxassetid://9439585561", Tile = 6, Transparency = 0.1 },
+	[Enum.Material.Fabric] = { Asset = "rbxassetid://9920517696", Tile = 3, Transparency = 0.1 },
+}
+
+local function addSurfaceTextures(part, material, name)
+	local style = SURFACE_TEXTURES[material]
+	if not style then
+		return
+	end
+	local largest = math.max(part.Size.X, part.Size.Y, part.Size.Z)
+	if largest < 5 and name ~= "GiftBox" and name ~= "GiftLid" then
+		return
+	end
+	for _, face in ipairs({ Enum.NormalId.Top, Enum.NormalId.Front }) do
+		local texture = Instance.new("Texture")
+		texture.Name = "SurfaceTexture"
+		texture.Texture = style.Asset
+		texture.Face = face
+		texture.StudsPerTileU = style.Tile
+		texture.StudsPerTileV = style.Tile
+		texture.Transparency = style.Transparency
+		texture.Parent = part
+	end
+	part:SetAttribute("SurfaceTextured", true)
+end
+
 local function makePart(parent, name, size, cframe, color, material, collide, className)
 	local part = Instance.new(className or "Part")
 	part.Name = name
@@ -35,6 +70,7 @@ local function makePart(parent, name, size, cframe, color, material, collide, cl
 	part.TopSurface = Enum.SurfaceType.Smooth
 	part.BottomSurface = Enum.SurfaceType.Smooth
 	part.Parent = parent
+	addSurfaceTextures(part, part.Material, name)
 	return part
 end
 

@@ -12,6 +12,32 @@ local LIGHT = Color3.fromRGB(238, 241, 218)
 local GOLD = Color3.fromRGB(235, 177, 50)
 local GOLD_LIGHT = Color3.fromRGB(255, 226, 137)
 
+local WEAPON_TEXTURES = {
+	[Enum.Material.WoodPlanks] = { Asset = "rbxassetid://9439658515", Tile = 1.2, Transparency = 0.08 },
+	[Enum.Material.Metal] = { Asset = "rbxassetid://9920574687", Tile = 1.4, Transparency = 0.16 },
+	[Enum.Material.DiamondPlate] = { Asset = "rbxassetid://10237720195", Tile = 1.3, Transparency = 0.12 },
+}
+local TEXTURED_PARTS = {
+	Handle = true, Stock = true, Body = true, HeavyBody = true, RailBody = true,
+	PrismReceiver = true, TeslaBody = true, GauntletPalm = true, MeteorHead = true, Armor = true,
+}
+
+local function addWeaponTexture(part, name, material)
+	local style = WEAPON_TEXTURES[material]
+	if not style or not TEXTURED_PARTS[name] then
+		return
+	end
+	local texture = Instance.new("Texture")
+	texture.Name = "WeaponSurfaceTexture"
+	texture.Texture = style.Asset
+	texture.Face = Enum.NormalId.Front
+	texture.StudsPerTileU = style.Tile
+	texture.StudsPerTileV = style.Tile
+	texture.Transparency = style.Transparency
+	texture.Parent = part
+	part:SetAttribute("SurfaceTextured", true)
+end
+
 local function block(model, name, size, cframe, color, material)
 	local part = Instance.new("Part")
 	part.Name = name
@@ -30,6 +56,7 @@ local function block(model, name, size, cframe, color, material)
 	part.TopSurface = Enum.SurfaceType.Smooth
 	part.BottomSurface = Enum.SurfaceType.Smooth
 	part.Parent = model
+	addWeaponTexture(part, name, part.Material)
 	return part
 end
 
@@ -53,15 +80,26 @@ local function polishModel(model, weapon)
 		for _, side in ipairs({ -1, 1 }) do
 			block(model, "AccentArmor", Vector3.new(0.1, math.max(0.18, body.Size.Y * 0.42), math.max(0.35, body.Size.Z * 0.56)), body.CFrame * CFrame.new(side * (body.Size.X * 0.5 + 0.055), 0, 0), weapon.Color, Enum.Material.Metal)
 		end
+		block(model, "BodySeam", Vector3.new(math.max(0.3, body.Size.X * 0.68), 0.07, 0.08), body.CFrame * CFrame.new(0, -body.Size.Y * 0.18, -body.Size.Z * 0.5 - 0.05), GRAPHITE, Enum.Material.Metal)
+		for _, side in ipairs({ -1, 1 }) do
+			for _, vertical in ipairs({ -1, 1 }) do
+				local bolt = block(model, "BodyBolt", Vector3.new(0.13, 0.13, 0.13), body.CFrame * CFrame.new(side * body.Size.X * 0.34, vertical * body.Size.Y * 0.28, -body.Size.Z * 0.5 - 0.09), LIGHT, Enum.Material.Metal)
+				bolt.Shape = Enum.PartType.Ball
+			end
+		end
 	end
 
 	local handle = model:FindFirstChild("Handle")
 	if handle and weapon.Model ~= "Gauntlet" then
 		block(model, "GripCollar", Vector3.new(handle.Size.X * 1.16, 0.14, handle.Size.Z * 1.16), handle.CFrame * CFrame.new(0, handle.Size.Y * 0.38, 0), weapon.Color, Enum.Material.Metal)
 		block(model, "GripBase", Vector3.new(handle.Size.X * 1.12, 0.16, handle.Size.Z * 1.12), handle.CFrame * CFrame.new(0, -handle.Size.Y * 0.5 - 0.08, 0), GRAPHITE, Enum.Material.Metal)
+		for index = 0, 3 do
+			block(model, "GripGroove", Vector3.new(handle.Size.X * 1.03, 0.055, 0.08), handle.CFrame * CFrame.new(0, -0.38 + index * 0.15, -handle.Size.Z * 0.52), GRAPHITE, Enum.Material.Metal)
+		end
 	end
 	model:SetAttribute("WeaponRarity", weapon.Rarity)
 	model:SetAttribute("Finish", "ContrastMetal")
+	model:SetAttribute("SurfaceDetail", "TexturedPanelsAndGrip")
 end
 
 function WeaponModels.Build(weaponId)

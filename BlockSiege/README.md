@@ -17,6 +17,7 @@
 - **Серверные разрушения:** у стен, баррикад, башен и ядер есть здоровье. Свою крепость и союзников повредить нельзя; броня уменьшает входящий урон персонажа. Ловушки имеют серверные trigger radius, cooldown, урон и one-shot правила.
 - **Capture 67:** центральная светящаяся конструкция с кристаллом, пилонами и крупной надписью **67**. Игроки и живые боты захватывают её присутствием; HUD показывает владельца, прогресс и contested-состояние.
 - **Графика и звук:** детализированные базы, cliffs, облака, флаги, светящиеся ядра, дым повреждений, voxel-взрывы, золотые косметические модели, 3 музыкальные темы с crossfade и 10 SFX с настроенными Audio IDs.
+- **Текстуры и детализация:** tiled Roblox material maps для камня, дерева, снега, травы, земли, песка и ткани; у оружия добавлены текстурированные рукоятки/корпуса, металлические швы, болты и насечки. Базовые Material/Color сохраняются как fallback, а процедурная геометрия не требует загрузки внешних моделей.
 - **Честная монетизация:** Robux даёт только внешний вид. Кейсы, оружие, монеты, жетоны и боевые характеристики за Robux не продаются.
 
 ## Новогодний Winter Ops
@@ -24,6 +25,12 @@
 Все украшения создаются в `WorldBuilder` из обычных Part/Model/ParticleEmitter, поэтому не требуют загрузки внешних Roblox-моделей или текстур. В лобби находятся пять наряженных ёлок, центральная праздничная арка, четыре подарка, два снеговика, шесть снежинок и четыре гирлянды. На арене добавлены две ёлки, снеговики, подарки, снежные поляны и две длинные гирлянды; два snowfall emitter создают мягкий снегопад. Всего native audit насчитывает **698 декоративных деталей** и **28 праздничных моделей**.
 
 Декоративные детали помечены `HolidayDecor`, остаются `Anchored`, `CanCollide=false`, `CanTouch=false` и `CanQuery=false`. Они не добавляются в препятствия GeodataService и не перехватывают weapon raycast. Существующие боевые укрытия и безопасные стены лобби сохраняют свои свойства. Праздничный слой не меняет здоровье ядер, фазы матча, награды или характеристики оружия.
+
+## Текстуры и поверхности
+
+`WorldBuilder` добавляет tiled `Texture` на Top/Front крупных Part: Cobblestone, WoodPlanks, Snow, Grass, Ground, Slate, Sand и Fabric. `FortressService` повторяет surface treatment для стен, баррикад и ядер, а `BotService` — для брони и ткани ботов. Для оружия `WeaponModels` использует отдельные surface textures на рукоятках и основных корпусах, а также создаёт `BodySeam`, `BodyBolt` и `GripGroove`. Поэтому модели не остаются просто одноцветными блоками даже вблизи. Текстуры не меняют collision, CanQuery, урон или навигацию; базовый материал остаётся видимым во время загрузки карты. Build fog-of-war сохраняет/восстанавливает Texture Transparency отдельно от Part и света.
+
+Исправление live-ошибки ботов: `Humanoid.RootPart` является read-only в текущем Roblox runtime и больше не присваивается вручную. Движок сам находит корень по имени `HumanoidRootPart` и соединению `RootJoint`.
 
 ## Цикл игры
 
@@ -129,7 +136,7 @@ NPC **ROBUX // КОСМЕТИКА** или клавиша `K` открывает
 - **Support:** держится рядом с союзниками, меняет цели и восстанавливает 8 HP раз в 2 секунды союзнику в радиусе 24.
 - Все роли строят по три укрепления во время подготовки. Боты не получают платных или скрытых боевых бонусов. Assault-боты также могут идти к свободной/вражеской точке 67, а не только бездумно бежать к ядру.
 - Шесть пресетов Scout / Heavy / Medic / Ranger / Engineer / Shadow меняют цвета брони, шлемы, визор, рюкзак и специальные аксессуары; team band и роль остаются читаемыми.
-- `GeodataService` хранит collision-препятствия арены и обновляет живые постройки/ловушки каждые 0,4 с. Для перемещения используется `PathfindingService:CreatePath`, geodata side-waypoints и fallback `MoveTo`. Риг собирается до добавления `Humanoid`, использует R6 `Motor6D` и явный `RootPart`; server ownership назначается после сборки всей assembly. При застревании бот перестраивает маршрут, а не прыгает автоматически. Raycast подтверждает реальное препятствие; навигационный Jump и прыжок через препятствие имеют cooldown 1,5 секунды.
+- `GeodataService` хранит collision-препятствия арены и обновляет живые постройки/ловушки каждые 0,4 с. Для перемещения используется `PathfindingService:CreatePath`, geodata side-waypoints и fallback `MoveTo`. Риг собирается до добавления `Humanoid`, использует R6 `Motor6D` и правильно именованные `HumanoidRootPart`/`RootJoint` (движок сам определяет read-only `Humanoid.RootPart`); server ownership назначается после сборки всей assembly. При застревании бот перестраивает маршрут, а не прыгает автоматически. Raycast подтверждает реальное препятствие; навигационный Jump и прыжок через препятствие имеют cooldown 1,5 секунды.
 - При HP ниже 30% бот отходит к своей базе и продолжает стрелять только по подходящей близкой цели.
 
 ## Управление
@@ -243,11 +250,12 @@ rojo build --output BlockSiege.rbxlx
 - Базовый интегрированный Luau audit реальных серверных модулей и процедурного мира проверяет solo-заполнение, 6×6, строительство, урон, ядра, respawn, выход игрока и кейсы.
 - Expansion audit дополнительно проверяет NPC prompts, апгрейды и их характеристики, Daily cooldown, Studio cosmetic grants, золотой skin, аура/trail, armor damage, valid/invalid server preview и дополнительную вместимость построек.
 - Second-expansion audit проверяет geodata/static+dynamic obstacles, side-waypoints, шесть bot skins, непрозрачные модели всех 14 орудий, coin defense purchases, rotated preview/build parity, Spike/Flame/Shock trap damage и cooldown, one-shot mine, захват/contested 67 и неизменное правило победы по ядру.
-- Base visibility audit проверяет скрытие вражеской платформы, ядра, glow и BillboardGui во время Build, восстановление в Battle и смену команды.
+- Base visibility audit проверяет скрытие вражеской платформы, ядра, glow, BillboardGui и Texture во время Build, восстановление в Battle и смену команды.
 - Тактический mock прогоняет создание путей и отсутствие прыжка без препятствия; это не доказательство качества реальной навигации в Studio.
 - Client mock audit: HUD, capture progress, rotation input, BuildPreviewRequest и создание непрозрачного 3D loadout в `ViewportFrame` для Build/Battle; отдельный native audit проверяет World-space Battle model, `AlwaysOnTop`, server equip и очистку в Lobby/Results. Bot audit проверяет 12 живых Humanoid, `RootJoint`/`Neck`, Motor6D и field destinations. Реальные физика и рендер всё равно требуют Studio.
 - Audio audit: переключение Lobby → Build → Battle, выстрелы, melee/trap/capture SFX, разрушение, постройка, кейс, победа и корректное повторное включение после mute.
 - Holiday world audit: 698 декоративных деталей, 28 моделей и 2 snowfall emitter; все holiday BaseParts имеют `CanCollide=false` и `CanQuery=false`, а спавны, Capture 67 и боевые укрытия сохраняются.
+- Texture regression: все 14 орудий получают surface/detail слой, tiled Texture имеют масштаб повторения, а старые weapon/equip и world audits продолжают проходить. Фактическая загрузка изображений и их вид в Roblox проверяются в Studio.
 - Файловый audio audit: 13 PCM WAV, длительность, каналы, частота 22 050 Гц и SHA-256 проверены.
 - `.rbxlx` собирается Rojo; XML parity проверяет точное совпадение исходного текста всех 20 скриптов.
 

@@ -28,6 +28,33 @@ local targetsProvider = function()
 	return {}
 end
 
+local STRUCTURE_TEXTURES = {
+	[Enum.Material.Cobblestone] = { Asset = "rbxassetid://9438459300", Tile = 5, Transparency = 0.1 },
+	[Enum.Material.WoodPlanks] = { Asset = "rbxassetid://9439658515", Tile = 4, Transparency = 0.08 },
+	[Enum.Material.Metal] = { Asset = "rbxassetid://9920574687", Tile = 3, Transparency = 0.16 },
+}
+
+local function addStructureTextures(part, name, material)
+	if name ~= "Root" and name ~= "CorePedestal" and name ~= "CorePylon" then
+		return
+	end
+	local style = STRUCTURE_TEXTURES[material]
+	if not style then
+		return
+	end
+	for _, face in ipairs({ Enum.NormalId.Top, Enum.NormalId.Front }) do
+		local texture = Instance.new("Texture")
+		texture.Name = "StructureSurfaceTexture"
+		texture.Texture = style.Asset
+		texture.Face = face
+		texture.StudsPerTileU = style.Tile
+		texture.StudsPerTileV = style.Tile
+		texture.Transparency = style.Transparency
+		texture.Parent = part
+	end
+	part:SetAttribute("SurfaceTextured", true)
+end
+
 local function makeBlock(model, name, size, cframe, color, material, collide)
 	local part = Instance.new("Part")
 	part.Name = name
@@ -42,6 +69,7 @@ local function makeBlock(model, name, size, cframe, color, material, collide)
 	part.TopSurface = Enum.SurfaceType.Smooth
 	part.BottomSurface = Enum.SurfaceType.Smooth
 	part.Parent = model
+	addStructureTextures(part, name, part.Material)
 	return part
 end
 

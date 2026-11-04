@@ -41,19 +41,46 @@ local botSkins = {
 	{ Id = "Shadow", Name = "SHADOW", Primary = Color3.fromRGB(77, 66, 112), Secondary = Color3.fromRGB(32,  30, 52), Accent = Color3.fromRGB(201, 127, 255), Head = Color3.fromRGB(177, 143, 126) },
 }
 
+local BOT_TEXTURES = {
+	Torso = "rbxassetid://9920517696",
+	Backpack = "rbxassetid://9920517696",
+	ChestPlate = "rbxassetid://9920574687",
+	Helmet = "rbxassetid://9920574687",
+	LeftShoulder = "rbxassetid://9920574687",
+	RightShoulder = "rbxassetid://9920574687",
+	HardHat = "rbxassetid://9920574687",
+}
+
+local function addBotTexture(part, name)
+	local asset = BOT_TEXTURES[name]
+	if not asset then
+		return
+	end
+	local texture = Instance.new("Texture")
+	texture.Name = "BotSurfaceTexture"
+	texture.Texture = asset
+	texture.Face = Enum.NormalId.Front
+	texture.StudsPerTileU = 2
+	texture.StudsPerTileV = 2
+	texture.Transparency = 0.12
+	texture.Parent = part
+	part:SetAttribute("SurfaceTextured", true)
+end
+
 local function bodyPart(model, root, name, size, offset, color, jointParent, jointName, jointC0)
 	local part = Instance.new("Part")
 	part.Name = name
 	part.Size = size
 	part.CFrame = root.CFrame * CFrame.new(offset)
 	part.Color = color
-	part.Material = Enum.Material.SmoothPlastic
+	part.Material = (name == "Torso" or name == "Backpack") and Enum.Material.Fabric or Enum.Material.SmoothPlastic
 	part.Anchored = false
 	part.CanCollide = name == "Torso" or name == "Left Leg" or name == "Right Leg"
 	part.CanTouch = false
 	part.CanQuery = true
 	part.Massless = name ~= "Torso"
 	part.Parent = model
+	addBotTexture(part, name)
 
 	-- Humanoid navigation expects a real character assembly, not a collection of
 	-- welded props. C0 preserves the authored pose while Motor6D supplies the rig.
@@ -164,7 +191,8 @@ local function spawnModel(entry)
 	humanoid.BreakJointsOnDeath = false
 	humanoid.AutoRotate = true
 	humanoid.Parent = model
-	humanoid.RootPart = root
+	-- RootPart is read-only in current Roblox runtime. The correctly named
+	-- HumanoidRootPart and Motor6D RootJoint let Humanoid resolve it automatically.
 	model:SetAttribute("Rig", "Motor6D")
 	-- Set ownership after every joint/part exists so the complete assembly stays
 	-- server-simulated even when a player is standing next to the bot.
