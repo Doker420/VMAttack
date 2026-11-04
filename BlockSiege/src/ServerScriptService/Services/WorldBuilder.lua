@@ -205,7 +205,7 @@ local CREATOR_STORE_ASSETS = {
 		},
 	},
 	{
-		Key = "RealisticPines", Id = 4783126123, Title = "[FREE] Realistic Pine Trees", Credit = "Creator Store asset 4783126123", Shadows = true,
+		Key = "RealisticPines", Id = 4783126123, Title = "[FREE] Realistic Pine Trees", Credit = "@QualityModeIs · Creator Store asset 4783126123", Shadows = true,
 		Placements = {
 			{ Parent = "Arena", Position = Vector3.new(-220, 0, -118), Size = 25, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(18), 0) },
 			{ Parent = "Arena", Position = Vector3.new(220, 0, 118), Size = 25, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(-22), 0) },

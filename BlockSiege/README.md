@@ -39,7 +39,7 @@
 | [Wreath](https://create.roblox.com/store/asset/67187797/Wreath) | `67187797` | 2 венка на боковых столбах праздничной арки |
 | [Present](https://create.roblox.com/store/asset/67187816/Present) | `67187816` | 2 подарка у центральной зоны лобби |
 | [Christmas Ornaments](https://create.roblox.com/store/asset/332741030/Christmas-Ornaments) | `332741030` | Дополнительные ornaments на большой Store-ёлке |
-| [Realistic Pine Trees (FREE)](https://create.roblox.com/store/asset/4783126123/FREE-Realistic-Pine-Trees) | `4783126123` | 6 реалистичных сосен на арене и в лобби; procedural sculpted fallback остаётся |
+| [Realistic Pine Trees (FREE)](https://create.roblox.com/store/asset/4783126123/FREE-Realistic-Pine-Trees) · **@QualityModeIs** | `4783126123` | 6 реалистичных сосен на арене и в лобби; procedural sculpted fallback остаётся |
 | [Low Poly Medieval Tower](https://create.roblox.com/store/asset/4989364844/Low-Poly-Medieval-Tower) · **@anomon, free with credit** | `4989364844` | 2 hero-тавера на арене и 1 в галерее лобби |
 | [Low Poly Medieval House](https://create.roblox.com/store/asset/4989402992/Low-Poly-Medieval-House) · **@anomon, free with credit** | `4989402992` | 2 mesh-дома у внешних jungle-зон |
 
