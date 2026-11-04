@@ -2,6 +2,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("BlockSiege")
 local Config = require(Shared:WaitForChild("Config"))
+local CombatModels = require(Shared:WaitForChild("CombatModels"))
 
 local vector3Type = typeof(Vector3.new())
 local FortressService = {}
@@ -160,7 +161,20 @@ local function createStructure(team, kind, cframe)
 	local dark = Config.Teams[team].Dark
 	local root = makeBlock(model, "Root", definition.Size, cframe, dark, definition.Trap and Enum.Material.Metal or (kind == "Barricade" and Enum.Material.WoodPlanks or Enum.Material.Cobblestone), true)
 	model.PrimaryPart = root
-	if definition.Trap then
+	if kind == "LaneTower" then
+		model:SetAttribute("Objective", "LaneTower")
+		makeBlock(model, "TowerBase", Vector3.new(11, 1.2, 11), cframe * CFrame.new(0, -6.4, 0), dark, Enum.Material.Cobblestone, true)
+		makeBlock(model, "TowerBand", Vector3.new(8.5, 0.7, 8.5), cframe * CFrame.new(0, 3.8, 0), color, Enum.Material.Metal, false)
+		makeBlock(model, "TowerHead", Vector3.new(7, 3, 7), cframe * CFrame.new(0, 5.5, 0), color, Enum.Material.DiamondPlate, true)
+		makeBlock(model, "TowerBarrel", Vector3.new(1.4, 1.4, 8), cframe * CFrame.new(0, 5.5, -5), Color3.fromRGB(222, 238, 244), Enum.Material.Metal, false)
+		local eye = makeBlock(model, "TowerEye", Vector3.new(2.2, 0.65, 0.4), cframe * CFrame.new(0, 6, -3.6), Color3.fromRGB(255, 211, 99), Enum.Material.Neon, false)
+		local glow = Instance.new("PointLight")
+		glow.Name = "TowerGlow"
+		glow.Color = color
+		glow.Brightness = 1.4
+		glow.Range = 16
+		glow.Parent = eye
+	elseif definition.Trap then
 		model:SetAttribute("IsTrap", true)
 		model:SetAttribute("DefenseId", kind)
 		if kind == "SpikeTrap" then
@@ -197,8 +211,26 @@ local function createStructure(team, kind, cframe)
 	end
 	local entry = registerEntry(model, team, kind, definition.Health)
 	entry.IsTrap = definition.Trap == true
+	entry.IsLaneTower = kind == "LaneTower"
 	entry.ArmedAt = os.clock() + 1
 	entry.NextTrigger = 0
+	entry.NextAttack = os.clock() + 0.8
+	CombatModels.RegisterStructureAnimation(entry)
+	return entry
+end
+
+local function createLaneTower(team, lane, distance)
+	local side = team == "Blue" and -1 or 1
+	local zOffset = lane == 0 and 18 or (lane > 0 and -16 or 16)
+	local position = Vector3.new(side * distance, 7, lane + zOffset)
+	local facing = team == "Blue" and 1 or -1
+	local towerCFrame = CFrame.lookAt(position, position + Vector3.new(facing, 0, 0))
+	local entry = createStructure(team, "LaneTower", towerCFrame)
+	if entry then
+		entry.Lane = lane
+		entry.Model:SetAttribute("Lane", lane)
+		entry.Model:SetAttribute("AttackRange", Config.BuildKinds.LaneTower.AttackRange)
+	end
 	return entry
 end
 
@@ -279,6 +311,18 @@ function FortressService.Reset()
 			createStructure(team, "Barricade", baseCFrame * CFrame.new(side * 42, 2.5, 4) * CFrame.Angles(0, math.rad(90), 0))
 		end
 	end
+	if Config.Objectives and Config.Objectives.LaneTowers then
+		for _, team in ipairs(Config.TeamOrder) do
+			for _, lane in ipairs(Config.Objectives.Lanes) do
+				for _, distance in ipairs(Config.Objectives.TowerDistances) do
+					createLaneTower(team, lane, distance)
+				end
+			end
+		end
+	end
+	if state then
+		state:SetAttribute("LaneTowerCount", Config.Objectives and (#Config.Objectives.Lanes * #Config.Objectives.TowerDistances * 2) or 0)
+	end
 end
 
 local function validPosition(position)
@@ -300,7 +344,7 @@ end
 
 local function placement(team, kind, position, rotation)
 	local definition = Config.BuildKinds[kind]
-	if not definition or not validPosition(position) then
+	if not definition or kind == "LaneTower" or not validPosition(position) then
 		return nil, "Неверная позиция"
 	end
 	local baseCFrame = Config.BaseCFrame(team)
@@ -398,6 +442,28 @@ function FortressService.BuildBot(team, slot, buildIndex)
 		end
 	end
 	return false
+end
+
+function FortressService.RepairStructures(team, position, radius, amount)
+	if not Config.Teams[team] or not validPosition(position) then
+		return 0
+	end
+	local repaired = 0
+	local repairAmount = math.max(0, tonumber(amount) or 0)
+	for _, entry in pairs(entries) do
+		local root = entry.Active and entry.Team == team and entry.Model and entry.Model.PrimaryPart or nil
+		if root and (root.Position - position).Magnitude <= radius then
+			local before = tonumber(entry.Health) or 0
+			local maximum = tonumber(entry.MaxHealth) or before
+			entry.Health = math.min(maximum, before + repairAmount)
+			entry.Model:SetAttribute("Health", entry.Health)
+			repaired = repaired + entry.Health - before
+			if entry.Kind == "Core" then
+				updateState(team)
+			end
+		end
+	end
+	return repaired
 end
 
 function FortressService.DamagePart(part, amount, attackingTeam, player)
@@ -502,20 +568,71 @@ local function applyTrapDamage(model, amount)
 		return false
 	end
 	local armor = tonumber(model:GetAttribute("Armor")) or 0
-	humanoid:TakeDamage(amount * (1 - math.clamp(armor, 0, 0.65)))
+	local shield = tonumber(model:GetAttribute("DamageTakenMultiplier")) or 1
+	humanoid:TakeDamage(amount * math.clamp(shield, 0.05, 1) * (1 - math.clamp(armor, 0, 0.65)))
 	return true
 end
 
+local function towerAttack(entry, definition, root, now)
+	if now < (entry.NextAttack or 0) then
+		return
+	end
+	local best
+	local bestRoot
+	local bestDistance = definition.AttackRange
+	for _, model in ipairs(targetsProvider(entry.Team)) do
+		local targetRoot = model and model:FindFirstChild("HumanoidRootPart")
+		local humanoid = model and model:FindFirstChildOfClass("Humanoid")
+		if targetRoot and humanoid and humanoid.Health > 0 then
+			local distance = (targetRoot.Position - root.Position).Magnitude
+			if distance <= bestDistance then
+				best = model
+				bestRoot = targetRoot
+				bestDistance = distance
+			end
+		end
+	end
+	if not best then
+		entry.NextAttack = now + 0.25
+		return
+	end
+	entry.NextAttack = now + definition.AttackCooldown
+	local aimPosition = Vector3.new(bestRoot.Position.X, root.Position.Y, bestRoot.Position.Z)
+	if (aimPosition - root.Position).Magnitude > 0.1 then
+		entry.Model:PivotTo(CFrame.lookAt(root.Position, aimPosition))
+	end
+	applyTrapDamage(best, definition.AttackDamage)
+	entry.Model:SetAttribute("TargetName", best.Name)
+	local barrel = entry.Model:FindFirstChild("TowerBarrel")
+	remotes.CombatFX:FireAllClients({
+		Kind = "TowerShot",
+		Origin = barrel and barrel.Position or root.Position + Vector3.new(0, 6, 0),
+		Finish = bestRoot.Position,
+		Position = bestRoot.Position,
+		Team = entry.Team,
+		Color = Config.Teams[entry.Team].Color,
+	})
+end
+
 function FortressService.Step()
+	local now = os.clock()
+	-- Traps remain visually alive during Build; only damage is Battle-gated.
+	for _, entry in pairs(entries) do
+		if entry.Active and entry.IsTrap then
+			entry.Model:SetAttribute("Triggered", (entry.TriggeredUntil or 0) > now)
+			CombatModels.AnimateStructure(entry, now)
+		end
+	end
 	if phaseProvider() ~= "Battle" then
 		return
 	end
-	local now = os.clock()
 	local destroyAfter = {}
 	for _, entry in pairs(entries) do
 		local definition = Config.BuildKinds[entry.Kind]
 		local root = entry.Model and entry.Model.PrimaryPart
-		if entry.Active and entry.IsTrap and definition and root and now >= (entry.ArmedAt or 0) and now >= (entry.NextTrigger or 0) then
+		if entry.Active and entry.IsLaneTower and definition and root then
+			towerAttack(entry, definition, root, now)
+		elseif entry.Active and entry.IsTrap and definition and root and now >= (entry.ArmedAt or 0) and now >= (entry.NextTrigger or 0) then
 			local targets = targetsProvider(entry.Team)
 			for _, model in ipairs(targets) do
 				local targetRoot = model and model:FindFirstChild("HumanoidRootPart")
@@ -533,6 +650,7 @@ function FortressService.Step()
 						applyTrapDamage(model, definition.Damage)
 						entry.NextTrigger = now + definition.Cooldown
 					end
+					entry.TriggeredUntil = now + 0.35
 					entry.Model:SetAttribute("Triggered", true)
 					remotes.TrapFX:FireAllClients({ Kind = entry.Kind, Position = root.Position, Team = entry.Team })
 					break

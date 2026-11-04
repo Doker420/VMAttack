@@ -11,6 +11,13 @@ local Shared = ReplicatedStorage:WaitForChild("BlockSiege")
 local Catalog = require(Shared:WaitForChild("Catalog"))
 local WeaponModels = require(Shared:WaitForChild("WeaponModels"))
 local state = Shared:WaitForChild("MatchState")
+local remotes = Shared:FindFirstChild("Remotes")
+local animatedWeapon
+local animatedWelds = {}
+local equipStarted = 0
+local recoilUntil = 0
+local reloadStarted = 0
+local wasReloading = false
 
 local C = {
 	Background = Color3.fromRGB(17, 24, 32),
@@ -228,8 +235,87 @@ local function updateLayout()
 	end
 end
 
+local function cacheWorldWeapon()
+	local character = player.Character
+	local equipped = character and character:FindFirstChild("EquippedWeapon") or nil
+	if equipped == animatedWeapon then
+		return character, equipped
+	end
+	animatedWeapon = equipped
+	animatedWelds = {}
+	equipStarted = os.clock()
+	wasReloading = false
+	if equipped then
+		for _, item in ipairs(equipped:GetDescendants()) do
+			if item.Name == "WeaponWeld" and item.ClassName == "Weld" then
+				table.insert(animatedWelds, { Weld = item, C0 = item.C0 })
+			end
+		end
+	end
+	return character, equipped
+end
+
+local function animateWorldWeapon(clock, phase)
+	local character, equipped = cacheWorldWeapon()
+	local active = equipped ~= nil and (phase == "Build" or phase == "Battle")
+	local action = CFrame.new()
+	if active then
+		-- Small hand-held bob; this changes only the existing Weld.C0 values.
+		action = CFrame.new(math.sin(clock * 1.7) * 0.025, math.sin(clock * 2.3) * 0.035, 0)
+		local equipAlpha = math.clamp((clock - equipStarted) / 0.28, 0, 1)
+		if equipAlpha < 1 then
+			action = action * CFrame.new(0, -(1 - equipAlpha) * 0.8, 0) * CFrame.Angles(0, 0, math.rad(-35 * (1 - equipAlpha)))
+		end
+		if clock < recoilUntil then
+			local kick = math.clamp((recoilUntil - clock) / 0.12, 0, 1)
+			action = action * CFrame.new(0, 0, kick * 0.22) * CFrame.Angles(math.rad(-10 * kick), 0, 0)
+		end
+		local reloading = character:GetAttribute("Reloading") == true
+		if reloading and not wasReloading then
+			reloadStarted = clock
+		end
+		wasReloading = reloading
+		if reloading then
+			local duration = math.max(0.2, tonumber(character:GetAttribute("ReloadDuration")) or 1.65)
+			local progress = math.clamp((clock - reloadStarted) / duration, 0, 1)
+			local arc = math.sin(progress * math.pi)
+			action = action * CFrame.new(0, -arc * 0.45, arc * 0.15) * CFrame.Angles(math.rad(arc * 55), 0, math.rad(-30 * arc))
+		end
+	else
+		wasReloading = false
+	end
+	for _, record in ipairs(animatedWelds) do
+		if record.Weld.Parent then
+			record.Weld.C0 = active and action * record.C0 or record.C0
+		end
+	end
+end
+
+if remotes then
+	local combat = remotes:FindFirstChild("CombatFX")
+	if combat then
+		combat.OnClientEvent:Connect(function(payload)
+			if payload.AttackerUserId == player.UserId and payload.Kind == "Shot" then
+				recoilUntil = os.clock() + 0.12
+			end
+		end)
+	end
+	local weaponAction = remotes:FindFirstChild("WeaponAction")
+	if weaponAction then
+		weaponAction.OnClientEvent:Connect(function(payload)
+			if payload.Action == "ReloadStart" then
+				reloadStarted = os.clock()
+			elseif payload.Action == "Equip" then
+				equipStarted = os.clock()
+			end
+		end)
+	end
+end
+
 RunService.RenderStepped:Connect(function()
+	local clock = os.clock()
 	local phase = state:GetAttribute("Phase") or "Lobby"
+	animateWorldWeapon(clock, phase)
 	local visible = phase == "Build" or phase == "Battle"
 	panel.Visible = visible
 	if not visible then
@@ -248,7 +334,6 @@ RunService.RenderStepped:Connect(function()
 		updateLayout()
 		lastPhase = phase
 	end
-	local clock = os.clock()
 	if viewModel and modelReady then
 		local yaw = 78 + math.sin(clock * 0.65) * 9
 		local pitch = -7 + math.sin(clock * 0.9) * 2

@@ -378,7 +378,15 @@ local function refresh()
 	buildRemaining.Text = "Осталось построек: " .. tostring(player:GetAttribute("BuildRemaining") or 0)
 	local equippedWeapon = Catalog.GetWeapon(player:GetAttribute("SelectedWeapon") or "Carbine") or Catalog.Weapons.Carbine
 	local weaponSkin = player:GetAttribute("Cosmetic_WeaponSkin")
-	weaponLabel.Text = "ОРУЖИЕ: " .. equippedWeapon.Name .. (weaponSkin and weaponSkin ~= "Default" and " · GOLD" or "")
+	local character = player.Character
+	local ammo = character and character:GetAttribute("Ammo")
+	local magazine = character and character:GetAttribute("Magazine")
+	local reloading = character and character:GetAttribute("Reloading") == true
+	local ammoText = ""
+	if phase == "Battle" and ammo ~= nil and magazine ~= nil and magazine > 0 then
+		ammoText = reloading and " · ПЕРЕЗАРЯДКА" or (" · " .. tostring(ammo) .. "/" .. tostring(magazine) .. " · R")
+	end
+	weaponLabel.Text = "ОРУЖИЕ: " .. equippedWeapon.Name .. (weaponSkin and weaponSkin ~= "Default" and " · GOLD" or "") .. ammoText
 	balanceLabel.Text = string.format("Монеты: %d · Жетоны: %d · Pity: %d/20", player:GetAttribute("Coins") or 0, player:GetAttribute("CaseTokens") or 0, player:GetAttribute("LegendaryPity") or 0)
 	for _, teamName in ipairs({ "Blue", "Orange" }) do
 		local health = state:GetAttribute(teamName .. "Core") or 0
@@ -490,7 +498,11 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		local index = input.KeyCode == Enum.KeyCode.Four and 1 or (input.KeyCode == Enum.KeyCode.Five and 2 or 3)
 		selectBuildKind(Catalog.DefenseOrder[index])
 	elseif input.KeyCode == Enum.KeyCode.R then
-		rotateBuild(1)
+		if state:GetAttribute("Phase") == "Battle" then
+			remotes.ReloadRequest:FireServer()
+		else
+			rotateBuild(1)
+		end
 	elseif input.KeyCode == Enum.KeyCode.Q then
 		rotateBuild(-1)
 	elseif input.KeyCode == Enum.KeyCode.B then
@@ -572,13 +584,13 @@ remotes.CombatFX.OnClientEvent:Connect(function(payload)
 		local color = payload.Color or C.Gold
 		effect(payload.Finish or payload.Position, color, 1.8, 0.12)
 		burst(payload.Finish or payload.Position, color, 5, 3)
-	elseif payload.Kind == "Shot" then
+	elseif payload.Kind == "Shot" or payload.Kind == "TowerShot" or payload.Kind == "NeutralShot" then
 		local distance = (payload.Finish - payload.Origin).Magnitude
 		if distance > 0.1 then
-			local width = payload.WeaponId == "Rail" and 0.3 or 0.12
+			local width = payload.WeaponId == "Rail" and 0.3 or (payload.Kind == "Shot" and 0.12 or 0.18)
 			local beam = new("Part", {
 				Size = Vector3.new(width, width, distance), CFrame = CFrame.lookAt(payload.Origin:Lerp(payload.Finish, 0.5), payload.Finish),
-				Color = payload.Color, Material = Enum.Material.Neon, Anchored = true, CanCollide = false, CanTouch = false, CanQuery = false, Transparency = 0.08,
+				Color = payload.Color or C[payload.Team] or C.Gold, Material = Enum.Material.Neon, Anchored = true, CanCollide = false, CanTouch = false, CanQuery = false, Transparency = 0.08,
 			}, Workspace)
 			TweenService:Create(beam, TweenInfo.new(0.07), { Transparency = 1 }):Play()
 			Debris:AddItem(beam, 0.08)
@@ -591,6 +603,10 @@ remotes.CombatFX.OnClientEvent:Connect(function(payload)
 		local color = C[payload.Team] or C.Gold
 		effect(payload.Position, color, 5, 0.35)
 		burst(payload.Position, color, 10, 12)
+	elseif payload.Kind == "NeutralDefeated" then
+		local color = payload.Color or C.Green
+		effect(payload.Position, color, 7, 0.45)
+		burst(payload.Position, color, 16, 12)
 	else
 		effect(payload.Position, C[payload.Team] or C.Gold, 2.2, 0.14)
 		burst(payload.Position, C[payload.Team] or C.Gold, 3, 4)

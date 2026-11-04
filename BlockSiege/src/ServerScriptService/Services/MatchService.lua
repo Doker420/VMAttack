@@ -13,6 +13,8 @@ local weaponService
 local botService
 local progressionService
 local captureService
+local abilityService
+local neutralService
 local remotes
 local state
 local phase = "Lobby"
@@ -145,6 +147,14 @@ function MatchService.EndMatch(winner, reason)
 		return
 	end
 	setPhase("Results", Config.ResultsDuration)
+	-- Results should show the fortress, not live mines/projectiles or a frozen
+	-- jungle encounter. The next match will draft fresh classes and camps.
+	if abilityService then
+		abilityService.Reset()
+	end
+	if neutralService then
+		neutralService.Reset()
+	end
 	state:SetAttribute("Winner", winner or "")
 	state:SetAttribute("Reason", reason or "Ядро уничтожено")
 	for _, player in ipairs(Players:GetPlayers()) do
@@ -215,8 +225,14 @@ function MatchService.StartMatch()
 		player:SetAttribute("Team", team)
 		player:SetAttribute("MatchLevel", level)
 		player:SetAttribute("InMatch", true)
+	end
+	if abilityService then
+		abilityService.StartMatch(matchId, participants)
+	end
+	for _, player in ipairs(players) do
 		local stats = progressionService and progressionService.GetStats(player) or nil
-		player:SetAttribute("BuildRemaining", stats and stats.BuildCapacity or Config.Arena.MaxBuildPerPlayer)
+		local capacity = (stats and stats.BuildCapacity or Config.Arena.MaxBuildPerPlayer) + (abilityService and abilityService.GetBuildBonus(player) or 0)
+		player:SetAttribute("BuildRemaining", capacity)
 	end
 	state:SetAttribute("BluePower", power.Blue)
 	state:SetAttribute("OrangePower", power.Orange)
@@ -226,6 +242,9 @@ function MatchService.StartMatch()
 		captureService.Reset()
 	end
 	fortressService.Reset()
+	if neutralService then
+		neutralService.StartMatch()
+	end
 	setPhase("Build", Config.BuildDuration)
 	for _, player in ipairs(players) do
 		spawnPlayer(player, teamSpawn(participants[player.UserId]))
@@ -314,6 +333,9 @@ local function onCharacter(player, character)
 	end
 	local team = participants[player.UserId]
 	character:SetAttribute("Team", team or "")
+	if abilityService then
+		abilityService.ApplyCharacter(player, character)
+	end
 	weaponService.EquipPlayer(player)
 	local spawn = pendingSpawns[player.UserId] or world.LobbySpawn
 	task.defer(function()
@@ -356,12 +378,21 @@ function MatchService.OnProfileLoaded(player)
 		if progressionService then
 			progressionService.ApplyCharacter(player, player.Character, player:GetAttribute("InMatch") == true)
 		end
+		if abilityService then
+			abilityService.ApplyCharacter(player, player.Character)
+		end
 		weaponService.EquipPlayer(player)
 	end
 end
 
 local function resetToLobby()
 	botService.Stop()
+	if abilityService then
+		abilityService.Reset()
+	end
+	if neutralService then
+		neutralService.Reset()
+	end
 	fortressService.Clear()
 	if captureService then
 		captureService.Reset()
@@ -386,9 +417,15 @@ end
 
 function MatchService.OnPlayerRemoving(player)
 	local userId = player.UserId
+	if weaponService and weaponService.OnPlayerRemoving then
+		weaponService.OnPlayerRemoving(player)
+	end
 	queued[userId] = nil
 	pendingSpawns[userId] = nil
 	local team = participants[userId]
+	if abilityService then
+		abilityService.OnPlayerRemoving(player)
+	end
 	if team then
 		participants[userId] = nil
 		if participantCount() == 0 then
@@ -410,6 +447,8 @@ function MatchService.Init(dependencies)
 	botService = dependencies.BotService
 	progressionService = dependencies.ProgressionService
 	captureService = dependencies.CaptureService
+	abilityService = dependencies.AbilityService
+	neutralService = dependencies.NeutralService
 	remotes = dependencies.Remotes
 	state = dependencies.State
 	fortressService.SetPhaseProvider(MatchService.GetPhase)
@@ -417,7 +456,8 @@ function MatchService.Init(dependencies)
 	fortressService.SetDamageHandler(MatchService.OnStructureDamage)
 	fortressService.SetBuildCapacityProvider(function(player)
 		local stats = progressionService and progressionService.GetStats(player)
-		return stats and stats.BuildCapacity or Config.Arena.MaxBuildPerPlayer
+		local baseCapacity = stats and stats.BuildCapacity or Config.Arena.MaxBuildPerPlayer
+		return baseCapacity + (abilityService and abilityService.GetBuildBonus(player) or 0)
 	end)
 	fortressService.SetBuildAccessProvider(function(player, kind)
 		return not progressionService or progressionService.CanBuildDefense(player, kind)
@@ -425,6 +465,12 @@ function MatchService.Init(dependencies)
 	fortressService.SetTargetsProvider(MatchService.GetTargets)
 	weaponService.SetProviders(MatchService.GetPhase, MatchService.GetTeam, MatchService.OnKill)
 	botService.SetProviders(MatchService.GetPhase, MatchService.GetTargets)
+	if abilityService then
+		abilityService.SetProviders(MatchService.GetPhase, MatchService.GetTeam, MatchService.GetTargets)
+	end
+	if neutralService then
+		neutralService.SetPhaseProvider(MatchService.GetPhase)
+	end
 	if captureService then
 		captureService.SetPhaseProvider(MatchService.GetPhase)
 	end

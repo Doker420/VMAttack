@@ -10,7 +10,7 @@ local Config = {
 	RespawnDuration = 4,
 
 	Arena = {
-		BaseX = 150,
+		BaseX = 225,
 		BaseY = 4,
 		CoreHealth = 3000,
 		BuildGrid = 4,
@@ -20,20 +20,36 @@ local Config = {
 		MaxBuildPerPlayer = 14,
 		BotBuildsPerBot = 3,
 		HideEnemyBaseDuringBuild = true,
-		BotBoundsX = 205,
-		BotBoundsZ = 88,
+		BotBoundsX = 300,
+		BotBoundsZ = 160,
 	},
 
 	-- Aurora Bastion: a bright three-lane valley, not a decorative outer ring.
 	Presentation = {
-		ArenaWidth = 520,
-		ArenaDepth = 220,
-		ArenaEdgeX = 259,
-		ArenaEdgeZ = 109,
+		ArenaWidth = 640,
+		ArenaDepth = 360,
+		ArenaEdgeX = 319,
+		ArenaEdgeZ = 179,
 		LobbyWidth = 220,
 		LobbyDepth = 170,
 		BaseWidth = 112,
-		BaseDepth = 128,
+		BaseDepth = 260,
+	},
+
+	-- Dota-like frontier: three lanes, jungle camps and destructible lane towers.
+	Objectives = {
+		LaneTowers = true,
+		Lanes = { -112, 0, 112 },
+		TowerDistances = { 125, 58 },
+		NeutralRespawn = 45,
+		NeutralCamps = {
+			{ Id = "Northwest", Position = Vector3.new(-150, 0, -145) },
+			{ Id = "North", Position = Vector3.new(0, 0, -145) },
+			{ Id = "Northeast", Position = Vector3.new(150, 0, -145) },
+			{ Id = "Southwest", Position = Vector3.new(-150, 0, 145) },
+			{ Id = "South", Position = Vector3.new(0, 0, 145) },
+			{ Id = "Southeast", Position = Vector3.new(150, 0, 145) },
+		},
 	},
 
 	DataStoreName = "BlockSiege_PlayerData_v1",
@@ -93,6 +109,14 @@ local Config = {
 			Name = "БАШНЯ",
 			Size = Vector3.new(8, 18, 8),
 			Health = 560,
+		},
+		LaneTower = {
+			Name = "LINE TOWER",
+			Size = Vector3.new(8, 14, 8),
+			Health = 850,
+			AttackRange = 78,
+			AttackDamage = 18,
+			AttackCooldown = 1.2,
 		},
 		SpikeTrap = {
 			Name = "ШИПЫ",

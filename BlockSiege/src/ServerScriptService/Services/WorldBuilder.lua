@@ -756,7 +756,7 @@ local function buildBase(arena, structures, team)
 	makePart(arena, team .. "BaseGrass", Vector3.new(presentation.BaseWidth - 6, 0.5, presentation.BaseDepth - 6), CFrame.new(base.X, 4.15, 0), C.Grass, Enum.Material.Grass, true)
 	-- The courtyard is raised above the field. Broad, shallow steps give
 	-- Humanoid navigation a real walkable descent instead of a 4.4-stud cliff.
-	for _, laneX in ipairs({ -42, 0, 42 }) do
+	for _, laneX in ipairs(Config.Objectives.Lanes) do
 		for step = 1, 5 do
 			local top = 4.4 * (1 - step / 5)
 			local height = 0.88
@@ -920,6 +920,64 @@ local function buildLobby(lobby)
 	return spawnCFrame, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt, defensePrompt
 end
 
+local function buildDotaFrontier(arena)
+	local campSpots = {}
+	for _, lane in ipairs(Config.Objectives.Lanes) do
+		local laneName = lane < 0 and "TOP LANE" or (lane > 0 and "BOTTOM LANE" or "MID LANE // 67")
+		for _, edge in ipairs({ -1, 1 }) do
+			decorPart(arena, "FrontierLaneBorder", Vector3.new(510, 0.12, 0.8), CFrame.new(0, 0.42, lane + edge * 10), STYLE.Gold, Enum.Material.Metal)
+		end
+		local marker = makePart(arena, "LaneLabelAnchor", Vector3.new(1, 1, 1), CFrame.new(0, 8, lane), C.White, Enum.Material.SmoothPlastic, false)
+		marker.Transparency = 1
+		marker.CanQuery = false
+		billboard(marker, laneName, STYLE.Gold, Vector3.zero, UDim2.fromOffset(250, 42))
+	end
+	local river = decorPart(arena, "FrozenRiver", Vector3.new(18, 0.16, 340), CFrame.new(0, 0.06, 0), STYLE.Ice, Enum.Material.Ice)
+	river.Transparency = 0.25
+	for _, lane in ipairs(Config.Objectives.Lanes) do
+		decorPart(arena, "FrontierBridge", Vector3.new(30, 0.45, 24), CFrame.new(0, 0.28, lane), STYLE.IvoryDark, Enum.Material.Cobblestone)
+		decorPart(arena, "FrontierBridgeInlay", Vector3.new(22, 0.1, 1), CFrame.new(0, 0.56, lane), STYLE.Gold, Enum.Material.Metal)
+	end
+	for _, x in ipairs({ -170, -85, 85, 170 }) do
+		for _, side in ipairs({ -1, 1 }) do
+			local path = makePart(arena, "JunglePath", Vector3.new(10, 0.25, 86), CFrame.new(x, 0.16, side * 56), C.Dirt, Enum.Material.Ground, false)
+			path.CanQuery = false
+			for _, offset in ipairs({ Vector3.new(-9, 0, -28), Vector3.new(9, 0, 28) }) do
+				buildTree(arena, Vector3.new(x, 0, side * 56) + offset, 0.62)
+			end
+		end
+	end
+	for _, team in ipairs(Config.TeamOrder) do
+		local side = team == "Blue" and -1 or 1
+		for _, lane in ipairs(Config.Objectives.Lanes) do
+			for _, distance in ipairs(Config.Objectives.TowerDistances) do
+				local zOffset = lane == 0 and 18 or (lane > 0 and -16 or 16)
+				local pad = makePart(arena, "LaneTowerPad", Vector3.new(13, 0.25, 13), CFrame.new(side * distance, 0.18, lane + zOffset), Config.Teams[team].Dark, Enum.Material.Cobblestone, false)
+				pad:SetAttribute("Team", team)
+				pad:SetAttribute("BaseGeometry", true)
+				pad.CanQuery = false
+			end
+		end
+	end
+	for _, camp in ipairs(Config.Objectives.NeutralCamps) do
+		local campModel = Instance.new("Model")
+		campModel.Name = "NeutralCamp_" .. camp.Id
+		campModel.Parent = arena
+		local pad = makePart(campModel, "NeutralCampPad", Vector3.new(28, 0.3, 24), CFrame.new(camp.Position + Vector3.new(0, 0.15, 0)), C.StoneDark, Enum.Material.Cobblestone, false)
+		pad.CanQuery = false
+		for _, offset in ipairs({ Vector3.new(-17, 0, -11), Vector3.new(17, 0, 11), Vector3.new(-17, 0, 11) }) do
+			buildTree(campModel, camp.Position + offset, 0.62)
+		end
+		makePart(campModel, "CampRock", Vector3.new(5, 4, 5), CFrame.new(camp.Position + Vector3.new(10, 2, -7)), C.Stone, Enum.Material.Slate, true)
+		local marker = makePart(campModel, "CampLabelAnchor", Vector3.new(1, 1, 1), CFrame.new(camp.Position + Vector3.new(0, 9, 0)), C.White, Enum.Material.SmoothPlastic, false)
+		marker.Transparency = 1
+		marker.CanQuery = false
+		billboard(marker, "NEUTRAL CAMP // " .. string.upper(camp.Id), Color3.fromRGB(194, 223, 191), Vector3.zero, UDim2.fromOffset(230, 36))
+		table.insert(campSpots, { Id = camp.Id, Position = camp.Position, Model = campModel })
+	end
+	return campSpots
+end
+
 local function buildCapturePoint(parent)
 	local model = Instance.new("Model")
 	model.Name = "Capture67"
@@ -980,6 +1038,9 @@ function WorldBuilder.Build()
 	local bots = Instance.new("Folder")
 	bots.Name = "Bots"
 	bots.Parent = root
+	local neutrals = Instance.new("Folder")
+	neutrals.Name = "Neutrals"
+	neutrals.Parent = root
 	local lobby = Instance.new("Folder")
 	lobby.Name = "Lobby"
 	lobby.Parent = root
@@ -987,12 +1048,14 @@ function WorldBuilder.Build()
 	local presentation = Config.Presentation
 	makePart(arena, "ArenaDirt", Vector3.new(presentation.ArenaWidth, 8, presentation.ArenaDepth), CFrame.new(0, -6, 0), C.Dirt, Enum.Material.Ground, true)
 	makePart(arena, "ArenaGrass", Vector3.new(presentation.ArenaWidth, 2, presentation.ArenaDepth), CFrame.new(0, -1, 0), C.Grass, Enum.Material.Grass, true)
-	makePart(arena, "CenterLane", Vector3.new(300, 0.35, 22), CFrame.new(0, 0.15, 0), C.Sand, Enum.Material.Ground, true)
-	for _, z in ipairs({ -62, 62 }) do
-		makePart(arena, "SideLane", Vector3.new(320, 0.3, 14), CFrame.new(0, 0.12, z), C.Sand, Enum.Material.Ground, true)
+	makePart(arena, "CenterLane", Vector3.new(510, 0.35, 22), CFrame.new(0, 0.15, 0), C.Sand, Enum.Material.Ground, true)
+	for _, z in ipairs(Config.Objectives.Lanes) do
+		if z ~= 0 then
+			makePart(arena, "SideLane", Vector3.new(540, 0.3, 16), CFrame.new(0, 0.12, z), C.Sand, Enum.Material.Ground, true)
+		end
 	end
-	for index = 0, 25 do
-		local x = -250 + index * 20
+	for index = 0, 31 do
+		local x = -310 + index * 20
 		local height = 8 + (index * 5 % 7)
 		for _, side in ipairs({ -1, 1 }) do
 			makePart(arena, "CliffDirt", Vector3.new(20, height, 6), CFrame.new(x, -10 - height / 2, side * presentation.ArenaEdgeZ), C.Dirt, Enum.Material.Ground, true)
@@ -1045,6 +1108,7 @@ function WorldBuilder.Build()
 	end
 	decorateArena(arena)
 	buildArenaArchitecture(arena)
+	local neutralCamps = buildDotaFrontier(arena)
 
 	local capturePoint = buildCapturePoint(arena)
 	local lobbySpawn, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt, defensePrompt = buildLobby(lobby)
@@ -1088,6 +1152,8 @@ function WorldBuilder.Build()
 		Arena = arena,
 		Structures = structures,
 		Bots = bots,
+		Neutrals = neutrals,
+		NeutralCamps = neutralCamps,
 		Lobby = lobby,
 		LobbySpawn = lobbySpawn,
 		TeamSpawns = teamSpawns,

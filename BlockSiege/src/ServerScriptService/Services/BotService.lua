@@ -19,6 +19,7 @@ local fortressService
 local weaponService
 local geodataService
 local captureService
+local abilityService
 local phaseProvider = function()
 	return "Lobby"
 end
@@ -32,10 +33,10 @@ local nextBotId = 0
 
 local botWeapons = { "Carbine", "SMG", "Scatter", "Marksman", "Demolisher", "Vortex", "ThanosGauntlet", "TacticalKnife", "ShadowKnives", "PrismLance", "TeslaCarbine", "MeteorMaul", "VoidScythe" }
 local roles = { "Defender", "Assault", "Support", "Defender", "Assault", "Support" }
--- Bots should cross the 520-stud arena decisively, while defenders retain a
--- little more restraint. These values are applied again after Humanoid starts.
+-- Bots cross the expanded 640-stud arena decisively, while defenders retain
+-- a little more restraint. Lane offsets are shared with WorldBuilder/Fortress.
 local BOT_SPEEDS = { Assault = 30, Support = 27, Defender = 24 }
-local BOT_LANES = { -42, 0, 42 }
+local BOT_LANES = Config.Objectives.Lanes
 local botSkins = {
 	{ Id = "Scout", Name = "SCOUT", Primary = Color3.fromRGB(66, 168, 164), Secondary = Color3.fromRGB(35, 74, 83), Accent = Color3.fromRGB(156, 255, 224), Head = Color3.fromRGB(224, 190, 145) },
 	{ Id = "Heavy", Name = "HEAVY", Primary = Color3.fromRGB(128,  90, 76), Secondary = Color3.fromRGB(62, 53, 55), Accent = Color3.fromRGB(255, 190,  70), Head = Color3.fromRGB(193, 153, 119) },
@@ -216,7 +217,16 @@ local function spawnModel(entry)
 	entry.NextJump = 0
 	entry.Target = nil
 	entry.LastHeal = 0
+	entry.NextAbility = os.clock() + 2 + entry.Slot * 0.2
 	resetPath(entry)
+	if abilityService then
+		entry.ClassId = abilityService.RegisterBot(model, entry.Team)
+		local tag = head:FindFirstChild("BotTag")
+		local roleLabel = tag and tag:FindFirstChild("Role")
+		if roleLabel and entry.ClassId then
+			roleLabel.Text = (entry.Role == "Defender" and "DEFENSE" or (entry.Role == "Support" and "SUPPORT" or "ASSAULT")) .. " · " .. string.upper(entry.ClassId)
+		end
+	end
 	weaponService.EquipCharacter(model, entry.WeaponId)
 	local spawnMatch = entry.MatchId
 	humanoid.Died:Connect(function()
@@ -260,6 +270,7 @@ function BotService.Init(dependencies)
 	weaponService = dependencies.WeaponService
 	geodataService = dependencies.GeodataService
 	captureService = dependencies.CaptureService
+	abilityService = dependencies.AbilityService
 end
 
 function BotService.SetProviders(phase, targets)
@@ -701,6 +712,10 @@ local function battleThink(entry, now)
 	if shouldFire and distance <= weapon.Range * 0.95 then
 		weaponService.FireBot(model, entry.WeaponId, targetPosition)
 	end
+	if abilityService and now >= (entry.NextAbility or 0) then
+		entry.NextAbility = now + 2.8 + (entry.Slot % 3) * 0.3
+		abilityService.UseBotAbility(model, targetPosition)
+	end
 	supportHeal(entry, now)
 
 	-- Measure progress only when this think actually requested movement. A
@@ -736,7 +751,7 @@ function BotService.Step(deltaTime)
 			entry.Humanoid = humanoid
 			-- Humanoid initialization and external slows must not silently restore
 			-- the old 16–20 speeds; fast crossing is part of the bot role behavior.
-			humanoid.WalkSpeed = BOT_SPEEDS[entry.Role] or 24
+			humanoid.WalkSpeed = (BOT_SPEEDS[entry.Role] or 24) + (tonumber(model:GetAttribute("AbilitySpeedBonus")) or 0)
 			if phase == "Build" then
 				if entry.Builds < Config.Arena.BotBuildsPerBot and now >= entry.NextBuild then
 					local built = fortressService.BuildBot(entry.Team, entry.Slot, entry.Builds + 1)

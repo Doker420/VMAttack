@@ -364,11 +364,13 @@ function WeaponModels.Equip(character, weaponId, skinId)
 		if part:IsA("BasePart") then
 			local localCFrame = part.CFrame
 			part.CFrame = anchor.CFrame * offset * localCFrame
-			local weld = Instance.new("WeldConstraint")
-			weld.Name = "WeaponWeld"
-			weld.Part0 = anchor
-			weld.Part1 = part
-			weld.Parent = part
+		local weld = Instance.new("Weld")
+		weld.Name = "WeaponWeld"
+		weld.Part0 = anchor
+		weld.Part1 = part
+		weld.C0 = offset * localCFrame
+		weld.C1 = CFrame.new()
+		weld.Parent = part
 		end
 	end
 	model.Parent = character

@@ -184,7 +184,7 @@ local Config = {
 	RespawnDuration = 4,
 
 	Arena = {
-		BaseX = 150,
+		BaseX = 225,
 		BaseY = 4,
 		CoreHealth = 3000,
 		BuildGrid = 4,
@@ -194,20 +194,36 @@ local Config = {
 		MaxBuildPerPlayer = 14,
 		BotBuildsPerBot = 3,
 		HideEnemyBaseDuringBuild = true,
-		BotBoundsX = 205,
-		BotBoundsZ = 88,
+		BotBoundsX = 300,
+		BotBoundsZ = 160,
 	},
 
 	-- Aurora Bastion: a bright three-lane valley, not a decorative outer ring.
 	Presentation = {
-		ArenaWidth = 520,
-		ArenaDepth = 220,
-		ArenaEdgeX = 259,
-		ArenaEdgeZ = 109,
+		ArenaWidth = 640,
+		ArenaDepth = 360,
+		ArenaEdgeX = 319,
+		ArenaEdgeZ = 179,
 		LobbyWidth = 220,
 		LobbyDepth = 170,
 		BaseWidth = 112,
-		BaseDepth = 128,
+		BaseDepth = 260,
+	},
+
+	-- Dota-like frontier: three lanes, jungle camps and destructible lane towers.
+	Objectives = {
+		LaneTowers = true,
+		Lanes = { -112, 0, 112 },
+		TowerDistances = { 125, 58 },
+		NeutralRespawn = 45,
+		NeutralCamps = {
+			{ Id = "Northwest", Position = Vector3.new(-150, 0, -145) },
+			{ Id = "North", Position = Vector3.new(0, 0, -145) },
+			{ Id = "Northeast", Position = Vector3.new(150, 0, -145) },
+			{ Id = "Southwest", Position = Vector3.new(-150, 0, 145) },
+			{ Id = "South", Position = Vector3.new(0, 0, 145) },
+			{ Id = "Southeast", Position = Vector3.new(150, 0, 145) },
+		},
 	},
 
 	DataStoreName = "BlockSiege_PlayerData_v1",
@@ -267,6 +283,14 @@ local Config = {
 			Name = "БАШНЯ",
 			Size = Vector3.new(8, 18, 8),
 			Health = 560,
+		},
+		LaneTower = {
+			Name = "LINE TOWER",
+			Size = Vector3.new(8, 14, 8),
+			Health = 850,
+			AttackRange = 78,
+			AttackDamage = 18,
+			AttackCooldown = 1.2,
 		},
 		SpikeTrap = {
 			Name = "ШИПЫ",
@@ -686,11 +710,13 @@ function WeaponModels.Equip(character, weaponId, skinId)
 		if part:IsA("BasePart") then
 			local localCFrame = part.CFrame
 			part.CFrame = anchor.CFrame * offset * localCFrame
-			local weld = Instance.new("WeldConstraint")
-			weld.Name = "WeaponWeld"
-			weld.Part0 = anchor
-			weld.Part1 = part
-			weld.Parent = part
+		local weld = Instance.new("Weld")
+		weld.Name = "WeaponWeld"
+		weld.Part0 = anchor
+		weld.Part1 = part
+		weld.C0 = offset * localCFrame
+		weld.C1 = CFrame.new()
+		weld.Parent = part
 		end
 	end
 	model.Parent = character
@@ -709,6 +735,366 @@ function WeaponModels.Equip(character, weaponId, skinId)
 end
 
 return WeaponModels
+]]></string>
+        </Properties>
+      </Item>
+<Item class="ModuleScript" referent="30">
+        <Properties>
+          <string name="Name">AbilityCatalog</string>
+          <string name="Source"><![CDATA[-- BLOCKSIEGE // CLASS DRAFT
+-- Server and client share this read-only content catalog. All numbers are
+-- validated and executed by AbilityService; the client never applies effects.
+local AbilityCatalog = {}
+
+AbilityCatalog.ClassOrder = { "Medic", "Tank", "Striker", "Buffer", "Engineer" }
+
+AbilityCatalog.Classes = {
+	Medic = {
+		Id = "Medic", Name = "ЛЕКАРЬ", Role = "HEALER",
+		Color = Color3.fromRGB(93, 239, 174),
+		Description = "Лечит отряд и вызывает дрона-санитара.",
+		MaxHealthBonus = 10, ArmorBonus = 0, SpeedBonus = 0, DamageMultiplier = 1, BuildBonus = 0,
+		Abilities = { "HealingPulse", "GuardianDrone" },
+	},
+	Tank = {
+		Id = "Tank", Name = "ТАНК", Role = "DEFENDER",
+		Color = Color3.fromRGB(103, 178, 255),
+		Description = "Поглощает урон и разбивает строй противника.",
+		MaxHealthBonus = 70, ArmorBonus = 0.12, SpeedBonus = 0, DamageMultiplier = 1, BuildBonus = 0,
+		Abilities = { "AegisShield", "SeismicSlam" },
+	},
+	Striker = {
+		Id = "Striker", Name = "ДАМАГЕР", Role = "ASSAULT",
+		Color = Color3.fromRGB(255, 125, 104),
+		Description = "Усиливает оружие и бросает кассетную бомбу.",
+		MaxHealthBonus = 0, ArmorBonus = 0, SpeedBonus = 0, DamageMultiplier = 1.12, BuildBonus = 0,
+		Abilities = { "Overdrive", "ClusterBomb" },
+	},
+	Buffer = {
+		Id = "Buffer", Name = "БАФФЕР", Role = "SUPPORT",
+		Color = Color3.fromRGB(206, 150, 255),
+		Description = "Ускоряет союзников и чинит крепость.",
+		MaxHealthBonus = 0, ArmorBonus = 0, SpeedBonus = 2, DamageMultiplier = 1, BuildBonus = 0,
+		Abilities = { "RallyBanner", "RepairPulse" },
+	},
+	Engineer = {
+		Id = "Engineer", Name = "ИНЖЕНЕР", Role = "ENGINEER",
+		Color = Color3.fromRGB(255, 209, 99),
+		Description = "Строит минные поля и автоматические турели.",
+		MaxHealthBonus = 0, ArmorBonus = 0, SpeedBonus = 0, DamageMultiplier = 1, BuildBonus = 3,
+		Abilities = { "Minefield", "SentryTurret" },
+	},
+}
+
+AbilityCatalog.Abilities = {
+	HealingPulse = {
+		Id = "HealingPulse", Name = "ИСЦЕЛЯЮЩИЙ ПУЛЬС", ShortName = "ПУЛЬС",
+		Description = "Восстанавливает 50 HP союзникам в радиусе 26.",
+		Kind = "Heal", Cooldown = 12, Range = 48, Radius = 26, Amount = 50,
+		Color = Color3.fromRGB(93, 239, 174), Hotkey = "F",
+	},
+	GuardianDrone = {
+		Id = "GuardianDrone", Name = "ДРОН-САНИТАР", ShortName = "ДРОН",
+		Description = "12 секунд сопровождает вас и лечит союзников рядом.",
+		Kind = "Drone", Cooldown = 28, Duration = 12, Radius = 20, HealPerSecond = 8,
+		Color = Color3.fromRGB(93, 239, 174), Hotkey = "G",
+	},
+	AegisShield = {
+		Id = "AegisShield", Name = "ЭГИДА", ShortName = "ЩИТ",
+		Description = "6 секунд уменьшает входящий урон до 42%.",
+		Kind = "Shield", Cooldown = 18, Duration = 6, DamageTakenMultiplier = 0.42,
+		Color = Color3.fromRGB(103, 178, 255), Hotkey = "F",
+	},
+	SeismicSlam = {
+		Id = "SeismicSlam", Name = "СЕЙСМИЧЕСКИЙ УДАР", ShortName = "УДАР",
+		Description = "Наносит 65 урона врагам в радиусе 18.",
+		Kind = "Slam", Cooldown = 14, Range = 28, Radius = 18, Amount = 65,
+		Color = Color3.fromRGB(103, 178, 255), Hotkey = "G",
+	},
+	Overdrive = {
+		Id = "Overdrive", Name = "ОВЕРДРАЙВ", ShortName = "РАЗГОН",
+		Description = "8 секунд увеличивает урон оружия и способностей на 45%.",
+		Kind = "Overdrive", Cooldown = 22, Duration = 8, DamageMultiplier = 1.45,
+		Color = Color3.fromRGB(255, 125, 104), Hotkey = "F",
+	},
+	ClusterBomb = {
+		Id = "ClusterBomb", Name = "КАССЕТНАЯ БОМБА", ShortName = "БОМБА",
+		Description = "Бросок по дуге: 100 урона в радиусе 16.",
+		Kind = "Bomb", Cooldown = 18, Range = 95, Radius = 16, Amount = 100, FlightTime = 0.85,
+		Color = Color3.fromRGB(255, 125, 104), Hotkey = "G",
+	},
+	RallyBanner = {
+		Id = "RallyBanner", Name = "ЗНАМЯ РАЛЛИ", ShortName = "ЗНАМЯ",
+		Description = "10 секунд: союзники рядом получают +20% урона и +5 скорости.",
+		Kind = "Rally", Cooldown = 24, Range = 36, Radius = 32, Duration = 10,
+		DamageMultiplier = 1.2, SpeedBonus = 5,
+		Color = Color3.fromRGB(206, 150, 255), Hotkey = "F",
+	},
+	RepairPulse = {
+		Id = "RepairPulse", Name = "РЕМОНТНЫЙ ПУЛЬС", ShortName = "РЕМОНТ",
+		Description = "Лечит союзников и восстанавливает 240 HP постройкам.",
+		Kind = "Repair", Cooldown = 16, Range = 55, Radius = 28, Amount = 35, StructureAmount = 240,
+		Color = Color3.fromRGB(206, 150, 255), Hotkey = "G",
+	},
+	Minefield = {
+		Id = "Minefield", Name = "МИННОЕ ПОЛЕ", ShortName = "МИНЫ",
+		Description = "Устанавливает 3 мины: 85 урона, радиус взрыва 13.",
+		Kind = "Minefield", Cooldown = 22, Range = 65, Radius = 13, TriggerRadius = 6,
+		Amount = 85, Count = 3, Duration = 50,
+		Color = Color3.fromRGB(255, 209, 99), Hotkey = "F",
+	},
+	SentryTurret = {
+		Id = "SentryTurret", Name = "СТРАЖЕВАЯ ТУРЕЛЬ", ShortName = "ТУРЕЛЬ",
+		Description = "35 секунд автоматически поражает врагов в радиусе 80.",
+		Kind = "Turret", Cooldown = 34, Range = 70, Duration = 35, AttackRange = 80,
+		Amount = 16, ShotCooldown = 1.1,
+		Color = Color3.fromRGB(255, 209, 99), Hotkey = "G",
+	},
+}
+
+function AbilityCatalog.GetClass(classId)
+	return type(classId) == "string" and AbilityCatalog.Classes[classId] or nil
+end
+
+function AbilityCatalog.GetAbility(abilityId)
+	return type(abilityId) == "string" and AbilityCatalog.Abilities[abilityId] or nil
+end
+
+function AbilityCatalog.GetAbilityForSlot(classId, slot)
+	local definition = AbilityCatalog.GetClass(classId)
+	local abilityId = definition and definition.Abilities[slot]
+	return abilityId and AbilityCatalog.GetAbility(abilityId) or nil
+end
+
+function AbilityCatalog.GetClassForAbility(abilityId)
+	for classId, definition in pairs(AbilityCatalog.Classes) do
+		for _, id in ipairs(definition.Abilities) do
+			if id == abilityId then
+				return classId
+			end
+		end
+	end
+	return nil
+end
+
+return AbilityCatalog
+]]></string>
+        </Properties>
+      </Item>
+<Item class="ModuleScript" referent="31">
+        <Properties>
+          <string name="Name">CombatModels</string>
+          <string name="Source"><![CDATA[-- BLOCKSIEGE // VISIBLE COMBAT EQUIPMENT
+-- Anchored, non-colliding utility models are moved only by the server. Named
+-- subassemblies are intentionally animated by AbilityService/FortressService.
+local CombatModels = {}
+
+local INK = Color3.fromRGB(24, 34, 47)
+local METAL = Color3.fromRGB(83, 103, 119)
+local LIGHT = Color3.fromRGB(222, 238, 244)
+local GOLD = Color3.fromRGB(255, 204, 93)
+local HOT = Color3.fromRGB(255, 110, 64)
+
+local function part(parent, name, size, cframe, color, material, shape)
+	local object = Instance.new("Part")
+	object.Name = name
+	object.Size = size
+	object.CFrame = cframe or CFrame.new()
+	object.Color = color or LIGHT
+	object.Material = material or Enum.Material.Metal
+	object.Anchored = true
+	object.CanCollide = false
+	object.CanTouch = false
+	object.CanQuery = false
+	object.CastShadow = true
+	object.TopSurface = Enum.SurfaceType.Smooth
+	object.BottomSurface = Enum.SurfaceType.Smooth
+	if shape then
+		object.Shape = shape
+	end
+	object.Parent = parent
+	return object
+end
+
+local function light(parent, name, color, range, brightness)
+	local object = Instance.new("PointLight")
+	object.Name = name
+	object.Color = color
+	object.Range = range or 10
+	object.Brightness = brightness or 1
+	object.Parent = parent
+	return object
+end
+
+local function model(name, primary)
+	local object = Instance.new("Model")
+	object.Name = name
+	object.PrimaryPart = primary
+	object:SetAttribute("CombatUtility", true)
+	object:SetAttribute("AnimatedModel", true)
+	return object
+end
+
+local function finish(object, utilityId, teamColor)
+	object:SetAttribute("UtilityId", utilityId)
+	object:SetAttribute("TeamColor", teamColor)
+	for _, item in ipairs(object:GetDescendants()) do
+		if item:IsA("BasePart") then
+			item:SetAttribute("CombatUtilityPart", true)
+		end
+	end
+	return object
+end
+
+function CombatModels.BuildMine(teamColor)
+	local accent = teamColor or GOLD
+	local root = part(nil, "MineBase", Vector3.new(4.8, 0.8, 4.8), CFrame.new(), INK, Enum.Material.DiamondPlate)
+	local object = model("AbilityMine", root)
+	root.Parent = object
+	part(object, "MinePlate", Vector3.new(3.7, 0.35, 3.7), CFrame.new(0, 0.55, 0), METAL, Enum.Material.Metal)
+	local core = part(object, "MineCore", Vector3.new(1.7, 1.2, 1.7), CFrame.new(0, 1.15, 0), accent, Enum.Material.Neon, Enum.PartType.Ball)
+	light(core, "MineGlow", accent, 9, 1.5)
+	for index = 1, 4 do
+		local angle = math.rad(index * 90)
+		local offset = Vector3.new(math.cos(angle) * 2.25, 0.1, math.sin(angle) * 2.25)
+		part(object, "MineLeg", Vector3.new(0.55, 0.55, 1.8), CFrame.new(offset) * CFrame.Angles(0, -angle, 0), METAL, Enum.Material.Metal)
+	end
+	for index = 1, 2 do
+		local ring = part(object, "MineRing", Vector3.new(5.6, 0.22, 0.45), CFrame.new(0, 0.78, 0) * CFrame.Angles(0, index * math.pi / 2, 0), accent, Enum.Material.Neon)
+		ring:SetAttribute("Spin", index == 1 and 1 or -1)
+	end
+	local fuse = part(object, "MineFuse", Vector3.new(0.35, 0.7, 0.35), CFrame.new(0, 1.9, 0), HOT, Enum.Material.Neon)
+	light(fuse, "FuseLight", HOT, 5, 0.8)
+	return finish(object, "Minefield", accent)
+end
+
+function CombatModels.BuildBomb(teamColor)
+	local accent = teamColor or HOT
+	local root = part(nil, "BombBody", Vector3.new(3.2, 3.2, 3.2), CFrame.new(), INK, Enum.Material.DiamondPlate, Enum.PartType.Ball)
+	local object = model("AbilityBomb", root)
+	root.Parent = object
+	part(object, "BombBand", Vector3.new(3.35, 0.42, 3.35), CFrame.new(), accent, Enum.Material.Metal)
+	part(object, "BombBand", Vector3.new(0.42, 3.35, 3.35), CFrame.new(), accent, Enum.Material.Metal)
+	for side = -1, 1, 2 do
+		part(object, "BombFin", Vector3.new(0.35, 1.4, 2.2), CFrame.new(side * 1.8, 0, 0) * CFrame.Angles(0, 0, math.rad(side * 20)), METAL, Enum.Material.Metal)
+	end
+	local fuse = part(object, "BombFuse", Vector3.new(0.45, 1.25, 0.45), CFrame.new(0, 2, 0), GOLD, Enum.Material.WoodPlanks)
+	local spark = part(object, "BombSpark", Vector3.new(0.8, 0.8, 0.8), CFrame.new(0, 2.75, 0), HOT, Enum.Material.Neon, Enum.PartType.Ball)
+	light(spark, "BombSparkLight", HOT, 8, 2)
+	light(fuse, "BombFuseLight", GOLD, 5, 0.7)
+	return finish(object, "ClusterBomb", accent)
+end
+
+function CombatModels.BuildTurret(teamColor)
+	local accent = teamColor or GOLD
+	local root = part(nil, "TurretBase", Vector3.new(6, 1.2, 6), CFrame.new(), INK, Enum.Material.DiamondPlate)
+	local object = model("AbilityTurret", root)
+	root.Parent = object
+	part(object, "TurretPedestal", Vector3.new(3.6, 3.2, 3.6), CFrame.new(0, 2, 0), METAL, Enum.Material.Metal)
+	part(object, "TurretTeamRing", Vector3.new(4, 0.35, 4), CFrame.new(0, 3.55, 0), accent, Enum.Material.Neon)
+	local headRoot = part(nil, "TurretHeadRoot", Vector3.new(3.8, 2.1, 3.8), CFrame.new(0, 5, 0), INK, Enum.Material.Metal)
+	local head = Instance.new("Model")
+	head.Name = "TurretHead"
+	head.PrimaryPart = headRoot
+	headRoot.Parent = head
+	head.Parent = object
+	part(head, "TurretArmor", Vector3.new(4.2, 1.2, 2.8), CFrame.new(0, 5.2, 0), METAL, Enum.Material.DiamondPlate)
+	for side = -1, 1, 2 do
+		part(head, "TurretBarrel", Vector3.new(0.65, 0.65, 5.2), CFrame.new(side * 1.05, 5, -3.2), LIGHT, Enum.Material.Metal)
+		part(head, "TurretMuzzle", Vector3.new(0.9, 0.9, 0.65), CFrame.new(side * 1.05, 5, -5.8), accent, Enum.Material.Neon)
+	end
+	local eye = part(head, "TurretEye", Vector3.new(1.2, 0.45, 0.3), CFrame.new(0, 5.5, -1.95), accent, Enum.Material.Neon)
+	light(eye, "TurretEyeLight", accent, 10, 1.4)
+	return finish(object, "SentryTurret", accent)
+end
+
+function CombatModels.BuildDrone(teamColor)
+	local accent = teamColor or Color3.fromRGB(93, 239, 174)
+	local root = part(nil, "DroneCore", Vector3.new(2.8, 1.8, 2.8), CFrame.new(), LIGHT, Enum.Material.DiamondPlate, Enum.PartType.Ball)
+	local object = model("GuardianDrone", root)
+	root.Parent = object
+	part(object, "DroneBand", Vector3.new(3, 0.35, 3), CFrame.new(), accent, Enum.Material.Neon)
+	for index = 1, 4 do
+		local angle = math.rad(index * 90)
+		local offset = Vector3.new(math.cos(angle) * 2.5, 0, math.sin(angle) * 2.5)
+		part(object, "DroneArm", Vector3.new(0.45, 0.45, 2.8), CFrame.new(offset * 0.5) * CFrame.Angles(0, -angle, 0), METAL, Enum.Material.Metal)
+		local rotor = part(object, "DroneRotor", Vector3.new(3, 0.15, 0.35), CFrame.new(offset + Vector3.new(0, 0.6, 0)) * CFrame.Angles(0, angle, 0), accent, Enum.Material.Neon)
+		rotor:SetAttribute("Spin", index % 2 == 0 and 1 or -1)
+	end
+	part(object, "MedicCross", Vector3.new(0.35, 1.25, 0.25), CFrame.new(0, 0, -1.45), accent, Enum.Material.Neon)
+	part(object, "MedicCross", Vector3.new(1.25, 0.35, 0.25), CFrame.new(0, 0, -1.45), accent, Enum.Material.Neon)
+	light(root, "DroneGlow", accent, 13, 1.8)
+	return finish(object, "GuardianDrone", accent)
+end
+
+function CombatModels.BuildBanner(teamColor)
+	local accent = teamColor or Color3.fromRGB(206, 150, 255)
+	local root = part(nil, "BannerBase", Vector3.new(5.5, 0.8, 5.5), CFrame.new(), INK, Enum.Material.Cobblestone)
+	local object = model("RallyBanner", root)
+	root.Parent = object
+	part(object, "BannerPole", Vector3.new(0.45, 12, 0.45), CFrame.new(0, 6, 0), GOLD, Enum.Material.Metal)
+	part(object, "BannerCrown", Vector3.new(1.1, 1.1, 1.1), CFrame.new(0, 12.5, 0), accent, Enum.Material.Neon, Enum.PartType.Ball)
+	part(object, "BannerFlag", Vector3.new(5.8, 3.8, 0.25), CFrame.new(3, 9.5, 0), accent, Enum.Material.Fabric)
+	part(object, "BannerStripe", Vector3.new(0.45, 3.9, 0.3), CFrame.new(1.1, 9.5, 0), LIGHT, Enum.Material.Fabric)
+	light(root, "BannerGlow", accent, 18, 1.5)
+	return finish(object, "RallyBanner", accent)
+end
+
+-- Fortress traps use authored base CFrames so rotation never accumulates drift.
+function CombatModels.RegisterStructureAnimation(entry)
+	entry.AnimationParts = {}
+	for _, item in ipairs(entry.Model:GetDescendants()) do
+		if item:IsA("BasePart") and (item.Name == "MineRing" or item.Name == "MineCore" or item.Name == "Spike" or item.Name == "SpikeTip" or item.Name == "FlameCore") then
+			table.insert(entry.AnimationParts, { Part = item, CFrame = item.CFrame, Size = item.Size, Name = item.Name })
+		end
+	end
+end
+
+function CombatModels.AnimateStructure(entry, clock)
+	for _, visual in ipairs(entry.AnimationParts or {}) do
+		local item = visual.Part
+		if item.Parent then
+			if visual.Name == "MineRing" then
+				item.CFrame = visual.CFrame * CFrame.Angles(0, clock * 1.8, 0)
+			elseif visual.Name == "MineCore" then
+				local pulse = 1 + math.sin(clock * 6) * 0.12
+				item.Size = visual.Size * pulse
+				local glow = item:FindFirstChild("MineGlow")
+				if glow then
+					glow.Brightness = 1.2 + math.sin(clock * 6) * 0.6
+				end
+			elseif visual.Name == "Spike" or visual.Name == "SpikeTip" then
+				local lift = entry.Model:GetAttribute("Triggered") == true and 0.8 or (0.15 + math.sin(clock * 2.5) * 0.15)
+				item.CFrame = visual.CFrame * CFrame.new(0, lift, 0)
+			elseif visual.Name == "FlameCore" then
+				item.Size = Vector3.new(visual.Size.X, visual.Size.Y * (0.85 + math.sin(clock * 12) * 0.2), visual.Size.Z)
+				item.Transparency = 0.08 + math.sin(clock * 9) * 0.05
+			end
+		end
+	end
+end
+
+function CombatModels.AnimateUtility(object, clock, active)
+	for _, item in ipairs(object:GetDescendants()) do
+		if item:IsA("BasePart") then
+			if item.Name == "MineRing" or item.Name == "DroneRotor" then
+				local spin = tonumber(item:GetAttribute("Spin")) or 1
+				item.CFrame = item.CFrame * CFrame.Angles(0, spin * 0.12, 0)
+			elseif item.Name == "MineFuse" or item.Name == "BombSpark" then
+				item.Transparency = active == false and 0.65 or (math.sin(clock * 14) > 0 and 0 or 0.35)
+			end
+		end
+	end
+end
+
+function CombatModels.AnimateBanner(object, clock)
+	local flag = object:FindFirstChild("BannerFlag")
+	if flag then
+		flag.Size = Vector3.new(5.8 + math.sin(clock * 4) * 0.25, 3.8, 0.25)
+	end
+end
+
+return CombatModels
 ]]></string>
         </Properties>
       </Item>
@@ -738,8 +1124,10 @@ local DataService = require(services:WaitForChild("DataService"))
 local FortressService = require(services:WaitForChild("FortressService"))
 local GeodataService = require(services:WaitForChild("GeodataService"))
 local CaptureService = require(services:WaitForChild("CaptureService"))
+local NeutralService = require(services:WaitForChild("NeutralService"))
 local WeaponService = require(services:WaitForChild("WeaponService"))
 local BotService = require(services:WaitForChild("BotService"))
+local AbilityService = require(services:WaitForChild("AbilityService"))
 local CaseService = require(services:WaitForChild("CaseService"))
 local ProgressionService = require(services:WaitForChild("ProgressionService"))
 local ShopService = require(services:WaitForChild("ShopService"))
@@ -750,7 +1138,7 @@ remotes.Name = "Remotes"
 for _, name in ipairs({
 	"Notify", "ProfileUpdate", "CaseOpened", "Results", "CombatFX", "BuildFX", "TrapFX", "CaptureFX",
 	"LobbyAction", "CaseAction", "FireRequest", "BuildRequest", "BuildPreviewRequest", "BuildPreview", "OpenPanel",
-	"ProgressionAction", "ShopAction",
+	"ProgressionAction", "ShopAction", "AbilityRequest", "AbilityFX", "AbilityState", "WeaponAction", "ReloadRequest",
 }) do
 	local remote = Instance.new("RemoteEvent")
 	remote.Name = name
@@ -768,10 +1156,12 @@ ProgressionService.Init({ DataService = DataService, WeaponService = WeaponServi
 FortressService.Init({ World = world, Remotes = remotes, State = state })
 GeodataService.Init({ World = world, FortressService = FortressService, State = state })
 WeaponService.Init({ DataService = DataService, FortressService = FortressService, Remotes = remotes })
-BotService.Init({ World = world, FortressService = FortressService, WeaponService = WeaponService, GeodataService = GeodataService, CaptureService = CaptureService })
+BotService.Init({ World = world, FortressService = FortressService, WeaponService = WeaponService, GeodataService = GeodataService, CaptureService = CaptureService, AbilityService = AbilityService })
+AbilityService.Init({ World = world, Remotes = remotes, State = state, FortressService = FortressService, BotService = BotService, WeaponService = WeaponService })
 CaseService.Init({ DataService = DataService, Remotes = remotes })
 ShopService.Init({ DataService = DataService, ProgressionService = ProgressionService, Remotes = remotes })
 CaptureService.Init({ World = world, State = state, BotService = BotService, Remotes = remotes })
+NeutralService.Init({ World = world, State = state, BotService = BotService, DataService = DataService, Remotes = remotes })
 MatchService.Init({
 	World = world,
 	DataService = DataService,
@@ -780,6 +1170,8 @@ MatchService.Init({
 	BotService = BotService,
 	ProgressionService = ProgressionService,
 	CaptureService = CaptureService,
+	NeutralService = NeutralService,
+	AbilityService = AbilityService,
 	Remotes = remotes,
 	State = state,
 })
@@ -809,6 +1201,12 @@ remotes.CaseAction.OnServerEvent:Connect(function(player, action, value)
 end)
 remotes.FireRequest.OnServerEvent:Connect(function(player, targetPosition)
 	WeaponService.FirePlayer(player, targetPosition)
+end)
+remotes.ReloadRequest.OnServerEvent:Connect(function(player)
+	WeaponService.RequestReload(player)
+end)
+remotes.AbilityRequest.OnServerEvent:Connect(function(player, slot, targetPosition)
+	AbilityService.UsePlayerAbility(player, slot, targetPosition)
 end)
 remotes.BuildRequest.OnServerEvent:Connect(function(player, kind, position, rotation)
 	MatchService.HandleBuild(player, kind, position, rotation)
@@ -849,6 +1247,9 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		GeodataService.Step(1 / 20)
 		FortressService.Step(1 / 20)
 		BotService.Step(1 / 20)
+		AbilityService.Step(1 / 20)
+		NeutralService.Step(1 / 20)
+		WeaponService.Step(1 / 20)
 		CaptureService.Step(1 / 20)
 		DataService.Step(1 / 20)
 		accumulator = accumulator - 1 / 20
@@ -859,7 +1260,7 @@ for _, player in ipairs(Players:GetPlayers()) do
 	onPlayerAdded(player)
 end
 
-print("[BLOCKSIEGE] 6x6 готов · прогрессия, NPC, тактические боты и разрушаемые крепости")
+print("[BLOCKSIEGE] 6x6 готов · классы, jungle, башни, мины, бомбы и разрушаемые крепости")
 ]]></string>
         </Properties>
       </Item>
@@ -891,6 +1292,7 @@ local fortressService
 local weaponService
 local geodataService
 local captureService
+local abilityService
 local phaseProvider = function()
 	return "Lobby"
 end
@@ -904,10 +1306,10 @@ local nextBotId = 0
 
 local botWeapons = { "Carbine", "SMG", "Scatter", "Marksman", "Demolisher", "Vortex", "ThanosGauntlet", "TacticalKnife", "ShadowKnives", "PrismLance", "TeslaCarbine", "MeteorMaul", "VoidScythe" }
 local roles = { "Defender", "Assault", "Support", "Defender", "Assault", "Support" }
--- Bots should cross the 520-stud arena decisively, while defenders retain a
--- little more restraint. These values are applied again after Humanoid starts.
+-- Bots cross the expanded 640-stud arena decisively, while defenders retain
+-- a little more restraint. Lane offsets are shared with WorldBuilder/Fortress.
 local BOT_SPEEDS = { Assault = 30, Support = 27, Defender = 24 }
-local BOT_LANES = { -42, 0, 42 }
+local BOT_LANES = Config.Objectives.Lanes
 local botSkins = {
 	{ Id = "Scout", Name = "SCOUT", Primary = Color3.fromRGB(66, 168, 164), Secondary = Color3.fromRGB(35, 74, 83), Accent = Color3.fromRGB(156, 255, 224), Head = Color3.fromRGB(224, 190, 145) },
 	{ Id = "Heavy", Name = "HEAVY", Primary = Color3.fromRGB(128,  90, 76), Secondary = Color3.fromRGB(62, 53, 55), Accent = Color3.fromRGB(255, 190,  70), Head = Color3.fromRGB(193, 153, 119) },
@@ -1088,7 +1490,16 @@ local function spawnModel(entry)
 	entry.NextJump = 0
 	entry.Target = nil
 	entry.LastHeal = 0
+	entry.NextAbility = os.clock() + 2 + entry.Slot * 0.2
 	resetPath(entry)
+	if abilityService then
+		entry.ClassId = abilityService.RegisterBot(model, entry.Team)
+		local tag = head:FindFirstChild("BotTag")
+		local roleLabel = tag and tag:FindFirstChild("Role")
+		if roleLabel and entry.ClassId then
+			roleLabel.Text = (entry.Role == "Defender" and "DEFENSE" or (entry.Role == "Support" and "SUPPORT" or "ASSAULT")) .. " · " .. string.upper(entry.ClassId)
+		end
+	end
 	weaponService.EquipCharacter(model, entry.WeaponId)
 	local spawnMatch = entry.MatchId
 	humanoid.Died:Connect(function()
@@ -1132,6 +1543,7 @@ function BotService.Init(dependencies)
 	weaponService = dependencies.WeaponService
 	geodataService = dependencies.GeodataService
 	captureService = dependencies.CaptureService
+	abilityService = dependencies.AbilityService
 end
 
 function BotService.SetProviders(phase, targets)
@@ -1573,6 +1985,10 @@ local function battleThink(entry, now)
 	if shouldFire and distance <= weapon.Range * 0.95 then
 		weaponService.FireBot(model, entry.WeaponId, targetPosition)
 	end
+	if abilityService and now >= (entry.NextAbility or 0) then
+		entry.NextAbility = now + 2.8 + (entry.Slot % 3) * 0.3
+		abilityService.UseBotAbility(model, targetPosition)
+	end
 	supportHeal(entry, now)
 
 	-- Measure progress only when this think actually requested movement. A
@@ -1608,7 +2024,7 @@ function BotService.Step(deltaTime)
 			entry.Humanoid = humanoid
 			-- Humanoid initialization and external slows must not silently restore
 			-- the old 16–20 speeds; fast crossing is part of the bot role behavior.
-			humanoid.WalkSpeed = BOT_SPEEDS[entry.Role] or 24
+			humanoid.WalkSpeed = (BOT_SPEEDS[entry.Role] or 24) + (tonumber(model:GetAttribute("AbilitySpeedBonus")) or 0)
 			if phase == "Build" then
 				if entry.Builds < Config.Arena.BotBuildsPerBot and now >= entry.NextBuild then
 					local built = fortressService.BuildBot(entry.Team, entry.Slot, entry.Builds + 1)
@@ -2287,6 +2703,7 @@ return DataService
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("BlockSiege")
 local Config = require(Shared:WaitForChild("Config"))
+local CombatModels = require(Shared:WaitForChild("CombatModels"))
 
 local vector3Type = typeof(Vector3.new())
 local FortressService = {}
@@ -2445,7 +2862,20 @@ local function createStructure(team, kind, cframe)
 	local dark = Config.Teams[team].Dark
 	local root = makeBlock(model, "Root", definition.Size, cframe, dark, definition.Trap and Enum.Material.Metal or (kind == "Barricade" and Enum.Material.WoodPlanks or Enum.Material.Cobblestone), true)
 	model.PrimaryPart = root
-	if definition.Trap then
+	if kind == "LaneTower" then
+		model:SetAttribute("Objective", "LaneTower")
+		makeBlock(model, "TowerBase", Vector3.new(11, 1.2, 11), cframe * CFrame.new(0, -6.4, 0), dark, Enum.Material.Cobblestone, true)
+		makeBlock(model, "TowerBand", Vector3.new(8.5, 0.7, 8.5), cframe * CFrame.new(0, 3.8, 0), color, Enum.Material.Metal, false)
+		makeBlock(model, "TowerHead", Vector3.new(7, 3, 7), cframe * CFrame.new(0, 5.5, 0), color, Enum.Material.DiamondPlate, true)
+		makeBlock(model, "TowerBarrel", Vector3.new(1.4, 1.4, 8), cframe * CFrame.new(0, 5.5, -5), Color3.fromRGB(222, 238, 244), Enum.Material.Metal, false)
+		local eye = makeBlock(model, "TowerEye", Vector3.new(2.2, 0.65, 0.4), cframe * CFrame.new(0, 6, -3.6), Color3.fromRGB(255, 211, 99), Enum.Material.Neon, false)
+		local glow = Instance.new("PointLight")
+		glow.Name = "TowerGlow"
+		glow.Color = color
+		glow.Brightness = 1.4
+		glow.Range = 16
+		glow.Parent = eye
+	elseif definition.Trap then
 		model:SetAttribute("IsTrap", true)
 		model:SetAttribute("DefenseId", kind)
 		if kind == "SpikeTrap" then
@@ -2482,8 +2912,26 @@ local function createStructure(team, kind, cframe)
 	end
 	local entry = registerEntry(model, team, kind, definition.Health)
 	entry.IsTrap = definition.Trap == true
+	entry.IsLaneTower = kind == "LaneTower"
 	entry.ArmedAt = os.clock() + 1
 	entry.NextTrigger = 0
+	entry.NextAttack = os.clock() + 0.8
+	CombatModels.RegisterStructureAnimation(entry)
+	return entry
+end
+
+local function createLaneTower(team, lane, distance)
+	local side = team == "Blue" and -1 or 1
+	local zOffset = lane == 0 and 18 or (lane > 0 and -16 or 16)
+	local position = Vector3.new(side * distance, 7, lane + zOffset)
+	local facing = team == "Blue" and 1 or -1
+	local towerCFrame = CFrame.lookAt(position, position + Vector3.new(facing, 0, 0))
+	local entry = createStructure(team, "LaneTower", towerCFrame)
+	if entry then
+		entry.Lane = lane
+		entry.Model:SetAttribute("Lane", lane)
+		entry.Model:SetAttribute("AttackRange", Config.BuildKinds.LaneTower.AttackRange)
+	end
 	return entry
 end
 
@@ -2564,6 +3012,18 @@ function FortressService.Reset()
 			createStructure(team, "Barricade", baseCFrame * CFrame.new(side * 42, 2.5, 4) * CFrame.Angles(0, math.rad(90), 0))
 		end
 	end
+	if Config.Objectives and Config.Objectives.LaneTowers then
+		for _, team in ipairs(Config.TeamOrder) do
+			for _, lane in ipairs(Config.Objectives.Lanes) do
+				for _, distance in ipairs(Config.Objectives.TowerDistances) do
+					createLaneTower(team, lane, distance)
+				end
+			end
+		end
+	end
+	if state then
+		state:SetAttribute("LaneTowerCount", Config.Objectives and (#Config.Objectives.Lanes * #Config.Objectives.TowerDistances * 2) or 0)
+	end
 end
 
 local function validPosition(position)
@@ -2585,7 +3045,7 @@ end
 
 local function placement(team, kind, position, rotation)
 	local definition = Config.BuildKinds[kind]
-	if not definition or not validPosition(position) then
+	if not definition or kind == "LaneTower" or not validPosition(position) then
 		return nil, "Неверная позиция"
 	end
 	local baseCFrame = Config.BaseCFrame(team)
@@ -2683,6 +3143,28 @@ function FortressService.BuildBot(team, slot, buildIndex)
 		end
 	end
 	return false
+end
+
+function FortressService.RepairStructures(team, position, radius, amount)
+	if not Config.Teams[team] or not validPosition(position) then
+		return 0
+	end
+	local repaired = 0
+	local repairAmount = math.max(0, tonumber(amount) or 0)
+	for _, entry in pairs(entries) do
+		local root = entry.Active and entry.Team == team and entry.Model and entry.Model.PrimaryPart or nil
+		if root and (root.Position - position).Magnitude <= radius then
+			local before = tonumber(entry.Health) or 0
+			local maximum = tonumber(entry.MaxHealth) or before
+			entry.Health = math.min(maximum, before + repairAmount)
+			entry.Model:SetAttribute("Health", entry.Health)
+			repaired = repaired + entry.Health - before
+			if entry.Kind == "Core" then
+				updateState(team)
+			end
+		end
+	end
+	return repaired
 end
 
 function FortressService.DamagePart(part, amount, attackingTeam, player)
@@ -2787,20 +3269,71 @@ local function applyTrapDamage(model, amount)
 		return false
 	end
 	local armor = tonumber(model:GetAttribute("Armor")) or 0
-	humanoid:TakeDamage(amount * (1 - math.clamp(armor, 0, 0.65)))
+	local shield = tonumber(model:GetAttribute("DamageTakenMultiplier")) or 1
+	humanoid:TakeDamage(amount * math.clamp(shield, 0.05, 1) * (1 - math.clamp(armor, 0, 0.65)))
 	return true
 end
 
+local function towerAttack(entry, definition, root, now)
+	if now < (entry.NextAttack or 0) then
+		return
+	end
+	local best
+	local bestRoot
+	local bestDistance = definition.AttackRange
+	for _, model in ipairs(targetsProvider(entry.Team)) do
+		local targetRoot = model and model:FindFirstChild("HumanoidRootPart")
+		local humanoid = model and model:FindFirstChildOfClass("Humanoid")
+		if targetRoot and humanoid and humanoid.Health > 0 then
+			local distance = (targetRoot.Position - root.Position).Magnitude
+			if distance <= bestDistance then
+				best = model
+				bestRoot = targetRoot
+				bestDistance = distance
+			end
+		end
+	end
+	if not best then
+		entry.NextAttack = now + 0.25
+		return
+	end
+	entry.NextAttack = now + definition.AttackCooldown
+	local aimPosition = Vector3.new(bestRoot.Position.X, root.Position.Y, bestRoot.Position.Z)
+	if (aimPosition - root.Position).Magnitude > 0.1 then
+		entry.Model:PivotTo(CFrame.lookAt(root.Position, aimPosition))
+	end
+	applyTrapDamage(best, definition.AttackDamage)
+	entry.Model:SetAttribute("TargetName", best.Name)
+	local barrel = entry.Model:FindFirstChild("TowerBarrel")
+	remotes.CombatFX:FireAllClients({
+		Kind = "TowerShot",
+		Origin = barrel and barrel.Position or root.Position + Vector3.new(0, 6, 0),
+		Finish = bestRoot.Position,
+		Position = bestRoot.Position,
+		Team = entry.Team,
+		Color = Config.Teams[entry.Team].Color,
+	})
+end
+
 function FortressService.Step()
+	local now = os.clock()
+	-- Traps remain visually alive during Build; only damage is Battle-gated.
+	for _, entry in pairs(entries) do
+		if entry.Active and entry.IsTrap then
+			entry.Model:SetAttribute("Triggered", (entry.TriggeredUntil or 0) > now)
+			CombatModels.AnimateStructure(entry, now)
+		end
+	end
 	if phaseProvider() ~= "Battle" then
 		return
 	end
-	local now = os.clock()
 	local destroyAfter = {}
 	for _, entry in pairs(entries) do
 		local definition = Config.BuildKinds[entry.Kind]
 		local root = entry.Model and entry.Model.PrimaryPart
-		if entry.Active and entry.IsTrap and definition and root and now >= (entry.ArmedAt or 0) and now >= (entry.NextTrigger or 0) then
+		if entry.Active and entry.IsLaneTower and definition and root then
+			towerAttack(entry, definition, root, now)
+		elseif entry.Active and entry.IsTrap and definition and root and now >= (entry.ArmedAt or 0) and now >= (entry.NextTrigger or 0) then
 			local targets = targetsProvider(entry.Team)
 			for _, model in ipairs(targets) do
 				local targetRoot = model and model:FindFirstChild("HumanoidRootPart")
@@ -2818,6 +3351,7 @@ function FortressService.Step()
 						applyTrapDamage(model, definition.Damage)
 						entry.NextTrigger = now + definition.Cooldown
 					end
+					entry.TriggeredUntil = now + 0.35
 					entry.Model:SetAttribute("Triggered", true)
 					remotes.TrapFX:FireAllClients({ Kind = entry.Kind, Position = root.Position, Team = entry.Team })
 					break
@@ -3013,6 +3547,8 @@ local weaponService
 local botService
 local progressionService
 local captureService
+local abilityService
+local neutralService
 local remotes
 local state
 local phase = "Lobby"
@@ -3145,6 +3681,14 @@ function MatchService.EndMatch(winner, reason)
 		return
 	end
 	setPhase("Results", Config.ResultsDuration)
+	-- Results should show the fortress, not live mines/projectiles or a frozen
+	-- jungle encounter. The next match will draft fresh classes and camps.
+	if abilityService then
+		abilityService.Reset()
+	end
+	if neutralService then
+		neutralService.Reset()
+	end
 	state:SetAttribute("Winner", winner or "")
 	state:SetAttribute("Reason", reason or "Ядро уничтожено")
 	for _, player in ipairs(Players:GetPlayers()) do
@@ -3215,8 +3759,14 @@ function MatchService.StartMatch()
 		player:SetAttribute("Team", team)
 		player:SetAttribute("MatchLevel", level)
 		player:SetAttribute("InMatch", true)
+	end
+	if abilityService then
+		abilityService.StartMatch(matchId, participants)
+	end
+	for _, player in ipairs(players) do
 		local stats = progressionService and progressionService.GetStats(player) or nil
-		player:SetAttribute("BuildRemaining", stats and stats.BuildCapacity or Config.Arena.MaxBuildPerPlayer)
+		local capacity = (stats and stats.BuildCapacity or Config.Arena.MaxBuildPerPlayer) + (abilityService and abilityService.GetBuildBonus(player) or 0)
+		player:SetAttribute("BuildRemaining", capacity)
 	end
 	state:SetAttribute("BluePower", power.Blue)
 	state:SetAttribute("OrangePower", power.Orange)
@@ -3226,6 +3776,9 @@ function MatchService.StartMatch()
 		captureService.Reset()
 	end
 	fortressService.Reset()
+	if neutralService then
+		neutralService.StartMatch()
+	end
 	setPhase("Build", Config.BuildDuration)
 	for _, player in ipairs(players) do
 		spawnPlayer(player, teamSpawn(participants[player.UserId]))
@@ -3314,6 +3867,9 @@ local function onCharacter(player, character)
 	end
 	local team = participants[player.UserId]
 	character:SetAttribute("Team", team or "")
+	if abilityService then
+		abilityService.ApplyCharacter(player, character)
+	end
 	weaponService.EquipPlayer(player)
 	local spawn = pendingSpawns[player.UserId] or world.LobbySpawn
 	task.defer(function()
@@ -3356,12 +3912,21 @@ function MatchService.OnProfileLoaded(player)
 		if progressionService then
 			progressionService.ApplyCharacter(player, player.Character, player:GetAttribute("InMatch") == true)
 		end
+		if abilityService then
+			abilityService.ApplyCharacter(player, player.Character)
+		end
 		weaponService.EquipPlayer(player)
 	end
 end
 
 local function resetToLobby()
 	botService.Stop()
+	if abilityService then
+		abilityService.Reset()
+	end
+	if neutralService then
+		neutralService.Reset()
+	end
 	fortressService.Clear()
 	if captureService then
 		captureService.Reset()
@@ -3386,9 +3951,15 @@ end
 
 function MatchService.OnPlayerRemoving(player)
 	local userId = player.UserId
+	if weaponService and weaponService.OnPlayerRemoving then
+		weaponService.OnPlayerRemoving(player)
+	end
 	queued[userId] = nil
 	pendingSpawns[userId] = nil
 	local team = participants[userId]
+	if abilityService then
+		abilityService.OnPlayerRemoving(player)
+	end
 	if team then
 		participants[userId] = nil
 		if participantCount() == 0 then
@@ -3410,6 +3981,8 @@ function MatchService.Init(dependencies)
 	botService = dependencies.BotService
 	progressionService = dependencies.ProgressionService
 	captureService = dependencies.CaptureService
+	abilityService = dependencies.AbilityService
+	neutralService = dependencies.NeutralService
 	remotes = dependencies.Remotes
 	state = dependencies.State
 	fortressService.SetPhaseProvider(MatchService.GetPhase)
@@ -3417,7 +3990,8 @@ function MatchService.Init(dependencies)
 	fortressService.SetDamageHandler(MatchService.OnStructureDamage)
 	fortressService.SetBuildCapacityProvider(function(player)
 		local stats = progressionService and progressionService.GetStats(player)
-		return stats and stats.BuildCapacity or Config.Arena.MaxBuildPerPlayer
+		local baseCapacity = stats and stats.BuildCapacity or Config.Arena.MaxBuildPerPlayer
+		return baseCapacity + (abilityService and abilityService.GetBuildBonus(player) or 0)
 	end)
 	fortressService.SetBuildAccessProvider(function(player, kind)
 		return not progressionService or progressionService.CanBuildDefense(player, kind)
@@ -3425,6 +3999,12 @@ function MatchService.Init(dependencies)
 	fortressService.SetTargetsProvider(MatchService.GetTargets)
 	weaponService.SetProviders(MatchService.GetPhase, MatchService.GetTeam, MatchService.OnKill)
 	botService.SetProviders(MatchService.GetPhase, MatchService.GetTargets)
+	if abilityService then
+		abilityService.SetProviders(MatchService.GetPhase, MatchService.GetTeam, MatchService.GetTargets)
+	end
+	if neutralService then
+		neutralService.SetPhaseProvider(MatchService.GetPhase)
+	end
 	if captureService then
 		captureService.SetPhaseProvider(MatchService.GetPhase)
 	end
@@ -3905,7 +4485,9 @@ return ShopService
         <Item class="ModuleScript" referent="20">
           <Properties>
             <string name="Name">WeaponService</string>
-            <string name="Source"><![CDATA[-- Server-authoritative hitscan, видимые модели оружия и нелетальный friendly-fire filter.
+            <string name="Source"><![CDATA[-- Server-authoritative hitscan, magazines/reload, visible weapon models and
+-- non-lethal friendly-fire filtering. Ability damage uses the same mitigation.
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("BlockSiege")
@@ -3917,21 +4499,41 @@ local WeaponService = {}
 local dataService
 local fortressService
 local remotes
-local phaseProvider = function()
-	return "Lobby"
-end
-local teamProvider = function()
-	return nil
-end
+local phaseProvider = function() return "Lobby" end
+local teamProvider = function() return nil end
 local killHandler
 local lastShot = {}
 local damageCredits = {}
 local watched = {}
+local ammo = {}
+local reloads = {}
 local random = Random.new()
 
 local function validPosition(position)
 	return typeof(position) == vector3Type and position.X == position.X and position.Y == position.Y and position.Z == position.Z
 		and math.abs(position.X) < 10000 and math.abs(position.Y) < 10000 and math.abs(position.Z) < 10000
+end
+
+local function validTeam(team)
+	return team == "Blue" or team == "Orange"
+end
+
+local function magazineFor(weapon)
+	if weapon.Melee then
+		return 0
+	end
+	local magazines = { Carbine = 24, SMG = 30, Scatter = 6, Marksman = 8, Demolisher = 12, Rail = 5, Vortex = 18, ThanosGauntlet = 3, PrismLance = 10, TeslaCarbine = 24 }
+	return magazines[weapon.Id] or 20
+end
+
+local function reloadDurationFor(weapon)
+	if weapon.Id == "Rail" or weapon.Id == "ThanosGauntlet" then
+		return 2.4
+	end
+	if weapon.Id == "Scatter" then
+		return 2.1
+	end
+	return 1.65
 end
 
 local function watchHumanoid(character, humanoid)
@@ -3947,6 +4549,46 @@ local function watchHumanoid(character, humanoid)
 			killHandler(credit.Player, character)
 		end
 	end)
+end
+
+local function syncPlayerWeapon(player, weapon)
+	local character = player and player.Character
+	local clip = player and ammo[player.UserId]
+	if not character or not clip or not weapon then
+		return
+	end
+	character:SetAttribute("Ammo", clip.Rounds)
+	character:SetAttribute("Magazine", magazineFor(weapon))
+	character:SetAttribute("Reloading", reloads[player.UserId] ~= nil)
+	local reload = reloads[player.UserId]
+	character:SetAttribute("ReloadDuration", reload and reload.Duration or reloadDurationFor(weapon))
+end
+
+local function sendWeaponAction(player, action, weapon, duration)
+	if remotes and remotes.WeaponAction and player and player.Parent then
+		remotes.WeaponAction:FireClient(player, { Action = action, WeaponId = weapon and weapon.Id or "", Duration = duration or 0 })
+	end
+end
+
+local function startReload(player, weapon)
+	if not player or not weapon or weapon.Melee or phaseProvider() ~= "Battle" then
+		return false
+	end
+	local userId = player.UserId
+	local clip = ammo[userId]
+	local magazine = magazineFor(weapon)
+	if not clip or clip.WeaponId ~= weapon.Id then
+		clip = { WeaponId = weapon.Id, Rounds = magazine }
+		ammo[userId] = clip
+	end
+	if reloads[userId] or clip.Rounds >= magazine then
+		return false
+	end
+	local duration = reloadDurationFor(weapon)
+	reloads[userId] = { EndsAt = os.clock() + duration, Duration = duration, WeaponId = weapon.Id }
+	syncPlayerWeapon(player, weapon)
+	sendWeaponAction(player, "ReloadStart", weapon, duration)
+	return true
 end
 
 function WeaponService.Init(dependencies)
@@ -3986,11 +4628,42 @@ function WeaponService.EquipPlayer(player)
 	local weapon = WeaponService.GetPlayerWeapon(player)
 	local data = dataService.Get(player)
 	local skin = data and data.SelectedCosmetics and data.SelectedCosmetics.WeaponSkin or "Default"
-	return WeaponService.EquipCharacter(character, weapon.Id, skin)
+	local equipped = WeaponService.EquipCharacter(character, weapon.Id, skin)
+	if equipped then
+		ammo[player.UserId] = { WeaponId = weapon.Id, Rounds = magazineFor(weapon) }
+		reloads[player.UserId] = nil
+		syncPlayerWeapon(player, weapon)
+		sendWeaponAction(player, "Equip", weapon, 0)
+	end
+	return equipped
 end
 
-local function validTeam(team)
-	return team == "Blue" or team == "Orange"
+local function applyDamage(victim, amount, attackingTeam, player)
+	local humanoid = victim and victim:FindFirstChildOfClass("Humanoid")
+	if not victim or not humanoid or humanoid.Health <= 0 or not validTeam(attackingTeam) or victim:GetAttribute("Team") == attackingTeam then
+		return 0
+	end
+	if type(amount) ~= "number" or amount ~= amount or amount <= 0 then
+		return 0
+	end
+	local armor = tonumber(victim:GetAttribute("Armor")) or 0
+	local shield = tonumber(victim:GetAttribute("DamageTakenMultiplier")) or 1
+	local appliedDamage = amount * math.clamp(shield, 0.05, 1) * (1 - math.clamp(armor, 0, 0.65))
+	humanoid:TakeDamage(appliedDamage)
+	damageCredits[humanoid] = { Player = player, Clock = os.clock() }
+	if player then
+		victim:SetAttribute("LastAttackerUserId", player.UserId)
+	end
+	return appliedDamage
+end
+
+-- Used by mines, bombs, slams and turrets. The server supplies the attacking
+-- team; a client can never call this function directly.
+function WeaponService.ApplyAbilityDamage(victim, amount, attackingTeam, player)
+	if phaseProvider() ~= "Battle" then
+		return 0
+	end
+	return applyDamage(victim, amount, attackingTeam, player)
 end
 
 local function fire(character, weapon, targetPosition, attackingTeam, player, key)
@@ -4017,6 +4690,7 @@ local function fire(character, weapon, targetPosition, attackingTeam, player, ke
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 	raycastParams.IgnoreWater = true
 	raycastParams.FilterDescendantsInstances = { character }
+	local outgoing = tonumber(character:GetAttribute("DamageMultiplier")) or 1
 
 	for _ = 1, weapon.Pellets do
 		local jitter = Vector3.new(random:NextNumber(-1, 1), random:NextNumber(-1, 1), random:NextNumber(-1, 1)) * weapon.Spread
@@ -4028,14 +4702,9 @@ local function fire(character, weapon, targetPosition, attackingTeam, player, ke
 			local victim = hit.Instance:FindFirstAncestorOfClass("Model")
 			local victimHumanoid = victim and victim:FindFirstChildOfClass("Humanoid")
 			if victimHumanoid and victimHumanoid.Health > 0 and victim ~= character then
-				if victim:GetAttribute("Team") ~= attackingTeam then
-					local armor = tonumber(victim:GetAttribute("Armor")) or 0
-					local appliedDamage = weapon.Damage * (1 - math.clamp(armor, 0, 0.65))
-					victimHumanoid:TakeDamage(appliedDamage)
-					damageCredits[victimHumanoid] = { Player = player, Clock = now }
-				end
+				applyDamage(victim, weapon.Damage * outgoing, attackingTeam, player)
 			else
-				fortressService.DamagePart(hit.Instance, weapon.Damage * weapon.StructureMultiplier, attackingTeam, player)
+				fortressService.DamagePart(hit.Instance, weapon.Damage * outgoing * weapon.StructureMultiplier, attackingTeam, player)
 			end
 		end
 		remotes.CombatFX:FireAllClients({
@@ -4045,6 +4714,7 @@ local function fire(character, weapon, targetPosition, attackingTeam, player, ke
 			Color = weapon.Color,
 			WeaponId = weapon.Id,
 			Melee = weapon.Melee == true,
+			AttackerUserId = player and player.UserId or nil,
 		})
 	end
 	return true
@@ -4054,10 +4724,39 @@ function WeaponService.FirePlayer(player, targetPosition)
 	local character = player.Character
 	local team = teamProvider(player)
 	local weapon = WeaponService.GetPlayerWeapon(player)
+	if not character or not team or reloads[player.UserId] then
+		return false
+	end
+	local clip = ammo[player.UserId]
+	local magazine = magazineFor(weapon)
+	if not weapon.Melee then
+		if not clip or clip.WeaponId ~= weapon.Id then
+			clip = { WeaponId = weapon.Id, Rounds = magazine }
+			ammo[player.UserId] = clip
+		end
+		if clip.Rounds <= 0 then
+			startReload(player, weapon)
+			return false
+		end
+	end
+	local success = fire(character, weapon, targetPosition, team, player, "Player_" .. player.UserId)
+	if success and not weapon.Melee then
+		clip.Rounds = math.max(0, clip.Rounds - 1)
+		syncPlayerWeapon(player, weapon)
+		if clip.Rounds <= 0 then
+			startReload(player, weapon)
+		end
+	end
+	return success
+end
+
+function WeaponService.RequestReload(player)
+	local character = player.Character
+	local team = teamProvider(player)
 	if not character or not team then
 		return false
 	end
-	return fire(character, weapon, targetPosition, team, player, "Player_" .. player.UserId)
+	return startReload(player, WeaponService.GetPlayerWeapon(player))
 end
 
 function WeaponService.FireBot(bot, weaponId, targetPosition)
@@ -4065,6 +4764,34 @@ function WeaponService.FireBot(bot, weaponId, targetPosition)
 	local team = bot:GetAttribute("Team")
 	local botId = bot:GetAttribute("BotId") or bot.Name
 	return fire(bot, weapon, targetPosition, team, nil, "Bot_" .. tostring(botId))
+end
+
+function WeaponService.Step()
+	local now = os.clock()
+	for userId, reload in pairs(reloads) do
+		local player = Players:GetPlayerByUserId(userId)
+		if not player or phaseProvider() ~= "Battle" then
+			reloads[userId] = nil
+			if player then
+				syncPlayerWeapon(player, WeaponService.GetPlayerWeapon(player))
+			end
+		elseif now >= reload.EndsAt then
+			local weapon = WeaponService.GetPlayerWeapon(player)
+			local clip = ammo[userId]
+			if clip and clip.WeaponId == weapon.Id then
+				clip.Rounds = magazineFor(weapon)
+			end
+			reloads[userId] = nil
+			syncPlayerWeapon(player, weapon)
+			sendWeaponAction(player, "ReloadEnd", weapon, 0)
+		end
+	end
+end
+
+function WeaponService.OnPlayerRemoving(player)
+	ammo[player.UserId] = nil
+	reloads[player.UserId] = nil
+	lastShot["Player_" .. player.UserId] = nil
 end
 
 return WeaponService
@@ -4832,7 +5559,7 @@ local function buildBase(arena, structures, team)
 	makePart(arena, team .. "BaseGrass", Vector3.new(presentation.BaseWidth - 6, 0.5, presentation.BaseDepth - 6), CFrame.new(base.X, 4.15, 0), C.Grass, Enum.Material.Grass, true)
 	-- The courtyard is raised above the field. Broad, shallow steps give
 	-- Humanoid navigation a real walkable descent instead of a 4.4-stud cliff.
-	for _, laneX in ipairs({ -42, 0, 42 }) do
+	for _, laneX in ipairs(Config.Objectives.Lanes) do
 		for step = 1, 5 do
 			local top = 4.4 * (1 - step / 5)
 			local height = 0.88
@@ -4996,6 +5723,64 @@ local function buildLobby(lobby)
 	return spawnCFrame, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt, defensePrompt
 end
 
+local function buildDotaFrontier(arena)
+	local campSpots = {}
+	for _, lane in ipairs(Config.Objectives.Lanes) do
+		local laneName = lane < 0 and "TOP LANE" or (lane > 0 and "BOTTOM LANE" or "MID LANE // 67")
+		for _, edge in ipairs({ -1, 1 }) do
+			decorPart(arena, "FrontierLaneBorder", Vector3.new(510, 0.12, 0.8), CFrame.new(0, 0.42, lane + edge * 10), STYLE.Gold, Enum.Material.Metal)
+		end
+		local marker = makePart(arena, "LaneLabelAnchor", Vector3.new(1, 1, 1), CFrame.new(0, 8, lane), C.White, Enum.Material.SmoothPlastic, false)
+		marker.Transparency = 1
+		marker.CanQuery = false
+		billboard(marker, laneName, STYLE.Gold, Vector3.zero, UDim2.fromOffset(250, 42))
+	end
+	local river = decorPart(arena, "FrozenRiver", Vector3.new(18, 0.16, 340), CFrame.new(0, 0.06, 0), STYLE.Ice, Enum.Material.Ice)
+	river.Transparency = 0.25
+	for _, lane in ipairs(Config.Objectives.Lanes) do
+		decorPart(arena, "FrontierBridge", Vector3.new(30, 0.45, 24), CFrame.new(0, 0.28, lane), STYLE.IvoryDark, Enum.Material.Cobblestone)
+		decorPart(arena, "FrontierBridgeInlay", Vector3.new(22, 0.1, 1), CFrame.new(0, 0.56, lane), STYLE.Gold, Enum.Material.Metal)
+	end
+	for _, x in ipairs({ -170, -85, 85, 170 }) do
+		for _, side in ipairs({ -1, 1 }) do
+			local path = makePart(arena, "JunglePath", Vector3.new(10, 0.25, 86), CFrame.new(x, 0.16, side * 56), C.Dirt, Enum.Material.Ground, false)
+			path.CanQuery = false
+			for _, offset in ipairs({ Vector3.new(-9, 0, -28), Vector3.new(9, 0, 28) }) do
+				buildTree(arena, Vector3.new(x, 0, side * 56) + offset, 0.62)
+			end
+		end
+	end
+	for _, team in ipairs(Config.TeamOrder) do
+		local side = team == "Blue" and -1 or 1
+		for _, lane in ipairs(Config.Objectives.Lanes) do
+			for _, distance in ipairs(Config.Objectives.TowerDistances) do
+				local zOffset = lane == 0 and 18 or (lane > 0 and -16 or 16)
+				local pad = makePart(arena, "LaneTowerPad", Vector3.new(13, 0.25, 13), CFrame.new(side * distance, 0.18, lane + zOffset), Config.Teams[team].Dark, Enum.Material.Cobblestone, false)
+				pad:SetAttribute("Team", team)
+				pad:SetAttribute("BaseGeometry", true)
+				pad.CanQuery = false
+			end
+		end
+	end
+	for _, camp in ipairs(Config.Objectives.NeutralCamps) do
+		local campModel = Instance.new("Model")
+		campModel.Name = "NeutralCamp_" .. camp.Id
+		campModel.Parent = arena
+		local pad = makePart(campModel, "NeutralCampPad", Vector3.new(28, 0.3, 24), CFrame.new(camp.Position + Vector3.new(0, 0.15, 0)), C.StoneDark, Enum.Material.Cobblestone, false)
+		pad.CanQuery = false
+		for _, offset in ipairs({ Vector3.new(-17, 0, -11), Vector3.new(17, 0, 11), Vector3.new(-17, 0, 11) }) do
+			buildTree(campModel, camp.Position + offset, 0.62)
+		end
+		makePart(campModel, "CampRock", Vector3.new(5, 4, 5), CFrame.new(camp.Position + Vector3.new(10, 2, -7)), C.Stone, Enum.Material.Slate, true)
+		local marker = makePart(campModel, "CampLabelAnchor", Vector3.new(1, 1, 1), CFrame.new(camp.Position + Vector3.new(0, 9, 0)), C.White, Enum.Material.SmoothPlastic, false)
+		marker.Transparency = 1
+		marker.CanQuery = false
+		billboard(marker, "NEUTRAL CAMP // " .. string.upper(camp.Id), Color3.fromRGB(194, 223, 191), Vector3.zero, UDim2.fromOffset(230, 36))
+		table.insert(campSpots, { Id = camp.Id, Position = camp.Position, Model = campModel })
+	end
+	return campSpots
+end
+
 local function buildCapturePoint(parent)
 	local model = Instance.new("Model")
 	model.Name = "Capture67"
@@ -5056,6 +5841,9 @@ function WorldBuilder.Build()
 	local bots = Instance.new("Folder")
 	bots.Name = "Bots"
 	bots.Parent = root
+	local neutrals = Instance.new("Folder")
+	neutrals.Name = "Neutrals"
+	neutrals.Parent = root
 	local lobby = Instance.new("Folder")
 	lobby.Name = "Lobby"
 	lobby.Parent = root
@@ -5063,12 +5851,14 @@ function WorldBuilder.Build()
 	local presentation = Config.Presentation
 	makePart(arena, "ArenaDirt", Vector3.new(presentation.ArenaWidth, 8, presentation.ArenaDepth), CFrame.new(0, -6, 0), C.Dirt, Enum.Material.Ground, true)
 	makePart(arena, "ArenaGrass", Vector3.new(presentation.ArenaWidth, 2, presentation.ArenaDepth), CFrame.new(0, -1, 0), C.Grass, Enum.Material.Grass, true)
-	makePart(arena, "CenterLane", Vector3.new(300, 0.35, 22), CFrame.new(0, 0.15, 0), C.Sand, Enum.Material.Ground, true)
-	for _, z in ipairs({ -62, 62 }) do
-		makePart(arena, "SideLane", Vector3.new(320, 0.3, 14), CFrame.new(0, 0.12, z), C.Sand, Enum.Material.Ground, true)
+	makePart(arena, "CenterLane", Vector3.new(510, 0.35, 22), CFrame.new(0, 0.15, 0), C.Sand, Enum.Material.Ground, true)
+	for _, z in ipairs(Config.Objectives.Lanes) do
+		if z ~= 0 then
+			makePart(arena, "SideLane", Vector3.new(540, 0.3, 16), CFrame.new(0, 0.12, z), C.Sand, Enum.Material.Ground, true)
+		end
 	end
-	for index = 0, 25 do
-		local x = -250 + index * 20
+	for index = 0, 31 do
+		local x = -310 + index * 20
 		local height = 8 + (index * 5 % 7)
 		for _, side in ipairs({ -1, 1 }) do
 			makePart(arena, "CliffDirt", Vector3.new(20, height, 6), CFrame.new(x, -10 - height / 2, side * presentation.ArenaEdgeZ), C.Dirt, Enum.Material.Ground, true)
@@ -5121,6 +5911,7 @@ function WorldBuilder.Build()
 	end
 	decorateArena(arena)
 	buildArenaArchitecture(arena)
+	local neutralCamps = buildDotaFrontier(arena)
 
 	local capturePoint = buildCapturePoint(arena)
 	local lobbySpawn, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt, defensePrompt = buildLobby(lobby)
@@ -5164,6 +5955,8 @@ function WorldBuilder.Build()
 		Arena = arena,
 		Structures = structures,
 		Bots = bots,
+		Neutrals = neutrals,
+		NeutralCamps = neutralCamps,
 		Lobby = lobby,
 		LobbySpawn = lobbySpawn,
 		TeamSpawns = teamSpawns,
@@ -5178,6 +5971,1086 @@ function WorldBuilder.Build()
 end
 
 return WorldBuilder
+]]></string>
+          </Properties>
+        </Item>
+<Item class="ModuleScript" referent="32">
+          <Properties>
+            <string name="Name">AbilityService</string>
+            <string name="Source"><![CDATA[-- BLOCKSIEGE // SERVER-AUTHORITATIVE CLASS ABILITIES
+-- Random class draft, cooldowns, deployables, healing, buffs and ability damage.
+-- Clients only request F/G and render replicated models/FX.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local Shared = ReplicatedStorage:WaitForChild("BlockSiege")
+local Config = require(Shared:WaitForChild("Config"))
+local AbilityCatalog = require(Shared:WaitForChild("AbilityCatalog"))
+local CombatModels = require(Shared:WaitForChild("CombatModels"))
+
+local vector3Type = typeof(Vector3.new())
+local AbilityService = {}
+local world
+local remotes
+local state
+local fortressService
+local botService
+local weaponService
+local objectFolder
+local phaseProvider = function() return "Lobby" end
+local teamProvider = function() return nil end
+local targetsProvider = function() return {} end
+local random = Random.new()
+local playerClasses = {}
+local modelClasses = {}
+local teamDecks = {}
+local teamDeckCursor = { Blue = 0, Orange = 0 }
+local cooldowns = {}
+local effects = {}
+local projectiles = {}
+local mines = {}
+local turrets = {}
+local drones = {}
+local banners = {}
+local cooldownClock = 0
+local stateClock = 0
+local classCleanupClock = 0
+
+local function validPosition(position)
+	return typeof(position) == vector3Type and position.X == position.X and position.Y == position.Y and position.Z == position.Z
+		and math.abs(position.X) < 10000 and math.abs(position.Y) < 10000 and math.abs(position.Z) < 10000
+end
+
+local function rootOf(model)
+	return model and (model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart) or nil
+end
+
+local function living(model)
+	local humanoid = model and model:FindFirstChildOfClass("Humanoid")
+	local root = rootOf(model)
+	return model and model.Parent and humanoid and humanoid.Health > 0 and root and humanoid or nil
+end
+
+local function notify(player, text)
+	if remotes and remotes.Notify and player and player.Parent then
+		remotes.Notify:FireClient(player, text)
+	end
+end
+
+local function emit(payload)
+	if remotes and remotes.AbilityFX then
+		remotes.AbilityFX:FireAllClients(payload)
+	end
+end
+
+local function getClassForModel(model)
+	return modelClasses[model] or (model and model:GetAttribute("ClassId")) or nil
+end
+
+local function getClassForPlayer(player)
+	return playerClasses[player.UserId] or player:GetAttribute("ClassId") or nil
+end
+
+local function updateCooldownAttributes(owner)
+	local clock = os.clock()
+	local ownerCooldowns = cooldowns[owner]
+	for slot = 1, 2 do
+		local remaining = ownerCooldowns and math.max(0, (ownerCooldowns[slot] or 0) - clock) or 0
+		remaining = math.ceil(remaining * 10) / 10
+		if owner:GetAttribute("Ability" .. slot .. "Remaining") ~= remaining then
+			owner:SetAttribute("Ability" .. slot .. "Remaining", remaining)
+		end
+	end
+end
+
+local function publishPlayerClass(player, classId)
+	local definition = AbilityCatalog.GetClass(classId)
+	if not definition then
+		return
+	end
+	playerClasses[player.UserId] = classId
+	player:SetAttribute("ClassId", classId)
+	player:SetAttribute("ClassName", definition.Name)
+	player:SetAttribute("ClassRole", definition.Role)
+	player:SetAttribute("ClassDescription", definition.Description)
+	player:SetAttribute("ClassColor", definition.Color)
+	player:SetAttribute("ClassBuildBonus", definition.BuildBonus or 0)
+	for slot = 1, 2 do
+		local ability = AbilityCatalog.GetAbilityForSlot(classId, slot)
+		player:SetAttribute("Ability" .. slot .. "Id", ability.Id)
+		player:SetAttribute("Ability" .. slot .. "Name", ability.Name)
+		player:SetAttribute("Ability" .. slot .. "ShortName", ability.ShortName)
+		player:SetAttribute("Ability" .. slot .. "Description", ability.Description)
+		player:SetAttribute("Ability" .. slot .. "Cooldown", ability.Cooldown)
+		player:SetAttribute("Ability" .. slot .. "Hotkey", ability.Hotkey)
+	end
+	cooldowns[player] = { 0, 0 }
+	updateCooldownAttributes(player)
+end
+
+local function clearPlayerClass(player)
+	playerClasses[player.UserId] = nil
+	cooldowns[player] = nil
+	for _, attribute in ipairs({ "ClassId", "ClassName", "ClassRole", "ClassDescription", "Ability1Id", "Ability1Name", "Ability1ShortName", "Ability1Description", "Ability2Id", "Ability2Name", "Ability2ShortName", "Ability2Description", "Ability1Hotkey", "Ability2Hotkey" }) do
+		player:SetAttribute(attribute, "")
+	end
+	player:SetAttribute("ClassColor", nil)
+	player:SetAttribute("ClassBuildBonus", 0)
+	player:SetAttribute("Ability1Cooldown", 0)
+	player:SetAttribute("Ability2Cooldown", 0)
+	player:SetAttribute("Ability1Remaining", 0)
+	player:SetAttribute("Ability2Remaining", 0)
+end
+
+local function refreshEffects(model)
+	if not model then
+		return
+	end
+	local clock = os.clock()
+	local effect = effects[model]
+	local damage = tonumber(model:GetAttribute("ClassDamageMultiplier")) or 1
+	local taken = 1
+	local speed = tonumber(model:GetAttribute("ClassSpeedBonus")) or 0
+	if effect then
+		if effect.ShieldUntil and clock < effect.ShieldUntil then
+			taken = math.min(taken, effect.ShieldMultiplier or 1)
+		end
+		if effect.OverdriveUntil and clock < effect.OverdriveUntil then
+			damage = damage * (effect.OverdriveMultiplier or 1)
+		end
+		if effect.RallyUntil and clock < effect.RallyUntil then
+			damage = damage * (effect.RallyDamage or 1)
+			speed = speed + (effect.RallySpeed or 0)
+		end
+	end
+	model:SetAttribute("DamageMultiplier", damage)
+	model:SetAttribute("DamageTakenMultiplier", taken)
+	model:SetAttribute("AbilitySpeedBonus", speed)
+	model:SetAttribute("Shielded", taken < 0.999)
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		local baseSpeed = tonumber(model:GetAttribute("BaseWalkSpeed")) or humanoid.WalkSpeed
+		local desiredSpeed = baseSpeed + speed
+		if math.abs(humanoid.WalkSpeed - desiredSpeed) > 0.01 then
+			humanoid.WalkSpeed = desiredSpeed
+		end
+	end
+end
+
+local function applyClassToModel(model, classId)
+	local definition = AbilityCatalog.GetClass(classId)
+	if not model or not definition then
+		return nil
+	end
+	modelClasses[model] = classId
+	model:SetAttribute("ClassId", classId)
+	model:SetAttribute("ClassName", definition.Name)
+	model:SetAttribute("ClassRole", definition.Role)
+	model:SetAttribute("ClassColor", definition.Color)
+	model:SetAttribute("ClassDamageMultiplier", definition.DamageMultiplier or 1)
+	model:SetAttribute("ClassSpeedBonus", definition.SpeedBonus or 0)
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if humanoid and model:GetAttribute("ClassPassiveApplied") ~= true then
+		humanoid.MaxHealth = humanoid.MaxHealth + (definition.MaxHealthBonus or 0)
+		humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + (definition.MaxHealthBonus or 0))
+		local armor = tonumber(model:GetAttribute("Armor")) or 0
+		model:SetAttribute("Armor", armor + (definition.ArmorBonus or 0))
+		model:SetAttribute("BaseWalkSpeed", humanoid.WalkSpeed)
+		model:SetAttribute("ClassPassiveApplied", true)
+	end
+	cooldowns[model] = cooldowns[model] or { 0, 0 }
+	refreshEffects(model)
+	updateCooldownAttributes(model)
+	return classId
+end
+
+local function shuffledDeck()
+	local deck = {}
+	for _, classId in ipairs(AbilityCatalog.ClassOrder) do
+		table.insert(deck, classId)
+	end
+	-- The sixth slot is random, while the first five guarantee role variety.
+	table.insert(deck, AbilityCatalog.ClassOrder[random:NextInteger(1, #AbilityCatalog.ClassOrder)])
+	for index = #deck, 2, -1 do
+		local other = random:NextInteger(1, index)
+		deck[index], deck[other] = deck[other], deck[index]
+	end
+	return deck
+end
+
+local function nextClass(team)
+	if not teamDecks[team] then
+		teamDecks[team] = shuffledDeck()
+		teamDeckCursor[team] = 0
+	end
+	local cursor = (teamDeckCursor[team] or 0) + 1
+	teamDeckCursor[team] = cursor
+	return teamDecks[team][cursor] or AbilityCatalog.ClassOrder[random:NextInteger(1, #AbilityCatalog.ClassOrder)]
+end
+
+local function ensureObjectFolder()
+	if objectFolder and objectFolder.Parent then
+		return objectFolder
+	end
+	objectFolder = Instance.new("Folder")
+	objectFolder.Name = "AbilityObjects"
+	objectFolder.Parent = world and world.Root or Workspace
+	return objectFolder
+end
+
+local function parentUtility(object, team, abilityId, owner)
+	object.Parent = ensureObjectFolder()
+	object:SetAttribute("Team", team)
+	object:SetAttribute("AbilityId", abilityId)
+	if owner then
+		object:SetAttribute("OwnerUserId", owner.UserId)
+	end
+	return object
+end
+
+local function groundTarget(character, position, range)
+	local root = rootOf(character)
+	if not root then
+		return nil
+	end
+	local origin = root.Position
+	local target = validPosition(position) and position or origin
+	local delta = target - origin
+	if range and delta.Magnitude > range then
+		target = origin + delta.Unit * range
+	end
+	local edgeX = (Config.Presentation and Config.Presentation.ArenaEdgeX or 300) - 8
+	local edgeZ = (Config.Presentation and Config.Presentation.ArenaEdgeZ or 160) - 8
+	return Vector3.new(math.clamp(target.X, -edgeX, edgeX), 0.8, math.clamp(target.Z, -edgeZ, edgeZ))
+end
+
+local function allies(team)
+	local result = {}
+	if botService then
+		for _, model in ipairs(botService.GetModels(team)) do
+			if living(model) then
+				table.insert(result, model)
+			end
+		end
+	end
+	for _, player in ipairs(Players:GetPlayers()) do
+		local playerTeam = teamProvider(player) or player:GetAttribute("Team")
+		if playerTeam == team and player:GetAttribute("InMatch") ~= false and living(player.Character) then
+			table.insert(result, player.Character)
+		end
+	end
+	return result
+end
+
+local function enemies(team)
+	local result = {}
+	for _, model in ipairs(targetsProvider(team)) do
+		if living(model) then
+			table.insert(result, model)
+		end
+	end
+	return result
+end
+
+local function healAround(team, center, radius, amount)
+	local healed = 0
+	for _, model in ipairs(allies(team)) do
+		local root = rootOf(model)
+		local humanoid = living(model)
+		if root and humanoid and (root.Position - center).Magnitude <= radius then
+			local before = humanoid.Health
+			humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + amount)
+			if humanoid.Health > before then
+				healed = healed + 1
+			end
+		end
+	end
+	return healed
+end
+
+local function damageAround(team, center, radius, amount, sourcePlayer, sourceModel)
+	local damageMultiplier = sourceModel and tonumber(sourceModel:GetAttribute("DamageMultiplier")) or 1
+	local hits = 0
+	for _, model in ipairs(enemies(team)) do
+		local root = rootOf(model)
+		if root and (root.Position - center).Magnitude <= radius then
+			if weaponService and weaponService.ApplyAbilityDamage then
+				weaponService.ApplyAbilityDamage(model, amount * damageMultiplier, team, sourcePlayer)
+			else
+				local humanoid = living(model)
+				if humanoid then
+					local armor = tonumber(model:GetAttribute("Armor")) or 0
+					local shield = tonumber(model:GetAttribute("DamageTakenMultiplier")) or 1
+					humanoid:TakeDamage(amount * damageMultiplier * shield * (1 - math.clamp(armor, 0, 0.65)))
+				end
+			end
+			hits = hits + 1
+		end
+	end
+	return hits
+end
+
+local function nearestEnemy(team, position, range)
+	local best
+	local bestDistance = range or math.huge
+	for _, model in ipairs(enemies(team)) do
+		local root = rootOf(model)
+		if root then
+			local distance = (root.Position - position).Magnitude
+			if distance <= bestDistance then
+				best = model
+				bestDistance = distance
+			end
+		end
+	end
+	return best, bestDistance
+end
+
+local function effectFor(model)
+	local effect = effects[model]
+	if not effect then
+		effect = {}
+		effects[model] = effect
+	end
+	return effect
+end
+
+local function applyRally(buffModel, untilTime, ability)
+	local effect = effectFor(buffModel)
+	effect.RallyUntil = math.max(effect.RallyUntil or 0, untilTime)
+	effect.RallyDamage = ability.DamageMultiplier or 1.2
+	effect.RallySpeed = ability.SpeedBonus or 5
+	refreshEffects(buffModel)
+end
+
+local function rallyAllies(team, center, radius, untilTime, ability)
+	for _, model in ipairs(allies(team)) do
+		local root = rootOf(model)
+		if root and (root.Position - center).Magnitude <= radius then
+			applyRally(model, untilTime, ability)
+		end
+	end
+end
+
+local function execute(character, team, ability, target, player)
+	local root = rootOf(character)
+	if not root or not living(character) then
+		return false
+	end
+	local now = os.clock()
+	local center = target or root.Position
+	if ability.Kind == "Heal" then
+		healAround(team, center, ability.Radius, ability.Amount)
+		emit({ Kind = "Heal", AbilityId = ability.Id, Position = center, Radius = ability.Radius, Team = team, Color = ability.Color })
+	elseif ability.Kind == "Drone" then
+		if #drones >= 12 then
+			return false
+		end
+		local object = parentUtility(CombatModels.BuildDrone(Config.Teams[team].Color), team, ability.Id, player)
+		object:PivotTo(CFrame.new(root.Position + Vector3.new(0, 5, 0)))
+		table.insert(drones, { Model = object, Owner = character, Team = team, Until = now + ability.Duration, Radius = ability.Radius, Heal = ability.HealPerSecond, NextHeal = now })
+		emit({ Kind = "DroneLaunch", AbilityId = ability.Id, Position = root.Position, Team = team, Color = ability.Color, Duration = ability.Duration })
+	elseif ability.Kind == "Shield" then
+		local effect = effectFor(character)
+		effect.ShieldUntil = math.max(effect.ShieldUntil or 0, now + ability.Duration)
+		effect.ShieldMultiplier = ability.DamageTakenMultiplier or 0.42
+		refreshEffects(character)
+		emit({ Kind = "Shield", AbilityId = ability.Id, Position = root.Position, Origin = root.Position, Team = team, Color = ability.Color, Duration = ability.Duration, Radius = 6 })
+	elseif ability.Kind == "Slam" then
+		damageAround(team, center, ability.Radius, ability.Amount, player, character)
+		emit({ Kind = "Slam", AbilityId = ability.Id, Position = center, Radius = ability.Radius, Team = team, Color = ability.Color })
+	elseif ability.Kind == "Overdrive" then
+		local effect = effectFor(character)
+		effect.OverdriveUntil = math.max(effect.OverdriveUntil or 0, now + ability.Duration)
+		effect.OverdriveMultiplier = ability.DamageMultiplier or 1.45
+		refreshEffects(character)
+		emit({ Kind = "Overdrive", AbilityId = ability.Id, Position = root.Position, Origin = root.Position, Team = team, Color = ability.Color, Duration = ability.Duration, Radius = 5 })
+	elseif ability.Kind == "Bomb" then
+		if #projectiles >= 24 then
+			return false
+		end
+		local object = parentUtility(CombatModels.BuildBomb(Config.Teams[team].Color), team, ability.Id, player)
+		local start = root.Position + Vector3.new(0, 2, 0)
+		object:PivotTo(CFrame.new(start))
+		table.insert(projectiles, { Model = object, Team = team, Source = character, Player = player, Start = start, Target = center, Born = now, Duration = ability.FlightTime or 0.85, Radius = ability.Radius, Amount = ability.Amount, AbilityId = ability.Id })
+		emit({ Kind = "BombLaunch", AbilityId = ability.Id, Position = start, Origin = start, Finish = center, Team = team, Color = ability.Color })
+	elseif ability.Kind == "Rally" then
+		if #banners >= 24 then
+			return false
+		end
+		local object = parentUtility(CombatModels.BuildBanner(Config.Teams[team].Color), team, ability.Id, player)
+		object:PivotTo(CFrame.new(center))
+		local banner = { Model = object, Team = team, Position = center, Radius = ability.Radius, Until = now + ability.Duration, Ability = ability, NextBuff = now }
+		table.insert(banners, banner)
+		rallyAllies(team, center, ability.Radius, now + ability.Duration, ability)
+		emit({ Kind = "Rally", AbilityId = ability.Id, Position = center, Radius = ability.Radius, Team = team, Color = ability.Color, Duration = ability.Duration })
+	elseif ability.Kind == "Repair" then
+		healAround(team, center, ability.Radius, ability.Amount)
+		if fortressService and fortressService.RepairStructures then
+			fortressService.RepairStructures(team, center, ability.Radius, ability.StructureAmount)
+		end
+		emit({ Kind = "Repair", AbilityId = ability.Id, Position = center, Radius = ability.Radius, Team = team, Color = ability.Color })
+	elseif ability.Kind == "Minefield" then
+		if #mines + ability.Count > 72 then
+			return false
+		end
+		local offsets = { Vector3.new(-4, 0, 0), Vector3.new(4, 0, 0), Vector3.new(0, 0, 4) }
+		for index = 1, ability.Count do
+			local object = parentUtility(CombatModels.BuildMine(Config.Teams[team].Color), team, ability.Id, player)
+			local position = center + offsets[((index - 1) % #offsets) + 1]
+			object:PivotTo(CFrame.new(position))
+			object:SetAttribute("Armed", false)
+			table.insert(mines, { Model = object, Team = team, Source = character, Player = player, Position = position, ArmAt = now + 1, Until = now + ability.Duration, Radius = ability.Radius, TriggerRadius = ability.TriggerRadius, Amount = ability.Amount, NextCheck = now, AbilityId = ability.Id })
+		end
+		emit({ Kind = "Minefield", AbilityId = ability.Id, Position = center, Radius = 8, Team = team, Color = ability.Color })
+	elseif ability.Kind == "Turret" then
+		if #turrets >= 24 then
+			return false
+		end
+		local object = parentUtility(CombatModels.BuildTurret(Config.Teams[team].Color), team, ability.Id, player)
+		object:PivotTo(CFrame.new(center))
+		table.insert(turrets, { Model = object, Team = team, Source = character, Player = player, Position = center, Until = now + ability.Duration, NextShot = now + 0.6, Range = ability.AttackRange, Amount = ability.Amount, ShotCooldown = ability.ShotCooldown, AbilityId = ability.Id })
+		emit({ Kind = "TurretDeploy", AbilityId = ability.Id, Position = center, Team = team, Color = ability.Color, Duration = ability.Duration })
+	else
+		return false
+	end
+	return true
+end
+
+local function useAbility(owner, character, team, slot, targetPosition, player)
+	if phaseProvider() ~= "Battle" then
+		return false, "Способности доступны в фазе ШТУРМ"
+	end
+	local humanoid = living(character)
+	if not humanoid then
+		return false, "Персонаж не готов"
+	end
+	local classId = getClassForModel(character) or (player and getClassForPlayer(player))
+	local ability = AbilityCatalog.GetAbilityForSlot(classId, slot)
+	if not ability then
+		return false, "Класс ещё не назначен"
+	end
+	local ownerCooldowns = cooldowns[owner]
+	local now = os.clock()
+	if ownerCooldowns and (ownerCooldowns[slot] or 0) > now then
+		return false, "Способность перезаряжается"
+	end
+	local target = groundTarget(character, targetPosition, ability.Range)
+	if not target then
+		return false, "Нет цели"
+	end
+	if not execute(character, team, ability, target, player) then
+		return false, "Достигнут лимит активных объектов"
+	end
+	cooldowns[owner] = cooldowns[owner] or { 0, 0 }
+	cooldowns[owner][slot] = now + ability.Cooldown
+	updateCooldownAttributes(owner)
+	if player and remotes and remotes.AbilityState then
+		remotes.AbilityState:FireClient(player, { Slot = slot, Cooldown = ability.Cooldown, AbilityId = ability.Id })
+	end
+	emit({ Kind = "Cooldown", AbilityId = ability.Id, Position = rootOf(character).Position, Team = team, Color = ability.Color })
+	return true
+end
+
+function AbilityService.Init(dependencies)
+	world = dependencies.World
+	remotes = dependencies.Remotes
+	state = dependencies.State
+	fortressService = dependencies.FortressService
+	botService = dependencies.BotService
+	weaponService = dependencies.WeaponService
+	ensureObjectFolder()
+end
+
+function AbilityService.SetProviders(phase, team, targets)
+	phaseProvider = phase or phaseProvider
+	teamProvider = team or teamProvider
+	targetsProvider = targets or targetsProvider
+end
+
+function AbilityService.StartMatch(matchId, participants)
+	AbilityService.Reset()
+	teamDecks = { Blue = shuffledDeck(), Orange = shuffledDeck() }
+	teamDeckCursor = { Blue = 0, Orange = 0 }
+	for _, player in ipairs(Players:GetPlayers()) do
+		local team = participants[player.UserId]
+		if team then
+			publishPlayerClass(player, nextClass(team))
+		end
+	end
+	if state then
+		state:SetAttribute("ClassDraftMatch", matchId)
+		state:SetAttribute("ClassDraftEnabled", true)
+	end
+end
+
+function AbilityService.RegisterBot(model, team)
+	return applyClassToModel(model, nextClass(team))
+end
+
+function AbilityService.ApplyCharacter(player, character)
+	local classId = getClassForPlayer(player)
+	if classId then
+		playerClasses[player.UserId] = classId
+		applyClassToModel(character, classId)
+		-- A respawn starts with fresh ability cooldowns only at match start;
+		-- cooldowns remain bound to the player, not to the new character.
+		cooldowns[player] = cooldowns[player] or { 0, 0 }
+		updateCooldownAttributes(player)
+	end
+end
+
+function AbilityService.UsePlayerAbility(player, slot, targetPosition)
+	if slot ~= 1 and slot ~= 2 then
+		return false
+	end
+	local team = teamProvider(player) or player:GetAttribute("Team")
+	if not Config.Teams[team] then
+		return false, "Вы не участвуете в матче"
+	end
+	local classId = getClassForPlayer(player)
+	if not classId then
+		notify(player, "Класс будет назначен при старте матча")
+		return false
+	end
+	local character = player.Character
+	if character and not modelClasses[character] then
+		applyClassToModel(character, classId)
+	end
+	local success, reason = useAbility(player, character, team, slot, targetPosition, player)
+	if not success and reason and reason ~= "Способность перезаряжается" then
+		notify(player, reason)
+	end
+	return success, reason
+end
+
+function AbilityService.UseBotAbility(model, targetPosition)
+	if not living(model) then
+		return false
+	end
+	local classId = getClassForModel(model)
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	-- Attribute stores the NEXT slot directly. The old encoded cursor made
+	-- every other think retry the same cooldown before trying its partner.
+	local cursor = tonumber(model:GetAttribute("AbilityCursor")) or 1
+	if cursor ~= 1 and cursor ~= 2 then
+		cursor = 1
+	end
+	if classId == "Medic" and humanoid.Health / math.max(1, humanoid.MaxHealth) < 0.8 then
+		cursor = 1
+	elseif classId == "Tank" and humanoid.Health / math.max(1, humanoid.MaxHealth) < 0.65 then
+		cursor = 1
+	end
+	local function targetForSlot(slot)
+		if classId == "Medic" and slot == 1 then
+			return rootOf(model).Position
+		elseif classId == "Buffer" then
+			return slot == 2 and fortressService.GetCorePosition(model:GetAttribute("Team")) or rootOf(model).Position
+		elseif classId == "Engineer" and slot == 2 then
+			return rootOf(model).Position
+		end
+		return targetPosition
+	end
+	local success = useAbility(model, model, model:GetAttribute("Team"), cursor, targetForSlot(cursor), nil)
+	if not success then
+		cursor = cursor % 2 + 1
+		success = useAbility(model, model, model:GetAttribute("Team"), cursor, targetForSlot(cursor), nil)
+	end
+	if success then
+		model:SetAttribute("AbilityCursor", cursor % 2 + 1)
+	end
+	return success
+end
+
+function AbilityService.GetPlayerClass(player)
+	return getClassForPlayer(player)
+end
+
+function AbilityService.GetBuildBonus(player)
+	local classId = getClassForPlayer(player)
+	local definition = AbilityCatalog.GetClass(classId)
+	return definition and definition.BuildBonus or 0
+end
+
+function AbilityService.GetObjectCounts()
+	return { Projectiles = #projectiles, Mines = #mines, Turrets = #turrets, Drones = #drones, Banners = #banners }
+end
+
+local function destroyRecord(record)
+	if record and record.Model then
+		record.Model:Destroy()
+	end
+end
+
+local function explodeProjectile(projectile)
+	damageAround(projectile.Team, projectile.Target, projectile.Radius, projectile.Amount, projectile.Player, projectile.Source)
+	emit({ Kind = "BombImpact", AbilityId = projectile.AbilityId, Position = projectile.Target, Radius = projectile.Radius, Team = projectile.Team, Color = AbilityCatalog.GetAbility(projectile.AbilityId).Color })
+end
+
+local function explodeMine(mine)
+	damageAround(mine.Team, mine.Position, mine.Radius, mine.Amount, mine.Player, mine.Source)
+	emit({ Kind = "MineExplode", AbilityId = mine.AbilityId, Position = mine.Position, Radius = mine.Radius, Team = mine.Team, Color = AbilityCatalog.GetAbility(mine.AbilityId).Color })
+end
+
+function AbilityService.Step(deltaTime)
+	local now = os.clock()
+	for model, effect in pairs(effects) do
+		if not model.Parent then
+			effects[model] = nil
+			modelClasses[model] = nil
+			cooldowns[model] = nil
+		else
+			local expired = (not effect.ShieldUntil or effect.ShieldUntil <= now)
+				and (not effect.OverdriveUntil or effect.OverdriveUntil <= now)
+				and (not effect.RallyUntil or effect.RallyUntil <= now)
+			refreshEffects(model)
+			if expired then
+				effects[model] = nil
+			end
+		end
+	end
+
+	if phaseProvider() == "Battle" then
+		for index = #projectiles, 1, -1 do
+			local projectile = projectiles[index]
+			local alpha = (now - projectile.Born) / projectile.Duration
+			if alpha >= 1 or not projectile.Model.Parent then
+				if projectile.Model.Parent then
+					explodeProjectile(projectile)
+				end
+				destroyRecord(projectile)
+				table.remove(projectiles, index)
+			else
+				local position = projectile.Start:Lerp(projectile.Target, alpha) + Vector3.new(0, math.sin(alpha * math.pi) * 18, 0)
+				projectile.Model:PivotTo(CFrame.new(position) * CFrame.Angles(now * 3, now * 4, 0))
+				CombatModels.AnimateUtility(projectile.Model, now, true)
+			end
+		end
+		for index = #mines, 1, -1 do
+			local mine = mines[index]
+			if now >= mine.Until or not mine.Model.Parent then
+				destroyRecord(mine)
+				table.remove(mines, index)
+			else
+				local armed = now >= mine.ArmAt
+				mine.Model:SetAttribute("Armed", armed)
+				CombatModels.AnimateUtility(mine.Model, now, armed)
+				if armed and now >= mine.NextCheck then
+					mine.NextCheck = now + 0.12
+					local target = nearestEnemy(mine.Team, mine.Position, mine.TriggerRadius)
+					if target then
+						explodeMine(mine)
+						destroyRecord(mine)
+						table.remove(mines, index)
+					end
+				end
+			end
+		end
+		for index = #turrets, 1, -1 do
+			local turret = turrets[index]
+			if now >= turret.Until or not turret.Model.Parent then
+				destroyRecord(turret)
+				table.remove(turrets, index)
+			else
+				local target = nearestEnemy(turret.Team, turret.Position, turret.Range)
+				if target then
+					local targetRoot = rootOf(target)
+					local head = turret.Model:FindFirstChild("TurretHead")
+					local headRoot = head and head.PrimaryPart
+					if head and headRoot and targetRoot then
+						head:PivotTo(CFrame.lookAt(headRoot.Position, targetRoot.Position))
+					end
+					if now >= turret.NextShot then
+						turret.NextShot = now + turret.ShotCooldown
+						if weaponService and weaponService.ApplyAbilityDamage then
+							weaponService.ApplyAbilityDamage(target, turret.Amount, turret.Team, turret.Player)
+						end
+						local origin = headRoot and headRoot.Position or turret.Position
+						emit({ Kind = "TurretShot", AbilityId = turret.AbilityId, Origin = origin, Finish = targetRoot.Position, Position = targetRoot.Position, Team = turret.Team, Color = Color3.fromRGB(255, 209, 99) })
+					end
+				end
+			end
+		end
+		for index = #drones, 1, -1 do
+			local drone = drones[index]
+			local ownerRoot = rootOf(drone.Owner)
+			if now >= drone.Until or not living(drone.Owner) or not drone.Model.Parent then
+				destroyRecord(drone)
+				table.remove(drones, index)
+			else
+				local position = ownerRoot.Position + Vector3.new(math.sin(now * 2) * 2, 5 + math.sin(now * 4) * 0.5, math.cos(now * 2) * 2)
+				drone.Model:PivotTo(CFrame.new(position) * CFrame.Angles(0, now * 2, 0))
+				CombatModels.AnimateUtility(drone.Model, now, true)
+				if now >= drone.NextHeal then
+					drone.NextHeal = now + 1
+					healAround(drone.Team, position, drone.Radius, drone.Heal)
+					emit({ Kind = "DroneHeal", AbilityId = "GuardianDrone", Position = position, Radius = drone.Radius, Team = drone.Team, Color = Color3.fromRGB(93, 239, 174) })
+				end
+			end
+		end
+		for index = #banners, 1, -1 do
+			local banner = banners[index]
+			if now >= banner.Until or not banner.Model.Parent then
+				destroyRecord(banner)
+				table.remove(banners, index)
+			else
+				CombatModels.AnimateBanner(banner.Model, now)
+				if now >= banner.NextBuff then
+					banner.NextBuff = now + 0.3
+					rallyAllies(banner.Team, banner.Position, banner.Radius, now + 0.45, banner.Ability)
+				end
+			end
+		end
+	end
+
+	classCleanupClock = classCleanupClock + deltaTime
+	if classCleanupClock >= 1 then
+		classCleanupClock = 0
+		for model in pairs(modelClasses) do
+			if not model.Parent then
+				modelClasses[model] = nil
+				cooldowns[model] = nil
+				effects[model] = nil
+			end
+		end
+	end
+
+	cooldownClock = cooldownClock + deltaTime
+	if cooldownClock >= 0.1 then
+		cooldownClock = 0
+		for _, player in ipairs(Players:GetPlayers()) do
+			if playerClasses[player.UserId] then
+				updateCooldownAttributes(player)
+			end
+		end
+		if botService then
+			for _, team in ipairs(Config.TeamOrder) do
+				for _, model in ipairs(botService.GetModels(team)) do
+					updateCooldownAttributes(model)
+				end
+			end
+		end
+	end
+	stateClock = stateClock + deltaTime
+	if stateClock >= 0.25 and state then
+		stateClock = 0
+		state:SetAttribute("ActiveAbilityMines", #mines)
+		state:SetAttribute("ActiveAbilityTurrets", #turrets)
+		state:SetAttribute("ActiveAbilityProjectiles", #projectiles)
+		state:SetAttribute("ActiveAbilityDrones", #drones)
+	end
+end
+
+function AbilityService.Reset()
+	for _, list in ipairs({ projectiles, mines, turrets, drones, banners }) do
+		for _, record in ipairs(list) do
+			destroyRecord(record)
+		end
+		for index = #list, 1, -1 do
+			table.remove(list, index)
+		end
+	end
+	playerClasses = {}
+	modelClasses = {}
+	cooldowns = {}
+	effects = {}
+	teamDecks = {}
+	teamDeckCursor = { Blue = 0, Orange = 0 }
+	classCleanupClock = 0
+	cooldownClock = 0
+	stateClock = 0
+	for _, player in ipairs(Players:GetPlayers()) do
+		clearPlayerClass(player)
+	end
+	if state then
+		state:SetAttribute("ClassDraftEnabled", false)
+		state:SetAttribute("ActiveAbilityMines", 0)
+		state:SetAttribute("ActiveAbilityTurrets", 0)
+		state:SetAttribute("ActiveAbilityProjectiles", 0)
+		state:SetAttribute("ActiveAbilityDrones", 0)
+	end
+end
+
+function AbilityService.OnPlayerRemoving(player)
+	playerClasses[player.UserId] = nil
+	cooldowns[player] = nil
+end
+
+return AbilityService
+]]></string>
+          </Properties>
+        </Item>
+<Item class="ModuleScript" referent="33">
+          <Properties>
+            <string name="Name">NeutralService</string>
+            <string name="Source"><![CDATA[-- BLOCKSIEGE // JUNGLE NEUTRAL CAMPS
+-- Small server-side PvE encounters between the three lanes. Neutrals never
+-- replace the 6v6 team fill and cannot destroy a fortress core by themselves.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("BlockSiege")
+local Config = require(Shared:WaitForChild("Config"))
+
+local NeutralService = {}
+local world
+local remotes
+local dataService
+local botService
+local state
+local phaseProvider = function() return "Lobby" end
+local camps = {}
+local defeated = 0
+local animationClock = 0
+
+local colors = {
+	Color3.fromRGB(143, 190, 157),
+	Color3.fromRGB(177, 153, 205),
+	Color3.fromRGB(205, 175, 112),
+}
+
+local function rootOf(model)
+	return model and (model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart) or nil
+end
+
+local function living(model)
+	local root = rootOf(model)
+	local humanoid = model and model:FindFirstChildOfClass("Humanoid")
+	return root and humanoid and humanoid.Health > 0 and humanoid or nil
+end
+
+local function makePart(parent, name, size, cframe, color, material, collide)
+	local object = Instance.new("Part")
+	object.Name = name
+	object.Size = size
+	object.CFrame = cframe
+	object.Color = color
+	object.Material = material or Enum.Material.Slate
+	object.Anchored = true
+	object.CanCollide = collide == true
+	object.CanTouch = false
+	object.CanQuery = true
+	object.Parent = parent
+	return object
+end
+
+local function addTag(head, campId, humanoid)
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "NeutralTag"
+	gui.Size = UDim2.fromOffset(210, 48)
+	gui.StudsOffset = Vector3.new(0, 3, 0)
+	gui.AlwaysOnTop = true
+	gui.MaxDistance = 100
+	gui.Parent = head
+	local text = Instance.new("TextLabel")
+	text.Name = "Health"
+	text.Size = UDim2.fromScale(1, 1)
+	text.BackgroundTransparency = 1
+	text.Font = Enum.Font.GothamBold
+	text.TextScaled = true
+	text.TextColor3 = Color3.fromRGB(221, 242, 213)
+	text.TextStrokeTransparency = 0.25
+	text.Text = "NEUTRAL // " .. string.upper(campId) .. " · " .. math.ceil(humanoid.Health)
+	text.Parent = gui
+	return text
+end
+
+local function combatants()
+	local result = {}
+	if botService then
+		for _, team in ipairs(Config.TeamOrder) do
+			for _, model in ipairs(botService.GetModels(team)) do
+				if living(model) then
+					table.insert(result, model)
+				end
+			end
+		end
+	end
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player:GetAttribute("InMatch") == true and living(player.Character) then
+			table.insert(result, player.Character)
+		end
+	end
+	return result
+end
+
+local function neutralDeath(record, model)
+	local attackerId = model:GetAttribute("LastAttackerUserId")
+	local player = attackerId and Players:GetPlayerByUserId(attackerId) or nil
+	if player and dataService then
+		dataService.AddCoins(player, 8)
+		if remotes and remotes.Notify then
+			remotes.Notify:FireClient(player, "NEUTRAL CAMP ОЧИЩЕН · +8 монет")
+		end
+	end
+	defeated = defeated + 1
+	record.RespawnAt = os.clock() + (Config.Objectives.NeutralRespawn or 45)
+	record.Humanoid = nil
+	if state then
+		state:SetAttribute("NeutralDefeated", defeated)
+	end
+	if remotes and remotes.CombatFX then
+		remotes.CombatFX:FireAllClients({ Kind = "NeutralDefeated", Position = record.Position + Vector3.new(0, 3, 0), Team = "Neutral", Color = Color3.fromRGB(170, 220, 160) })
+	end
+	task.delay(1, function()
+		if record.Model == model then
+			model:Destroy()
+		end
+	end)
+end
+
+local function spawnCamp(definition)
+	local model = Instance.new("Model")
+	model.Name = "NeutralGuardian_" .. definition.Id
+	model:SetAttribute("Team", "Neutral")
+	model:SetAttribute("IsNeutral", true)
+	model:SetAttribute("NeutralCamp", definition.Id)
+	model:SetAttribute("Armor", 0.05)
+	model.Parent = world.Neutrals
+	local color = colors[(#camps % #colors) + 1]
+	local root = makePart(model, "HumanoidRootPart", Vector3.new(3, 3, 3), CFrame.new(definition.Position + Vector3.new(0, 3, 0)), color, Enum.Material.Slate, false)
+	root.Transparency = 1
+	root.CanQuery = false
+	model.PrimaryPart = root
+	-- Guardians are combat targets, not invisible navmesh walls. Keeping their
+	-- bodies non-colliding prevents a jungle camp from trapping a lane bot; the
+	-- parts remain queryable so hitscan and LastAttackerUserId still work.
+	local body = makePart(model, "Body", Vector3.new(4.2, 4.5, 3.8), root.CFrame * CFrame.new(0, 0.5, 0), color, Enum.Material.DiamondPlate, false)
+	local head = makePart(model, "Head", Vector3.new(2.7, 2.2, 2.7), root.CFrame * CFrame.new(0, 3.4, 0), Color3.fromRGB(45, 65, 65), Enum.Material.Slate, false)
+	makePart(model, "NeutralEye", Vector3.new(1.4, 0.35, 0.25), root.CFrame * CFrame.new(0, 3.5, -1.4), Color3.fromRGB(221, 255, 159), Enum.Material.Neon, false)
+	for _, side in ipairs({ -1, 1 }) do
+		makePart(model, "Horn", Vector3.new(0.55, 2.2, 0.55), root.CFrame * CFrame.new(side * 1.1, 5, 0) * CFrame.Angles(0, 0, math.rad(side * 20)), Color3.fromRGB(222, 213, 173), Enum.Material.Cobblestone, false)
+	end
+	local crystal = makePart(model, "NeutralCrystal", Vector3.new(1.1, 2.4, 1.1), root.CFrame * CFrame.new(0, 1, 2.2), color, Enum.Material.Neon, false)
+	local glow = Instance.new("PointLight")
+	glow.Name = "NeutralGlow"
+	glow.Color = color
+	glow.Brightness = 1.2
+	glow.Range = 10
+	glow.Parent = crystal
+	local humanoid = Instance.new("Humanoid")
+	humanoid.MaxHealth = 220
+	humanoid.Health = 220
+	humanoid.WalkSpeed = 0
+	humanoid.RequiresNeck = false
+	humanoid.BreakJointsOnDeath = false
+	humanoid.Parent = model
+	local record = { Id = definition.Id, Position = definition.Position, Model = model, Humanoid = humanoid, Root = root, Body = body, Crystal = crystal, CrystalCFrame = crystal.CFrame, NextAttack = os.clock() + 1, RespawnAt = 0 }
+	record.Tag = addTag(head, definition.Id, humanoid)
+	humanoid.Died:Connect(function()
+		neutralDeath(record, model)
+	end)
+	return record
+end
+
+function NeutralService.Init(dependencies)
+	world = dependencies.World
+	remotes = dependencies.Remotes
+	dataService = dependencies.DataService
+	botService = dependencies.BotService
+	state = dependencies.State
+	if not world.Neutrals then
+		local folder = Instance.new("Folder")
+		folder.Name = "Neutrals"
+		folder.Parent = world.Root
+		world.Neutrals = folder
+	end
+end
+
+function NeutralService.SetPhaseProvider(provider)
+	phaseProvider = provider or phaseProvider
+end
+
+function NeutralService.StartMatch()
+	NeutralService.Reset()
+	for _, definition in ipairs(Config.Objectives.NeutralCamps) do
+		table.insert(camps, spawnCamp(definition))
+	end
+	if state then
+		state:SetAttribute("NeutralCampCount", #camps)
+		state:SetAttribute("NeutralDefeated", 0)
+	end
+end
+
+function NeutralService.Reset()
+	for _, record in ipairs(camps) do
+		if record.Model then
+			record.Model:Destroy()
+		end
+	end
+	camps = {}
+	defeated = 0
+	if state then
+		state:SetAttribute("NeutralCampCount", 0)
+		state:SetAttribute("NeutralGuardiansAlive", 0)
+		state:SetAttribute("NeutralDefeated", 0)
+	end
+end
+
+function NeutralService.Step(deltaTime)
+	if phaseProvider() ~= "Battle" then
+		return
+	end
+	local now = os.clock()
+	local alive = 0
+	animationClock = animationClock + deltaTime
+	for index, record in ipairs(camps) do
+		local humanoid = record.Humanoid
+		if humanoid and humanoid.Health > 0 and record.Model.Parent then
+			alive = alive + 1
+			record.Crystal.CFrame = record.CrystalCFrame * CFrame.Angles(0, now * 1.5, 0)
+			local glow = record.Crystal:FindFirstChild("NeutralGlow")
+			if glow then
+				glow.Brightness = 1.1 + math.sin(now * 4) * 0.35
+			end
+			if record.Tag then
+				record.Tag.Text = "NEUTRAL // " .. string.upper(record.Id) .. " · " .. math.ceil(humanoid.Health)
+			end
+			if now >= record.NextAttack then
+				local nearest
+				local nearestRoot
+				local nearestDistance = 22
+				for _, target in ipairs(combatants()) do
+					local targetRoot = rootOf(target)
+					if targetRoot then
+						local distance = (targetRoot.Position - record.Root.Position).Magnitude
+						if distance <= nearestDistance then
+							nearest = target
+							nearestRoot = targetRoot
+							nearestDistance = distance
+						end
+					end
+				end
+				if nearest then
+					record.NextAttack = now + 1.6
+					record.Model:PivotTo(CFrame.lookAt(record.Root.Position, Vector3.new(nearestRoot.Position.X, record.Root.Position.Y, nearestRoot.Position.Z)))
+					local targetHumanoid = living(nearest)
+					local armor = tonumber(nearest:GetAttribute("Armor")) or 0
+					local shield = tonumber(nearest:GetAttribute("DamageTakenMultiplier")) or 1
+					targetHumanoid:TakeDamage(10 * math.clamp(shield, 0.05, 1) * (1 - math.clamp(armor, 0, 0.65)))
+					if remotes and remotes.CombatFX then
+						remotes.CombatFX:FireAllClients({ Kind = "NeutralShot", Origin = record.Body.Position, Finish = nearestRoot.Position, Position = nearestRoot.Position, Team = "Neutral", Color = Color3.fromRGB(170, 220, 160) })
+					end
+				else
+					record.NextAttack = now + 0.4
+				end
+			end
+		elseif record.RespawnAt > 0 and now >= record.RespawnAt then
+			if record.Model then
+				record.Model:Destroy()
+			end
+			camps[index] = spawnCamp({ Id = record.Id, Position = record.Position })
+		end
+	end
+	if state then
+		state:SetAttribute("NeutralGuardiansAlive", alive)
+	end
+end
+
+function NeutralService.GetCampCount()
+	return #camps
+end
+
+return NeutralService
 ]]></string>
           </Properties>
         </Item>
@@ -5886,7 +7759,15 @@ local function refresh()
 	buildRemaining.Text = "Осталось построек: " .. tostring(player:GetAttribute("BuildRemaining") or 0)
 	local equippedWeapon = Catalog.GetWeapon(player:GetAttribute("SelectedWeapon") or "Carbine") or Catalog.Weapons.Carbine
 	local weaponSkin = player:GetAttribute("Cosmetic_WeaponSkin")
-	weaponLabel.Text = "ОРУЖИЕ: " .. equippedWeapon.Name .. (weaponSkin and weaponSkin ~= "Default" and " · GOLD" or "")
+	local character = player.Character
+	local ammo = character and character:GetAttribute("Ammo")
+	local magazine = character and character:GetAttribute("Magazine")
+	local reloading = character and character:GetAttribute("Reloading") == true
+	local ammoText = ""
+	if phase == "Battle" and ammo ~= nil and magazine ~= nil and magazine > 0 then
+		ammoText = reloading and " · ПЕРЕЗАРЯДКА" or (" · " .. tostring(ammo) .. "/" .. tostring(magazine) .. " · R")
+	end
+	weaponLabel.Text = "ОРУЖИЕ: " .. equippedWeapon.Name .. (weaponSkin and weaponSkin ~= "Default" and " · GOLD" or "") .. ammoText
 	balanceLabel.Text = string.format("Монеты: %d · Жетоны: %d · Pity: %d/20", player:GetAttribute("Coins") or 0, player:GetAttribute("CaseTokens") or 0, player:GetAttribute("LegendaryPity") or 0)
 	for _, teamName in ipairs({ "Blue", "Orange" }) do
 		local health = state:GetAttribute(teamName .. "Core") or 0
@@ -5998,7 +7879,11 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		local index = input.KeyCode == Enum.KeyCode.Four and 1 or (input.KeyCode == Enum.KeyCode.Five and 2 or 3)
 		selectBuildKind(Catalog.DefenseOrder[index])
 	elseif input.KeyCode == Enum.KeyCode.R then
-		rotateBuild(1)
+		if state:GetAttribute("Phase") == "Battle" then
+			remotes.ReloadRequest:FireServer()
+		else
+			rotateBuild(1)
+		end
 	elseif input.KeyCode == Enum.KeyCode.Q then
 		rotateBuild(-1)
 	elseif input.KeyCode == Enum.KeyCode.B then
@@ -6080,13 +7965,13 @@ remotes.CombatFX.OnClientEvent:Connect(function(payload)
 		local color = payload.Color or C.Gold
 		effect(payload.Finish or payload.Position, color, 1.8, 0.12)
 		burst(payload.Finish or payload.Position, color, 5, 3)
-	elseif payload.Kind == "Shot" then
+	elseif payload.Kind == "Shot" or payload.Kind == "TowerShot" or payload.Kind == "NeutralShot" then
 		local distance = (payload.Finish - payload.Origin).Magnitude
 		if distance > 0.1 then
-			local width = payload.WeaponId == "Rail" and 0.3 or 0.12
+			local width = payload.WeaponId == "Rail" and 0.3 or (payload.Kind == "Shot" and 0.12 or 0.18)
 			local beam = new("Part", {
 				Size = Vector3.new(width, width, distance), CFrame = CFrame.lookAt(payload.Origin:Lerp(payload.Finish, 0.5), payload.Finish),
-				Color = payload.Color, Material = Enum.Material.Neon, Anchored = true, CanCollide = false, CanTouch = false, CanQuery = false, Transparency = 0.08,
+				Color = payload.Color or C[payload.Team] or C.Gold, Material = Enum.Material.Neon, Anchored = true, CanCollide = false, CanTouch = false, CanQuery = false, Transparency = 0.08,
 			}, Workspace)
 			TweenService:Create(beam, TweenInfo.new(0.07), { Transparency = 1 }):Play()
 			Debris:AddItem(beam, 0.08)
@@ -6099,6 +7984,10 @@ remotes.CombatFX.OnClientEvent:Connect(function(payload)
 		local color = C[payload.Team] or C.Gold
 		effect(payload.Position, color, 5, 0.35)
 		burst(payload.Position, color, 10, 12)
+	elseif payload.Kind == "NeutralDefeated" then
+		local color = payload.Color or C.Green
+		effect(payload.Position, color, 7, 0.45)
+		burst(payload.Position, color, 16, 12)
 	else
 		effect(payload.Position, C[payload.Team] or C.Gold, 2.2, 0.14)
 		burst(payload.Position, C[payload.Team] or C.Gold, 3, 4)
@@ -6520,6 +8409,13 @@ local Shared = ReplicatedStorage:WaitForChild("BlockSiege")
 local Catalog = require(Shared:WaitForChild("Catalog"))
 local WeaponModels = require(Shared:WaitForChild("WeaponModels"))
 local state = Shared:WaitForChild("MatchState")
+local remotes = Shared:FindFirstChild("Remotes")
+local animatedWeapon
+local animatedWelds = {}
+local equipStarted = 0
+local recoilUntil = 0
+local reloadStarted = 0
+local wasReloading = false
 
 local C = {
 	Background = Color3.fromRGB(17, 24, 32),
@@ -6737,8 +8633,87 @@ local function updateLayout()
 	end
 end
 
+local function cacheWorldWeapon()
+	local character = player.Character
+	local equipped = character and character:FindFirstChild("EquippedWeapon") or nil
+	if equipped == animatedWeapon then
+		return character, equipped
+	end
+	animatedWeapon = equipped
+	animatedWelds = {}
+	equipStarted = os.clock()
+	wasReloading = false
+	if equipped then
+		for _, item in ipairs(equipped:GetDescendants()) do
+			if item.Name == "WeaponWeld" and item.ClassName == "Weld" then
+				table.insert(animatedWelds, { Weld = item, C0 = item.C0 })
+			end
+		end
+	end
+	return character, equipped
+end
+
+local function animateWorldWeapon(clock, phase)
+	local character, equipped = cacheWorldWeapon()
+	local active = equipped ~= nil and (phase == "Build" or phase == "Battle")
+	local action = CFrame.new()
+	if active then
+		-- Small hand-held bob; this changes only the existing Weld.C0 values.
+		action = CFrame.new(math.sin(clock * 1.7) * 0.025, math.sin(clock * 2.3) * 0.035, 0)
+		local equipAlpha = math.clamp((clock - equipStarted) / 0.28, 0, 1)
+		if equipAlpha < 1 then
+			action = action * CFrame.new(0, -(1 - equipAlpha) * 0.8, 0) * CFrame.Angles(0, 0, math.rad(-35 * (1 - equipAlpha)))
+		end
+		if clock < recoilUntil then
+			local kick = math.clamp((recoilUntil - clock) / 0.12, 0, 1)
+			action = action * CFrame.new(0, 0, kick * 0.22) * CFrame.Angles(math.rad(-10 * kick), 0, 0)
+		end
+		local reloading = character:GetAttribute("Reloading") == true
+		if reloading and not wasReloading then
+			reloadStarted = clock
+		end
+		wasReloading = reloading
+		if reloading then
+			local duration = math.max(0.2, tonumber(character:GetAttribute("ReloadDuration")) or 1.65)
+			local progress = math.clamp((clock - reloadStarted) / duration, 0, 1)
+			local arc = math.sin(progress * math.pi)
+			action = action * CFrame.new(0, -arc * 0.45, arc * 0.15) * CFrame.Angles(math.rad(arc * 55), 0, math.rad(-30 * arc))
+		end
+	else
+		wasReloading = false
+	end
+	for _, record in ipairs(animatedWelds) do
+		if record.Weld.Parent then
+			record.Weld.C0 = active and action * record.C0 or record.C0
+		end
+	end
+end
+
+if remotes then
+	local combat = remotes:FindFirstChild("CombatFX")
+	if combat then
+		combat.OnClientEvent:Connect(function(payload)
+			if payload.AttackerUserId == player.UserId and payload.Kind == "Shot" then
+				recoilUntil = os.clock() + 0.12
+			end
+		end)
+	end
+	local weaponAction = remotes:FindFirstChild("WeaponAction")
+	if weaponAction then
+		weaponAction.OnClientEvent:Connect(function(payload)
+			if payload.Action == "ReloadStart" then
+				reloadStarted = os.clock()
+			elseif payload.Action == "Equip" then
+				equipStarted = os.clock()
+			end
+		end)
+	end
+end
+
 RunService.RenderStepped:Connect(function()
+	local clock = os.clock()
 	local phase = state:GetAttribute("Phase") or "Lobby"
+	animateWorldWeapon(clock, phase)
 	local visible = phase == "Build" or phase == "Battle"
 	panel.Visible = visible
 	if not visible then
@@ -6757,7 +8732,6 @@ RunService.RenderStepped:Connect(function()
 		updateLayout()
 		lastPhase = phase
 	end
-	local clock = os.clock()
 	if viewModel and modelReady then
 		local yaw = 78 + math.sin(clock * 0.65) * 9
 		local pitch = -7 + math.sin(clock * 0.9) * 2
@@ -6772,6 +8746,290 @@ end)
 player:GetAttributeChangedSignal("SelectedWeapon"):Connect(clearViewmodel)
 player:GetAttributeChangedSignal("Cosmetic_WeaponSkin"):Connect(clearViewmodel)
 updateLayout()
+]]></string>
+        </Properties>
+      </Item>
+<Item class="LocalScript" referent="34">
+        <Properties>
+          <string name="Name">AbilityClient</string>
+          <string name="Source"><![CDATA[-- BLOCKSIEGE // CLASS HUD + ABILITY FX
+local Debris = game:GetService("Debris")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+local mouse = player:GetMouse()
+local Shared = ReplicatedStorage:WaitForChild("BlockSiege")
+local AbilityCatalog = require(Shared:WaitForChild("AbilityCatalog"))
+local remotes = Shared:WaitForChild("Remotes")
+local state = Shared:WaitForChild("MatchState")
+
+local C = {
+	Background = Color3.fromRGB(12, 20, 32),
+	Panel = Color3.fromRGB(27, 42, 59),
+	Text = Color3.fromRGB(239, 247, 255),
+	Muted = Color3.fromRGB(157, 180, 198),
+	Gold = Color3.fromRGB(255, 211, 107),
+}
+
+local function new(className, properties, parent)
+	local object = Instance.new(className)
+	for key, value in pairs(properties or {}) do
+		object[key] = value
+	end
+	object.Parent = parent
+	return object
+end
+
+local function corner(object, radius)
+	return new("UICorner", { CornerRadius = UDim.new(0, radius or 8) }, object)
+end
+
+local function label(parent, textValue, size, position, textSize, color)
+	return new("TextLabel", {
+		BackgroundTransparency = 1,
+		Size = size,
+		Position = position or UDim2.new(),
+		Font = Enum.Font.Gotham,
+		Text = textValue,
+		TextColor3 = color or C.Text,
+		TextSize = textSize or 14,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Center,
+	}, parent)
+end
+
+local gui = new("ScreenGui", {
+	Name = "BlockSiegeAbilities",
+	ResetOnSpawn = false,
+	DisplayOrder = 5,
+	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+}, player:WaitForChild("PlayerGui"))
+local panel = new("Frame", {
+	Name = "ClassPanel",
+	AnchorPoint = Vector2.new(0, 1),
+	Position = UDim2.new(0, 18, 1, -18),
+	Size = UDim2.fromOffset(310, 198),
+	BackgroundColor3 = C.Background,
+	BackgroundTransparency = 0.04,
+	BorderSizePixel = 0,
+	Visible = false,
+}, gui)
+corner(panel, 10)
+new("UIStroke", { Color = Color3.fromRGB(78, 111, 137), Thickness = 1.2, Transparency = 0.1 }, panel)
+new("UIGradient", { Rotation = 110, Color = ColorSequence.new(Color3.fromRGB(35, 57, 76), C.Background) }, panel)
+
+local classLabel = label(panel, "CLASS // DRAFT", UDim2.new(1, -24, 0, 25), UDim2.new(0, 12, 0, 8), 18, C.Gold)
+classLabel.Font = Enum.Font.GothamBlack
+local roleLabel = label(panel, "", UDim2.new(1, -24, 0, 18), UDim2.new(0, 12, 0, 33), 11, C.Muted)
+roleLabel.Font = Enum.Font.GothamBold
+local description = label(panel, "", UDim2.new(1, -24, 0, 29), UDim2.new(0, 12, 0, 51), 11, C.Muted)
+local buttons = {}
+for slot = 1, 2 do
+	local button = new("TextButton", {
+		Name = "Ability" .. slot,
+		Position = UDim2.new(0, 12 + (slot - 1) * 147, 0, 86),
+		Size = UDim2.fromOffset(137, 66),
+		BackgroundColor3 = C.Panel,
+		BorderSizePixel = 0,
+		Font = Enum.Font.GothamBold,
+		Text = "",
+		TextColor3 = C.Text,
+		TextSize = 13,
+		TextWrapped = true,
+		AutoButtonColor = true,
+	}, panel)
+	corner(button, 8)
+	new("UIStroke", { Color = C.Gold, Thickness = 1, Transparency = 0.35 }, button)
+	buttons[slot] = button
+end
+local hint = label(panel, "F / G · цель под прицелом · серверный cooldown", UDim2.new(1, -24, 0, 17), UDim2.new(0, 12, 1, -39), 10, C.Muted)
+local reloadButton = new("TextButton", {
+	Name = "ReloadButton",
+	AnchorPoint = Vector2.new(1, 1),
+	Position = UDim2.new(1, -12, 1, -8),
+	Size = UDim2.fromOffset(100, 24),
+	BackgroundColor3 = C.Panel,
+	BorderSizePixel = 0,
+	Font = Enum.Font.GothamBold,
+	Text = "R · RELOAD",
+	TextColor3 = C.Gold,
+	TextSize = 10,
+}, panel)
+corner(reloadButton, 5)
+
+local function aimPosition()
+	if UserInputService.TouchEnabled and not UserInputService.MouseEnabled then
+		local camera = Workspace.CurrentCamera
+		if camera then
+			return camera.CFrame.Position + camera.CFrame.LookVector * 100
+		end
+	end
+	local ok, position = pcall(function()
+		return mouse.Hit.Position
+	end)
+	if ok and position then
+		return position
+	end
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	return root and root.Position + root.CFrame.LookVector * 50 or Vector3.zero
+end
+
+local function useAbility(slot)
+	if state:GetAttribute("Phase") == "Battle" then
+		remotes.AbilityRequest:FireServer(slot, aimPosition())
+	end
+end
+for slot = 1, 2 do
+	buttons[slot].Activated:Connect(function()
+		useAbility(slot)
+	end)
+end
+reloadButton.Activated:Connect(function()
+	if state:GetAttribute("Phase") == "Battle" then
+		remotes.ReloadRequest:FireServer()
+	end
+end)
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed or state:GetAttribute("Phase") ~= "Battle" then
+		return
+	end
+	if input.KeyCode == Enum.KeyCode.F then
+		useAbility(1)
+	elseif input.KeyCode == Enum.KeyCode.G then
+		useAbility(2)
+	end
+end)
+
+local function refresh()
+	local phase = state:GetAttribute("Phase") or "Lobby"
+	local classId = player:GetAttribute("ClassId") or ""
+	local definition = AbilityCatalog.GetClass(classId)
+	panel.Visible = (phase == "Build" or phase == "Battle") and definition ~= nil
+	if not definition then
+		return
+	end
+	classLabel.Text = "CLASS // " .. (player:GetAttribute("ClassName") or definition.Name)
+	classLabel.TextColor3 = definition.Color
+	roleLabel.Text = definition.Role .. " · " .. (phase == "Build" and "СЛУЧАЙНЫЙ КЛАСС НА МАТЧ" or "F / G · СПОСОБНОСТИ")
+	description.Text = player:GetAttribute("ClassDescription") or definition.Description
+	for slot = 1, 2 do
+		local ability = AbilityCatalog.GetAbilityForSlot(classId, slot)
+		local remaining = tonumber(player:GetAttribute("Ability" .. slot .. "Remaining")) or 0
+		local shortName = player:GetAttribute("Ability" .. slot .. "ShortName") or (ability and ability.ShortName) or "ABILITY"
+		local status = phase == "Build" and "BATTLE ONLY" or (remaining > 0 and string.format("%.1f s", remaining) or "READY")
+		buttons[slot].Text = string.format("[%s] %s\n%s", ability and ability.Hotkey or (slot == 1 and "F" or "G"), shortName, status)
+		buttons[slot].BackgroundColor3 = remaining > 0 and C.Panel or definition.Color
+		buttons[slot].TextColor3 = remaining > 0 and C.Muted or Color3.fromRGB(12, 25, 35)
+		buttons[slot].Active = phase == "Battle" and remaining <= 0
+	end
+	local character = player.Character
+	local reloading = character and character:GetAttribute("Reloading") == true
+	reloadButton.Text = reloading and "RELOADING..." or "R · RELOAD"
+	reloadButton.Visible = phase == "Battle"
+	hint.Text = phase == "Build" and "Класс закреплён до конца матча · способности откроются в бою" or "F / G · цель под прицелом · серверный cooldown"
+end
+
+local fxFolder = Workspace:FindFirstChild("BlockSiegeAbilityFX")
+if not fxFolder then
+	fxFolder = new("Folder", { Name = "BlockSiegeAbilityFX" }, Workspace)
+end
+
+local function effect(position, color, size, duration, ball)
+	if not position then
+		return
+	end
+	local object = new("Part", {
+		Position = position,
+		Size = Vector3.one * (size or 4),
+		Color = color or C.Gold,
+		Material = Enum.Material.Neon,
+		Anchored = true,
+		CanCollide = false,
+		CanTouch = false,
+		CanQuery = false,
+		Transparency = 0.2,
+	}, fxFolder)
+	if ball then
+		object.Shape = Enum.PartType.Ball
+	end
+	local light = new("PointLight", { Color = object.Color, Brightness = 2, Range = math.max(8, (size or 4) * 2) }, object)
+	TweenService:Create(light, TweenInfo.new(duration or 0.35), { Brightness = 0 }):Play()
+	TweenService:Create(object, TweenInfo.new(duration or 0.35), { Size = Vector3.one * (size or 4) * 1.35, Transparency = 1 }):Play()
+	Debris:AddItem(object, (duration or 0.35) + 0.05)
+end
+
+local function burst(position, color, count, power)
+	if not position then
+		return
+	end
+	for _ = 1, count or 8 do
+		local lifetime = 0.3 + math.random() * 0.35
+		local direction = Vector3.new(math.random() - 0.5, math.random() * 0.8 + 0.2, math.random() - 0.5).Unit
+		local object = new("Part", {
+			Position = position,
+			Size = Vector3.one * (0.35 + math.random() * 0.5),
+			Color = color or C.Gold,
+			Material = Enum.Material.Neon,
+			Anchored = true,
+			CanCollide = false,
+			CanTouch = false,
+			CanQuery = false,
+		}, fxFolder)
+		TweenService:Create(object, TweenInfo.new(lifetime), { Position = position + direction * (power or 8), Transparency = 1, Size = Vector3.one * 0.05 }):Play()
+		Debris:AddItem(object, lifetime + 0.05)
+	end
+end
+
+remotes.AbilityFX.OnClientEvent:Connect(function(payload)
+	if payload.Kind == "Cooldown" then
+		return
+	end
+	local color = payload.Color or C.Gold
+	if payload.Kind == "TurretShot" and payload.Origin and payload.Finish then
+		local distance = (payload.Finish - payload.Origin).Magnitude
+		if distance > 0.1 then
+			local beam = new("Part", {
+				Size = Vector3.new(0.18, 0.18, distance),
+				CFrame = CFrame.lookAt(payload.Origin:Lerp(payload.Finish, 0.5), payload.Finish),
+				Color = color,
+				Material = Enum.Material.Neon,
+				Anchored = true,
+				CanCollide = false,
+				CanTouch = false,
+				CanQuery = false,
+				Transparency = 0.05,
+			}, fxFolder)
+			TweenService:Create(beam, TweenInfo.new(0.1), { Transparency = 1 }):Play()
+			Debris:AddItem(beam, 0.12)
+		end
+		return
+	end
+	local large = payload.Kind == "BombImpact" or payload.Kind == "MineExplode" or payload.Kind == "Slam"
+	local size = payload.Radius and math.min(payload.Radius, 18) or (large and 9 or 4)
+	effect(payload.Position or payload.Origin, color, size, large and 0.55 or 0.35, payload.Kind == "Shield" or payload.Kind == "Overdrive" or large)
+	if large or payload.Kind == "Heal" or payload.Kind == "Repair" then
+		burst(payload.Position or payload.Origin, color, large and 18 or 10, large and 16 or 8)
+	end
+end)
+
+state:GetAttributeChangedSignal("Phase"):Connect(refresh)
+player:GetAttributeChangedSignal("ClassId"):Connect(refresh)
+local refreshClock = 0
+RunService.RenderStepped:Connect(function(deltaTime)
+	refreshClock = refreshClock + deltaTime
+	if refreshClock >= 0.08 then
+		refreshClock = 0
+		refresh()
+	end
+end)
+refresh()
 ]]></string>
         </Properties>
       </Item>
