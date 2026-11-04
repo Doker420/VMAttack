@@ -1,0 +1,557 @@
+-- Tactical bots: role-based construction, defense, assault, support and obstacle-aware pathing.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
+local Shared = ReplicatedStorage:WaitForChild("BlockSiege")
+local Config = require(Shared:WaitForChild("Config"))
+local Catalog = require(Shared:WaitForChild("Catalog"))
+
+local pathfindingOk, PathfindingService = pcall(function()
+	return game:GetService("PathfindingService")
+end)
+if not pathfindingOk then
+	PathfindingService = nil
+end
+
+local BotService = {}
+local world
+local fortressService
+local weaponService
+local phaseProvider = function()
+	return "Lobby"
+end
+local targetsProvider = function()
+	return {}
+end
+local bots = {}
+local active = false
+local matchId = 0
+local nextBotId = 0
+
+local botWeapons = { "Carbine", "SMG", "Scatter", "Marksman", "Demolisher", "Vortex" }
+local roles = { "Defender", "Assault", "Support", "Defender", "Assault", "Support" }
+
+local function bodyPart(model, root, name, size, offset, color)
+	local part = Instance.new("Part")
+	part.Name = name
+	part.Size = size
+	part.CFrame = root.CFrame * CFrame.new(offset)
+	part.Color = color
+	part.Material = Enum.Material.SmoothPlastic
+	part.Anchored = false
+	part.CanCollide = false
+	part.CanTouch = false
+	part.CanQuery = true
+	part.Massless = true
+	part.Parent = model
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = root
+	weld.Part1 = part
+	weld.Parent = part
+	return part
+end
+
+local function addNameTag(head, entry)
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "BotTag"
+	gui.Size = UDim2.fromOffset(210, 54)
+	gui.StudsOffset = Vector3.new(0, 2.2, 0)
+	gui.AlwaysOnTop = true
+	gui.MaxDistance = 150
+	gui.Parent = head
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 0.65)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.Code
+	label.Text = string.format("%s BOT %02d", string.upper(entry.Team), entry.Slot)
+	label.TextColor3 = Config.Teams[entry.Team].Color
+	label.TextStrokeTransparency = 0.3
+	label.TextScaled = true
+	label.Parent = gui
+	local role = Instance.new("TextLabel")
+	role.Name = "Role"
+	role.Position = UDim2.fromScale(0, 0.65)
+	role.Size = UDim2.fromScale(1, 0.35)
+	role.BackgroundTransparency = 1
+	role.Font = Enum.Font.Code
+	role.Text = entry.Role == "Defender" and "DEFENSE" or (entry.Role == "Support" and "SUPPORT" or "ASSAULT")
+	role.TextColor3 = Color3.fromRGB(235, 240, 235)
+	role.TextStrokeTransparency = 0.4
+	role.TextScaled = true
+	role.Parent = gui
+end
+
+local function resetPath(entry)
+	entry.Path = nil
+	entry.PathIndex = 1
+	entry.PathGoal = nil
+	entry.NextPath = 0
+end
+
+local function spawnModel(entry)
+	local spawn = world.TeamSpawns[entry.Team] * CFrame.new((entry.Slot - 3.5) * 3, 0, 0)
+	local model = Instance.new("Model")
+	model.Name = "Bot_" .. entry.Id
+	model:SetAttribute("Team", entry.Team)
+	model:SetAttribute("BotId", entry.Id)
+	model:SetAttribute("IsBot", true)
+	model:SetAttribute("Role", entry.Role)
+	model:SetAttribute("Level", 1)
+	model:SetAttribute("Armor", 0)
+	model.Parent = world.Bots
+	local root = Instance.new("Part")
+	root.Name = "HumanoidRootPart"
+	root.Size = Vector3.new(3, 4.5, 3)
+	root.CFrame = spawn
+	root.Transparency = 1
+	root.Anchored = false
+	root.CanCollide = true
+	root.CanTouch = false
+	root.CanQuery = false
+	root.Parent = model
+	model.PrimaryPart = root
+	local humanoid = Instance.new("Humanoid")
+	humanoid.MaxHealth = 120
+	humanoid.Health = 120
+	humanoid.WalkSpeed = entry.Role == "Assault" and 20 or (entry.Role == "Defender" and 16 or 18)
+	humanoid.JumpPower = 50
+	humanoid.HipHeight = 0
+	humanoid.RequiresNeck = false
+	humanoid.BreakJointsOnDeath = false
+	humanoid.Parent = model
+	local color = Config.Teams[entry.Team].Color
+	bodyPart(model, root, "Torso", Vector3.new(3, 2.2, 1.8), Vector3.new(0, 0.3, 0), color)
+	bodyPart(model, root, "Head", Vector3.new(2.1, 1.8, 2.1), Vector3.new(0, 2.5, 0), Color3.fromRGB(224, 190, 145))
+	bodyPart(model, root, "Left Arm", Vector3.new(1, 2.4, 1.4), Vector3.new(-2, 0.3, 0), color)
+	bodyPart(model, root, "Right Arm", Vector3.new(1, 2.4, 1.4), Vector3.new(2, 0.3, 0), color)
+	bodyPart(model, root, "Left Leg", Vector3.new(1.2, 2, 1.5), Vector3.new(-0.8, -1.8, 0), Config.Teams[entry.Team].Dark)
+	bodyPart(model, root, "Right Leg", Vector3.new(1.2, 2, 1.5), Vector3.new(0.8, -1.8, 0), Config.Teams[entry.Team].Dark)
+	addNameTag(model:FindFirstChild("Head"), entry)
+	entry.Model = model
+	entry.Humanoid = humanoid
+	entry.LastPosition = root.Position
+	entry.StuckTime = 0
+	entry.NextJump = 0
+	entry.Target = nil
+	entry.LastHeal = 0
+	resetPath(entry)
+	weaponService.EquipCharacter(model, entry.WeaponId)
+	local spawnMatch = entry.MatchId
+	humanoid.Died:Connect(function()
+		resetPath(entry)
+		task.delay(2, function()
+			if entry.Model == model then
+				model:Destroy()
+			end
+		end)
+		task.delay(Config.RespawnDuration, function()
+			if active and entry.MatchId == spawnMatch and matchId == spawnMatch and (phaseProvider() == "Battle" or phaseProvider() == "Build") then
+				spawnModel(entry)
+			end
+		end)
+	end)
+	return model
+end
+
+local function addBot(team, slot)
+	nextBotId = nextBotId + 1
+	local entry = {
+		Id = nextBotId,
+		Team = team,
+		Slot = slot,
+		Role = roles[((slot - 1) % #roles) + 1],
+		WeaponId = botWeapons[((slot - 1) % #botWeapons) + 1],
+		MatchId = matchId,
+		Builds = 0,
+		NextBuild = os.clock() + 1 + slot * 0.15,
+		NextThink = 0,
+	}
+	bots[entry.Id] = entry
+	spawnModel(entry)
+	return entry
+end
+
+function BotService.Init(dependencies)
+	world = dependencies.World
+	fortressService = dependencies.FortressService
+	weaponService = dependencies.WeaponService
+end
+
+function BotService.SetProviders(phase, targets)
+	phaseProvider = phase
+	targetsProvider = targets
+end
+
+function BotService.Start(newMatchId, participants)
+	BotService.Stop()
+	matchId = newMatchId
+	active = true
+	local humanCounts = { Blue = 0, Orange = 0 }
+	for _, team in pairs(participants) do
+		if humanCounts[team] then
+			humanCounts[team] = humanCounts[team] + 1
+		end
+	end
+	for _, team in ipairs(Config.TeamOrder) do
+		local needed = Config.TeamSize - humanCounts[team]
+		for index = 1, needed do
+			addBot(team, humanCounts[team] + index)
+		end
+	end
+end
+
+function BotService.AddBot(team)
+	if not active then
+		return nil
+	end
+	local used = {}
+	for _, entry in pairs(bots) do
+		if entry.Team == team then
+			used[entry.Slot] = true
+		end
+	end
+	for slot = 1, Config.TeamSize do
+		if not used[slot] then
+			return addBot(team, slot)
+		end
+	end
+	return nil
+end
+
+function BotService.Stop()
+	active = false
+	for _, entry in pairs(bots) do
+		if entry.Model then
+			entry.Model:Destroy()
+		end
+	end
+	bots = {}
+end
+
+function BotService.Count(team)
+	local count = 0
+	for _, entry in pairs(bots) do
+		if entry.Team == team and entry.Model and entry.Model.Parent then
+			count = count + 1
+		end
+	end
+	return count
+end
+
+function BotService.GetModels(team)
+	local result = {}
+	for _, entry in pairs(bots) do
+		local humanoid = entry.Model and entry.Model:FindFirstChildOfClass("Humanoid")
+		if entry.Team == team and entry.Model and entry.Model.Parent and humanoid and humanoid.Health > 0 then
+			table.insert(result, entry.Model)
+		end
+	end
+	return result
+end
+
+local function modelPosition(model)
+	local root = model and model:FindFirstChild("HumanoidRootPart")
+	return root and root.Position or nil
+end
+
+local function nearestEnemy(entry, position)
+	local best
+	local bestDistance = math.huge
+	local bestScore = math.huge
+	for _, model in ipairs(targetsProvider(entry.Team)) do
+		local root = model and model:FindFirstChild("HumanoidRootPart")
+		local humanoid = model and model:FindFirstChildOfClass("Humanoid")
+		if root and humanoid and humanoid.Health > 0 then
+			local distance = (root.Position - position).Magnitude
+			-- Prefer a nearby threat, but switch to a wounded target when it is a better tactical choice.
+			local healthRatio = humanoid.Health / math.max(1, humanoid.MaxHealth)
+			local score = distance + healthRatio * 18
+			if model == entry.Target then
+				score = score - 8
+			end
+			if score < bestScore then
+				best = model
+				bestDistance = distance
+				bestScore = score
+			end
+		end
+	end
+	return best, bestDistance
+end
+
+local function nearestAlly(entry, position)
+	local best
+	local bestDistance = math.huge
+	for _, model in ipairs(BotService.GetModels(entry.Team)) do
+		if model ~= entry.Model then
+			local root = model:FindFirstChild("HumanoidRootPart")
+			local humanoid = model:FindFirstChildOfClass("Humanoid")
+			if root and humanoid and humanoid.Health > 0 then
+				local distance = (root.Position - position).Magnitude
+				if distance < bestDistance then
+					best = model
+					bestDistance = distance
+				end
+			end
+		end
+	end
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player:GetAttribute("Team") == entry.Team then
+			local model = player.Character
+			local root = model and model:FindFirstChild("HumanoidRootPart")
+			local humanoid = model and model:FindFirstChildOfClass("Humanoid")
+			if root and humanoid and humanoid.Health > 0 then
+				local distance = (root.Position - position).Magnitude
+				if distance < bestDistance then
+					best = model
+					bestDistance = distance
+				end
+			end
+		end
+	end
+	return best, bestDistance
+end
+
+local function basePoint(team, localX, localZ)
+	return (Config.BaseCFrame(team) * CFrame.new(localX or 0, 0, localZ or 16)).Position
+end
+
+local function computePath(entry, destination, now)
+	if not PathfindingService or not entry.Model or not entry.Model.PrimaryPart then
+		return nil
+	end
+	local ok, path = pcall(function()
+		return PathfindingService:CreatePath({
+			AgentRadius = 3,
+			AgentHeight = 6,
+			AgentCanJump = true,
+			WaypointSpacing = 8,
+			Costs = { Water = 20 },
+		})
+	end)
+	if not ok or not path then
+		return nil
+	end
+	local computed = pcall(function()
+		path:ComputeAsync(entry.Model.PrimaryPart.Position, destination)
+	end)
+	if not computed then
+		return nil
+	end
+	local gotWaypoints, waypoints = pcall(function()
+		return path:GetWaypoints()
+	end)
+	if gotWaypoints and waypoints and #waypoints > 0 then
+		return waypoints
+	end
+	return nil
+end
+
+local function jumpForObstacle(entry, root, humanoid, now)
+	if type(Workspace.Raycast) ~= "function" then
+		return
+	end
+	if now < (entry.NextJump or 0) then
+		return
+	end
+	local origin = root.Position + Vector3.new(0, 0.5, 0)
+	local direction = root.CFrame.LookVector
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { entry.Model }
+	params.IgnoreWater = true
+	local hit = Workspace:Raycast(origin, direction * 6, params)
+	if hit and hit.Instance and hit.Instance.CanCollide ~= false then
+		-- A jump is allowed only after a real collision/path obstacle, never merely because a bot is stuck.
+		humanoid.Jump = true
+		entry.NextJump = now + 1.5
+	end
+end
+
+local function followDestination(entry, destination, now)
+	local root = entry.Model and entry.Model:FindFirstChild("HumanoidRootPart")
+	local humanoid = entry.Humanoid
+	if not root or not humanoid then
+		return
+	end
+	local goalChanged = not entry.PathGoal or (entry.PathGoal - destination).Magnitude > 10
+	if goalChanged or now >= (entry.NextPath or 0) then
+		entry.Path = computePath(entry, destination, now)
+		entry.PathIndex = 1
+		entry.PathGoal = destination
+		entry.NextPath = now + 1.4
+	end
+	local waypoints = entry.Path
+	if waypoints and #waypoints > 0 then
+		local waypoint = waypoints[entry.PathIndex]
+		if waypoint then
+			if (waypoint.Position - root.Position).Magnitude < 4 then
+				entry.PathIndex = entry.PathIndex + 1
+				waypoint = waypoints[entry.PathIndex]
+			end
+			if waypoint then
+				humanoid:MoveTo(waypoint.Position)
+				if waypoint.Action == Enum.PathWaypointAction.Jump then
+					if now >= (entry.NextJump or 0) then
+						humanoid.Jump = true
+						entry.NextJump = now + 1.5
+					end
+				else
+					jumpForObstacle(entry, root, humanoid, now)
+				end
+				return
+			end
+		end
+	end
+	humanoid:MoveTo(destination)
+	jumpForObstacle(entry, root, humanoid, now)
+end
+
+local function supportHeal(entry, now)
+	if entry.Role ~= "Support" or now - (entry.LastHeal or 0) < 2 then
+		return
+	end
+	local root = entry.Model and entry.Model:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return
+	end
+	for _, ally in ipairs(BotService.GetModels(entry.Team)) do
+		if ally ~= entry.Model then
+			local allyRoot = ally:FindFirstChild("HumanoidRootPart")
+			local humanoid = ally:FindFirstChildOfClass("Humanoid")
+			if allyRoot and humanoid and humanoid.Health > 0 and humanoid.Health < humanoid.MaxHealth and (allyRoot.Position - root.Position).Magnitude < 24 then
+				humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + 8)
+				entry.LastHeal = now
+				return
+			end
+		end
+	end
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player:GetAttribute("Team") == entry.Team then
+			local ally = player.Character
+			local allyRoot = ally and ally:FindFirstChild("HumanoidRootPart")
+			local humanoid = ally and ally:FindFirstChildOfClass("Humanoid")
+			if allyRoot and humanoid and humanoid.Health > 0 and humanoid.Health < humanoid.MaxHealth and (allyRoot.Position - root.Position).Magnitude < 24 then
+				humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + 8)
+				entry.LastHeal = now
+				return
+			end
+		end
+	end
+end
+
+local function battleThink(entry, now)
+	local model = entry.Model
+	local root = model:FindFirstChild("HumanoidRootPart")
+	local humanoid = entry.Humanoid
+	local weapon = Catalog.GetWeapon(entry.WeaponId)
+	local position = root.Position
+	local ownCore = fortressService.GetCorePosition(entry.Team)
+	local enemyCore = fortressService.GetCorePosition(Config.OtherTeam(entry.Team))
+	local enemy, enemyDistance = nearestEnemy(entry, position)
+	entry.Target = enemy
+	local retreating = humanoid.Health / math.max(1, humanoid.MaxHealth) < 0.3
+	local destination = enemyCore
+	local targetPosition = enemyCore + Vector3.new(0, 1, 0)
+	local shouldFire = true
+
+	if retreating then
+		destination = basePoint(entry.Team, (entry.Slot - 3.5) * 5, 18)
+		targetPosition = enemy and modelPosition(enemy) or enemyCore
+		shouldFire = enemy ~= nil and enemyDistance < weapon.Range * 0.8
+	elseif entry.Role == "Defender" then
+		local threatDistance = enemy and (modelPosition(enemy) - ownCore).Magnitude or math.huge
+		if enemy and (threatDistance < 115 or enemyDistance < 60) then
+			targetPosition = modelPosition(enemy) + Vector3.new(0, 1.5, 0)
+			destination = targetPosition
+		else
+			destination = basePoint(entry.Team, (entry.Slot - 3.5) * 9, 18)
+			targetPosition = enemyCore
+			shouldFire = (enemyCore - position).Magnitude < weapon.Range * 0.8
+		end
+	elseif entry.Role == "Support" then
+		local ally, allyDistance = nearestAlly(entry, position)
+		if enemy and enemyDistance < 105 then
+			targetPosition = modelPosition(enemy) + Vector3.new(0, 1.5, 0)
+			destination = targetPosition
+		elseif ally and allyDistance > 14 then
+			destination = modelPosition(ally)
+			targetPosition = enemyCore
+			shouldFire = false
+		else
+			destination = basePoint(entry.Team, (entry.Slot - 3.5) * 7, 8)
+			targetPosition = enemyCore
+		end
+	else -- Assault: keep pressure on the core, but respond to a close defender.
+		if enemy and enemyDistance < 72 then
+			targetPosition = modelPosition(enemy) + Vector3.new(0, 1.5, 0)
+			destination = targetPosition
+		else
+			destination = enemyCore
+			targetPosition = enemyCore + Vector3.new(0, 1, 0)
+		end
+	end
+
+	local distance = (targetPosition - position).Magnitude
+	if distance > weapon.Range * 0.55 or (retreating and not shouldFire) then
+		followDestination(entry, destination, now)
+	else
+		humanoid:MoveTo(position)
+	end
+	if shouldFire and distance <= weapon.Range * 0.95 then
+		weaponService.FireBot(model, entry.WeaponId, targetPosition)
+	end
+	supportHeal(entry, now)
+
+	if entry.LastPosition and (position - entry.LastPosition).Magnitude < 0.35 and distance > 20 then
+		entry.StuckTime = entry.StuckTime + 0.25
+		if entry.StuckTime > 1.2 then
+			-- Re-path around obstacles. Jumping is handled only by jumpForObstacle/path waypoints.
+			entry.NextPath = 0
+			entry.StuckTime = 0
+		end
+	else
+		entry.StuckTime = 0
+	end
+	entry.LastPosition = position
+end
+
+function BotService.Step(deltaTime)
+	if not active then
+		return
+	end
+	local phase = phaseProvider()
+	local now = os.clock()
+	for _, entry in pairs(bots) do
+		local model = entry.Model
+		local humanoid = model and model:FindFirstChildOfClass("Humanoid")
+		local root = model and model:FindFirstChild("HumanoidRootPart")
+		if model and model.Parent and humanoid and humanoid.Health > 0 and root then
+			entry.Humanoid = humanoid
+			if phase == "Build" then
+				if entry.Builds < Config.Arena.BotBuildsPerBot and now >= entry.NextBuild then
+					local built = fortressService.BuildBot(entry.Team, entry.Slot, entry.Builds + 1)
+					if built then
+						entry.Builds = entry.Builds + 1
+					end
+					entry.NextBuild = now + 2.2
+				end
+				if entry.Builds < Config.Arena.BotBuildsPerBot then
+					local pad = basePoint(entry.Team, (entry.Slot - 3.5) * 7, 20)
+					followDestination(entry, pad, now)
+				elseif entry.Role == "Defender" then
+					followDestination(entry, basePoint(entry.Team, (entry.Slot - 3.5) * 8, 20), now)
+				else
+					humanoid:MoveTo(root.Position)
+				end
+			elseif phase == "Battle" and now >= entry.NextThink then
+				entry.NextThink = now + 0.25
+				battleThink(entry, now)
+			else
+				humanoid:MoveTo(root.Position)
+			end
+		end
+	end
+end
+
+return BotService

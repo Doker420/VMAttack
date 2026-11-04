@@ -1,0 +1,101 @@
+{
+  "sampleRate": 22050,
+  "format": "16-bit PCM WAV",
+  "original": true,
+  "assets": [
+    {
+      "file": "BlockSiege_Lobby.wav",
+      "kind": "music",
+      "seconds": 32.0,
+      "loop": true,
+      "bpm": 120,
+      "sha256": "147350d0378c98512802d0d0978d56bb3f2c160b6771c7b9734e0e150a4df2cf"
+    },
+    {
+      "file": "BlockSiege_Build.wav",
+      "kind": "music",
+      "seconds": 32.0,
+      "loop": true,
+      "bpm": 120,
+      "sha256": "80859602721a3ca5682309e7ae4c0e53ad107ff2c7e46d02979c0d06013d7d6c"
+    },
+    {
+      "file": "BlockSiege_Battle.wav",
+      "kind": "music",
+      "seconds": 48.0,
+      "loop": true,
+      "bpm": 120,
+      "sha256": "1e67d979505f3e0056ea314d5cc9f711eaba5a7f2792db775df298b6cca60f49"
+    },
+    {
+      "file": "Shot.wav",
+      "kind": "sfx",
+      "seconds": 0.18,
+      "loop": false,
+      "sha256": "f61df2e6644c5af39c76b9776261623e3ee9c1601d44fa56b6f26dcf3b79c680"
+    },
+    {
+      "file": "HeavyShot.wav",
+      "kind": "sfx",
+      "seconds": 0.48,
+      "loop": false,
+      "sha256": "6b26eae3624525e1b5ffc2e7b955df806b5682200e71b5076abee2a647596d18"
+    },
+    {
+      "file": "Hit.wav",
+      "kind": "sfx",
+      "seconds": 0.13,
+      "loop": false,
+      "sha256": "76308628397215605214510f485233adf0f534d33366f953df1f9ad21336b43e"
+    },
+    {
+      "file": "Build.wav",
+      "kind": "sfx",
+      "seconds": 0.28,
+      "loop": false,
+      "sha256": "f51f5b6e2d515ed4ae9daa7b7b1ef88d52c6ec392b6eca01297cad3154c016fc"
+    },
+    {
+      "file": "Destroy.wav",
+      "kind": "sfx",
+      "seconds": 0.62,
+      "loop": false,
+      "sha256": "183f0ad10611c104afd7f00664fe3da5e674f2ccfe4c74b3fb5551b12d0c125c"
+    },
+    {
+      "file": "CoreDestroyed.wav",
+      "kind": "sfx",
+      "seconds": 1.5,
+      "loop": false,
+      "sha256": "6ac1daa5ad9d51689914fcce0287817aa49b302ec2dcb983013af92aac5f2db3"
+    },
+    {
+      "file": "UIClick.wav",
+      "kind": "sfx",
+      "seconds": 0.08,
+      "loop": false,
+      "sha256": "541e1d866f6a1e263b99e9dbe71cc76b789354d495e6a46dde89050c5cc8f80b"
+    },
+    {
+      "file": "CaseOpened.wav",
+      "kind": "sfx",
+      "seconds": 0.95,
+      "loop": false,
+      "sha256": "878d5beb7f7c56278f9d38bf84b453c7b1ba0d0cd6f128bb48d122686b082e9e"
+    },
+    {
+      "file": "Victory.wav",
+      "kind": "sfx",
+      "seconds": 1.35,
+      "loop": false,
+      "sha256": "5c4233ccacd939e2ff2a0370686c4f33ccf9ebf12772607524cc7304729ba0ca"
+    },
+    {
+      "file": "Defeat.wav",
+      "kind": "sfx",
+      "seconds": 1.15,
+      "loop": false,
+      "sha256": "3ff7a921ad74c3e81dfe11cf476169e2a010915e2db30f49ed0a7d93490ddb0b"
+    }
+  ]
+}
