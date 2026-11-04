@@ -3937,12 +3937,22 @@ local Lighting = game:GetService("Lighting")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
+-- Roblox-owned Store models can be loaded without enabling arbitrary third-party
+-- assets. The native/offline audit has no AssetService; procedural decor remains.
+local assetServiceOk, AssetService = pcall(function()
+	return game:GetService("AssetService")
+end)
+if not assetServiceOk then
+	AssetService = nil
+end
+
 local Shared = ReplicatedStorage:WaitForChild("BlockSiege")
 local Config = require(Shared:WaitForChild("Config"))
 local Catalog = require(Shared:WaitForChild("Catalog"))
 local WeaponModels = require(Shared:WaitForChild("WeaponModels"))
 
 local WorldBuilder = {}
+local buildSerial = 0
 local C = {
 	Grass = Color3.fromRGB(91, 145, 73),
 	Dirt = Color3.fromRGB(114, 79, 48),
@@ -4078,6 +4088,200 @@ local function holidayGlow(part, color, range, brightness)
 	light.Brightness = brightness or 1
 	light.Parent = part
 	return light
+end
+
+-- Curated free models published by Roblox in the Creator Store. Only their
+-- visual geometry is copied; the original asset is never parented into the game.
+local CREATOR_STORE_ASSETS = {
+	{
+		Key = "ChristmasTree", Id = 67187806, Title = "Christmas Tree",
+		Placements = {
+			{ Parent = "Lobby", Position = Vector3.new(24, 44.5, 350), Size = 16, Fit = "Height" },
+			{ Parent = "Arena", Position = Vector3.new(188, 0, 72), Size = 11, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(25), 0) },
+			{ Parent = "Arena", Position = Vector3.new(-188, 0, -72), Size = 11, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(-25), 0) },
+		},
+	},
+	{
+		Key = "Snowman", Id = 67187780, Title = "Snowman",
+		Placements = {
+			{ Parent = "Lobby", Position = Vector3.new(-68, 44.5, 320), Size = 8, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(20), 0) },
+			{ Parent = "Lobby", Position = Vector3.new(68, 44.5, 320), Size = 8, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(-20), 0) },
+		},
+	},
+	{
+		Key = "Wreath", Id = 67187797, Title = "Wreath",
+		Placements = {
+			{ Parent = "Lobby", Position = Vector3.new(-27, 52, 383.2), Size = 5.5, Fit = "Max", Ground = false },
+			{ Parent = "Lobby", Position = Vector3.new(27, 52, 383.2), Size = 5.5, Fit = "Max", Ground = false },
+		},
+	},
+	{
+		Key = "Present", Id = 67187816, Title = "Present",
+		Placements = {
+			{ Parent = "Lobby", Position = Vector3.new(-14, 44.5, 334), Size = 4.5, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(-15), 0) },
+			{ Parent = "Lobby", Position = Vector3.new(14, 44.5, 334), Size = 4.5, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(15), 0) },
+		},
+	},
+	{
+		Key = "Ornaments", Id = 332741030, Title = "Christmas Ornaments",
+		Placements = {
+			{ Parent = "Lobby", Position = Vector3.new(24, 54, 350), Size = 4, Fit = "Max", Ground = false },
+		},
+	},
+}
+
+local CREATOR_STORE_VISUAL_CHILDREN = {
+	SpecialMesh = true,
+	BlockMesh = true,
+	CylinderMesh = true,
+	Decal = true,
+	Texture = true,
+	SurfaceAppearance = true,
+}
+local CREATOR_STORE_SKIP_PARTS = { SpawnLocation = true, Seat = true, VehicleSeat = true }
+local CREATOR_STORE_GAMEPLAY_ATTRIBUTES = {
+	"BaseGeometry", "CaptureGeometry", "Team", "StructureId", "Kind", "IsTrap", "DefenseId", "Rig", "CaptureRadius",
+}
+local CREATOR_STORE_MAX_SOURCE_PARTS = 120
+local CREATOR_STORE_MAX_TOTAL_PARTS = 450
+
+local function clearCreatorStoreGameplayAttributes(instance)
+	for _, attribute in ipairs(CREATOR_STORE_GAMEPLAY_ATTRIBUTES) do
+		instance:SetAttribute(attribute, nil)
+	end
+end
+
+local function sanitizeCreatorStoreModel(source, definition)
+	local sourcePartCount = 0
+	for _, descendant in ipairs(source:GetDescendants()) do
+		if descendant:IsA("BasePart") and not CREATOR_STORE_SKIP_PARTS[descendant.ClassName] then
+			sourcePartCount = sourcePartCount + 1
+		end
+	end
+	if sourcePartCount == 0 or sourcePartCount > CREATOR_STORE_MAX_SOURCE_PARTS then
+		return nil, "empty or over the geometry budget"
+	end
+
+	local clean = Instance.new("Model")
+	clean.Name = "Store_" .. definition.Key
+	clearCreatorStoreGameplayAttributes(clean)
+	clean:SetAttribute("HolidayDecor", true)
+	clean:SetAttribute("StoreDecor", true)
+	clean:SetAttribute("CreatorStoreAssetId", definition.Id)
+	local createdCount = 0
+	for _, descendant in ipairs(source:GetDescendants()) do
+		if descendant:IsA("BasePart") and not CREATOR_STORE_SKIP_PARTS[descendant.ClassName] then
+			local cloneOk, copy = pcall(function()
+				return descendant:Clone()
+			end)
+			if cloneOk and copy then
+				-- Keep only visual children. Scripts, Humanoids, GUI, sounds,
+				-- prompts, constraints and particles never enter the clean model.
+				for _, child in ipairs(copy:GetChildren()) do
+					if not CREATOR_STORE_VISUAL_CHILDREN[child.ClassName] then
+						child:Destroy()
+					end
+				end
+				copy.Name = "Store_" .. descendant.Name
+				copy.Anchored = true
+				copy.CanCollide = false
+				copy.CanTouch = false
+				copy.CanQuery = false
+				copy.CastShadow = false
+				clearCreatorStoreGameplayAttributes(copy)
+				copy:SetAttribute("HolidayDecor", true)
+				copy:SetAttribute("StoreDecor", true)
+				copy:SetAttribute("CreatorStoreAssetId", definition.Id)
+				copy:SetAttribute("SourcePartName", descendant.Name)
+				copy.Parent = clean
+				createdCount = createdCount + 1
+			end
+		end
+	end
+	if createdCount == 0 then
+		clean:Destroy()
+		return nil, "no cloneable visual parts"
+	end
+	clean:SetAttribute("StorePartCount", createdCount)
+	return clean
+end
+
+local function placeCreatorStoreModel(template, definition, placement, parent)
+	local model = template:Clone()
+	if not model then
+		return false, "model clone failed"
+	end
+	local ok, err = pcall(function()
+		local _, size = model:GetBoundingBox()
+		local basis = placement.Fit == "Height" and size.Y or math.max(size.X, size.Y, size.Z)
+		if basis <= 0.01 then
+			error("invalid model bounds")
+		end
+		model:ScaleTo(placement.Size / basis)
+		model:PivotTo(CFrame.new(placement.Position) * (placement.Rotation or CFrame.new()))
+		local bounds, scaledSize = model:GetBoundingBox()
+		local target = placement.Position
+		if placement.Ground ~= false then
+			target = target + Vector3.new(0, scaledSize.Y * 0.5, 0)
+		end
+		model:PivotTo(model:GetPivot() + (target - bounds.Position))
+		model.Parent = parent
+	end)
+	if not ok then
+		model:Destroy()
+		return false, err
+	end
+	return true
+end
+
+local function loadCreatorStoreDecorations(root, lobby, arena, serial)
+	if not AssetService then
+		return
+	end
+	local parents = { Lobby = lobby, Arena = arena }
+	local totalParts = 0
+	local loadedModels = 0
+	local function isCurrent()
+		return serial == buildSerial and root.Parent == Workspace
+	end
+	for _, definition in ipairs(CREATOR_STORE_ASSETS) do
+		if not isCurrent() then
+			return
+		end
+		local loadOk, source = pcall(function()
+			return AssetService:LoadAssetAsync(definition.Id)
+		end)
+		if loadOk and source then
+			local sanitizeOk, template, sanitizeErr = pcall(sanitizeCreatorStoreModel, source, definition)
+			source:Destroy()
+			if sanitizeOk and template then
+				for _, placement in ipairs(definition.Placements) do
+					if not isCurrent() then
+						template:Destroy()
+						return
+					end
+					local partCount = template:GetAttribute("StorePartCount") or 0
+					if totalParts + partCount <= CREATOR_STORE_MAX_TOTAL_PARTS then
+						local placeOk, placed, placeErr = pcall(placeCreatorStoreModel, template, definition, placement, parents[placement.Parent])
+						if placeOk and placed then
+							totalParts = totalParts + partCount
+							loadedModels = loadedModels + 1
+						else
+							warn("[BLOCKSIEGE] Store decor placement skipped:", definition.Title, tostring(placeErr or placed))
+						end
+					end
+				end
+				template:Destroy()
+			else
+				warn("[BLOCKSIEGE] Store decor rejected:", definition.Title, tostring(sanitizeErr or template))
+			end
+		else
+			warn("[BLOCKSIEGE] Store decor unavailable; procedural fallback kept:", definition.Title, tostring(source))
+		end
+	end
+	if loadedModels > 0 then
+		print(string.format("[BLOCKSIEGE] Creator Store decor: %d models, %d static parts", loadedModels, totalParts))
+	end
 end
 
 local function buildGift(parent, position, scale, color)
@@ -4507,6 +4711,8 @@ local function buildCapturePoint(parent)
 end
 
 function WorldBuilder.Build()
+	buildSerial = buildSerial + 1
+	local serial = buildSerial
 	local old = Workspace:FindFirstChild("BlockSiegeWorld")
 	if old then
 		old:Destroy()
@@ -4609,6 +4815,12 @@ function WorldBuilder.Build()
 	bloom.Threshold = 1.05
 	local rays = ensureEffect("SunRaysEffect", "BlockSiegeSun")
 	rays.Intensity = 0.025
+
+	if AssetService and task and task.spawn then
+		task.spawn(function()
+			loadCreatorStoreDecorations(root, lobby, arena, serial)
+		end)
+	end
 
 	return {
 		Root = root,
