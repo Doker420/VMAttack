@@ -137,8 +137,18 @@ local HOLIDAY = {
 	Ink = Color3.fromRGB(28, 42, 57),
 }
 
-local function decorPart(parent, name, size, cframe, color, material)
-	local part = makePart(parent, name, size, cframe, color, material, false)
+local STYLE = {
+	Ivory = Color3.fromRGB(211, 224, 229),
+	IvoryDark = Color3.fromRGB(157, 181, 193),
+	Navy = Color3.fromRGB(25, 48, 72),
+	Blue = Color3.fromRGB(73, 174, 216),
+	Ice = Color3.fromRGB(142, 225, 247),
+	Gold = Color3.fromRGB(244, 194, 83),
+	Warm = Color3.fromRGB(255, 171, 93),
+}
+
+local function decorPart(parent, name, size, cframe, color, material, className)
+	local part = makePart(parent, name, size, cframe, color, material, false, className)
 	part.CanCollide = false
 	part.CanTouch = false
 	part.CanQuery = false
@@ -195,22 +205,6 @@ local CREATOR_STORE_ASSETS = {
 			{ Parent = "Lobby", Position = Vector3.new(24, 54, 350), Size = 4, Fit = "Max", Ground = false },
 		},
 	},
-	{
-		Key = "LoungeFurniture", Id = 10847897579, Title = "House Furniture Pack - Duvall Drive", MaxParts = 90,
-		Selection = { "sofa", "couch", "chair", "table", "lamp", "rug" },
-		Placements = {
-			{ Parent = "Lobby", Position = Vector3.new(-94, 44.5, 340), Size = 18, Fit = "Max" },
-			{ Parent = "Lobby", Position = Vector3.new(94, 44.5, 340), Size = 18, Fit = "Max", Rotation = CFrame.Angles(0, math.rad(180), 0) },
-		},
-	},
-	{
-		Key = "LoungeProps", Id = 10840642581, Title = "House Props Pack - Duvall Drive", MaxParts = 90,
-		Selection = { "statue", "globe", "candelabra", "radio", "book", "frame", "vase" },
-		Placements = {
-			{ Parent = "Lobby", Position = Vector3.new(-94, 44.5, 390), Size = 16, Fit = "Max" },
-			{ Parent = "Lobby", Position = Vector3.new(94, 44.5, 390), Size = 16, Fit = "Max", Rotation = CFrame.Angles(0, math.rad(180), 0) },
-		},
-	},
 }
 
 local CREATOR_STORE_VISUAL_CHILDREN = {
@@ -226,11 +220,9 @@ local CREATOR_STORE_GAMEPLAY_ATTRIBUTES = {
 	"BaseGeometry", "CaptureGeometry", "Team", "StructureId", "Kind", "IsTrap", "DefenseId", "Rig", "CaptureRadius",
 }
 local CREATOR_STORE_MAX_SOURCE_PARTS = 120
-local CREATOR_STORE_MAX_TOTAL_PARTS = 700
+local CREATOR_STORE_MAX_TOTAL_PARTS = 450
 
 local function clearCreatorStoreGameplayAttributes(instance)
-	-- Roblox attributes are arbitrary gameplay input too. Clear the complete
-	-- dictionary when available; the small native mock falls back to known keys.
 	local ok, attributes = pcall(function()
 		return instance:GetAttributes()
 	end)
@@ -246,47 +238,13 @@ local function clearCreatorStoreGameplayAttributes(instance)
 end
 
 local function sanitizeCreatorStoreModel(source, definition)
-	local maxSourceParts = definition.MaxParts or CREATOR_STORE_MAX_SOURCE_PARTS
-	-- Large official packs are never copied wholesale. Pick one named, bounded
-	-- furniture/prop submodel so a pack cannot bring hundreds of meshes or scripts.
-	if definition.Selection then
-		local bestModel
-		local bestScore = 0
-		for _, candidate in ipairs(source:GetDescendants()) do
-			if candidate:IsA("Model") then
-				local candidateParts = 0
-				for _, item in ipairs(candidate:GetDescendants()) do
-					if item:IsA("BasePart") and not CREATOR_STORE_SKIP_PARTS[item.ClassName] then
-						candidateParts = candidateParts + 1
-					end
-				end
-				if candidateParts > 0 and candidateParts <= maxSourceParts then
-					local lowerName = string.lower(candidate.Name)
-					for rank, keyword in ipairs(definition.Selection) do
-						if string.find(lowerName, keyword, 1, true) then
-							local score = (#definition.Selection - rank + 1) * 1000 + candidateParts
-							if score > bestScore then
-								bestModel = candidate
-								bestScore = score
-							end
-							break
-						end
-					end
-				end
-			end
-		end
-		if not bestModel then
-			return nil, "no curated submodel within the geometry budget"
-		end
-		source = bestModel
-	end
 	local sourcePartCount = 0
 	for _, descendant in ipairs(source:GetDescendants()) do
 		if descendant:IsA("BasePart") and not CREATOR_STORE_SKIP_PARTS[descendant.ClassName] then
 			sourcePartCount = sourcePartCount + 1
 		end
 	end
-	if sourcePartCount == 0 or sourcePartCount > maxSourceParts then
+	if sourcePartCount == 0 or sourcePartCount > CREATOR_STORE_MAX_SOURCE_PARTS then
 		return nil, "empty or over the geometry budget"
 	end
 
@@ -296,7 +254,6 @@ local function sanitizeCreatorStoreModel(source, definition)
 	clean:SetAttribute("HolidayDecor", true)
 	clean:SetAttribute("StoreDecor", true)
 	clean:SetAttribute("CreatorStoreAssetId", definition.Id)
-	clean:SetAttribute("StoreSelection", source.Name)
 	local createdCount = 0
 	for _, descendant in ipairs(source:GetDescendants()) do
 		if descendant:IsA("BasePart") and not CREATOR_STORE_SKIP_PARTS[descendant.ClassName] then
@@ -649,29 +606,136 @@ local function buildCloud(parent, position, scale)
 	return model
 end
 
-local function buildBaseCrown(arena, team, baseCFrame, color, dark)
-	local function crownPart(name, size, cframe, partColor, material)
-		return decorPart(arena, team .. name, size, cframe, partColor, material)
+local function buildGate(parent, prefix, baseCFrame, width, height, accent)
+	local function gatePart(suffix, size, offset, color, material, className)
+		return decorPart(parent, prefix .. suffix, size, baseCFrame * offset, color, material, className)
 	end
-	-- Wide silhouettes make each fortress read as a citadel from the lobby and
-	-- the outer ring. They are visual only; the original combat cover remains.
-	crownPart("CitadelBackWall", Vector3.new(112, 14, 2), baseCFrame * CFrame.new(0, 7, -58), dark, Enum.Material.Cobblestone)
-	crownPart("CitadelBackSnow", Vector3.new(114, 0.55, 2.8), baseCFrame * CFrame.new(0, 14.25, -58), HOLIDAY.Snow, Enum.Material.Snow)
-	crownPart("CitadelBackTrim", Vector3.new(108, 0.55, 2.5), baseCFrame * CFrame.new(0, 3.2, -56.8), HOLIDAY.Gold, Enum.Material.Metal)
 	for _, side in ipairs({ -1, 1 }) do
-		crownPart("CitadelSideWall", Vector3.new(2, 12, 104), baseCFrame * CFrame.new(side * 56, 6, -4), dark, Enum.Material.Cobblestone)
-		crownPart("CitadelSideSnow", Vector3.new(2.6, 0.5, 104), baseCFrame * CFrame.new(side * 56, 12.25, -4), HOLIDAY.Snow, Enum.Material.Snow)
-		crownPart("CitadelTower", Vector3.new(12, 22, 12), baseCFrame * CFrame.new(side * 56, 11, -58), dark, Enum.Material.Cobblestone)
-		crownPart("CitadelTowerSnow", Vector3.new(13, 0.65, 13), baseCFrame * CFrame.new(side * 56, 22.35, -58), HOLIDAY.Snow, Enum.Material.Snow)
-		crownPart("CitadelTowerBand", Vector3.new(12.7, 1, 12.7), baseCFrame * CFrame.new(side * 56, 16, -58), color, Enum.Material.Fabric)
-		for index = 0, 3 do
-			local angle = math.rad(index * 90)
-			crownPart("CitadelBattlement", Vector3.new(3, 2.2, 3), baseCFrame * CFrame.new(side * 56 + math.cos(angle) * 4.2, 23.5, -58 + math.sin(angle) * 4.2), dark, Enum.Material.Cobblestone)
+		local x = side * (width / 2 - 1.5)
+		gatePart("Pillar", Vector3.new(3, height, 4), CFrame.new(x, height / 2, 0), STYLE.Ivory, Enum.Material.Cobblestone)
+		gatePart("PillarBand", Vector3.new(3.5, 0.65, 4.5), CFrame.new(x, height * 0.7, 0), accent, Enum.Material.Metal)
+		local lamp = gatePart("Lamp", Vector3.new(1.1, 1.7, 1.1), CFrame.new(x, height * 0.52, 2.5), STYLE.Warm, Enum.Material.Neon)
+		holidayGlow(lamp, STYLE.Warm, 10, 0.75)
+	end
+	gatePart("Lintel", Vector3.new(width, 3, 4), CFrame.new(0, height - 1.5, 0), STYLE.Ivory, Enum.Material.Cobblestone)
+	gatePart("GoldInset", Vector3.new(width - 3, 0.55, 4.4), CFrame.new(0, height - 3, 2.1), STYLE.Gold, Enum.Material.Metal)
+	gatePart("Roof", Vector3.new(width + 3, 3, 6), CFrame.new(0, height + 1, 0), STYLE.Navy, Enum.Material.Slate, "WedgePart")
+	gatePart("RoofSnow", Vector3.new(width + 3.4, 0.45, 6.4), CFrame.new(0, height + 2.65, 0), HOLIDAY.Snow, Enum.Material.Snow)
+end
+
+local function buildCitadelTower(parent, prefix, position, accent)
+	local function towerPart(suffix, size, offset, color, material, className)
+		return decorPart(parent, prefix .. suffix, size, CFrame.new(position + offset), color, material, className)
+	end
+	towerPart("Body", Vector3.new(10, 16, 10), Vector3.new(0, 8, 0), STYLE.Ivory, Enum.Material.Cobblestone)
+	towerPart("Band", Vector3.new(10.5, 1, 10.5), Vector3.new(0, 12, 0), accent, Enum.Material.Fabric)
+	towerPart("Roof", Vector3.new(12, 4, 12), Vector3.new(0, 18, 0), STYLE.Navy, Enum.Material.Slate, "WedgePart")
+	towerPart("Snow", Vector3.new(12.5, 0.5, 12.5), Vector3.new(0, 20.2, 0), HOLIDAY.Snow, Enum.Material.Snow)
+	towerPart("Pole", Vector3.new(0.35, 7, 0.35), Vector3.new(0, 23, 0), C.Wood, Enum.Material.WoodPlanks)
+	towerPart("Flag", Vector3.new(4.5, 2.8, 0.3), Vector3.new(2.2, 25, 0), accent, Enum.Material.Fabric)
+	local lamp = towerPart("Lamp", Vector3.new(1.2, 1.6, 1.2), Vector3.new(0, 10, 5.3), STYLE.Warm, Enum.Material.Neon)
+	holidayGlow(lamp, STYLE.Warm, 10, 0.7)
+end
+
+local function buildBaseArchitecture(arena, team, baseCFrame, accent)
+	buildGate(arena, team .. "FrostGate", baseCFrame * CFrame.new(0, 0, 50), 30, 13, accent)
+	buildGate(arena, team .. "RearGate", baseCFrame * CFrame.new(0, 0, -52), 64, 12, STYLE.Navy)
+	for _, side in ipairs({ -1, 1 }) do
+		for _, forward in ipairs({ -42, 42 }) do
+			local towerCFrame = baseCFrame * CFrame.new(side * 44, 0, forward)
+			decorPart(arena, team .. "TowerRoof", Vector3.new(10, 4, 10), towerCFrame * CFrame.new(0, 12, 0), STYLE.Navy, Enum.Material.Slate, "WedgePart")
+			decorPart(arena, team .. "TowerRoofSnow", Vector3.new(10.5, 0.45, 10.5), towerCFrame * CFrame.new(0, 14.2, 0), HOLIDAY.Snow, Enum.Material.Snow)
 		end
-		crownPart("CitadelBanner", Vector3.new(11, 7, 0.35), baseCFrame * CFrame.new(side * 27, 10, -56.7), color, Enum.Material.Fabric)
-		crownPart("CitadelBannerStripe", Vector3.new(1.1, 7.2, 0.42), baseCFrame * CFrame.new(side * 27, 10, -56.45), HOLIDAY.Gold, Enum.Material.Metal)
-		local lamp = crownPart("CitadelLamp", Vector3.new(1.4, 2.4, 1.4), baseCFrame * CFrame.new(side * 45, 5, 34), HOLIDAY.Warm, Enum.Material.Neon)
-		holidayGlow(lamp, HOLIDAY.Warm, 12, 1.1)
+	end
+	decorPart(arena, team .. "CourtyardInlay", Vector3.new(70, 0.12, 2), baseCFrame * CFrame.new(0, 0.48, 0), accent, Enum.Material.Metal)
+end
+
+local function buildFireplace(parent, position, scale)
+	local model = Instance.new("Model")
+	model.Name = "FrostfireFireplace"
+	model.Parent = parent
+	local function piece(name, size, offset, color, material)
+		return decorPart(model, name, size * scale, CFrame.new(position + offset * scale), color, material)
+	end
+	piece("Hearth", Vector3.new(12, 1, 6), Vector3.new(0, 0.5, 0), STYLE.IvoryDark, Enum.Material.Cobblestone)
+	for _, side in ipairs({ -1, 1 }) do
+		piece("FireplacePillar", Vector3.new(2, 8, 4), Vector3.new(side * 4.5, 4.5, 0), STYLE.Ivory, Enum.Material.Cobblestone)
+	end
+	piece("FireplaceLintel", Vector3.new(11, 2, 4), Vector3.new(0, 8, 0), STYLE.Ivory, Enum.Material.Cobblestone)
+	piece("FireplaceOpening", Vector3.new(7, 5.5, 0.6), Vector3.new(0, 3.8, 2.1), STYLE.Navy, Enum.Material.Slate)
+	piece("FireplaceMantel", Vector3.new(13, 0.7, 5), Vector3.new(0, 9.2, 0), STYLE.Gold, Enum.Material.WoodPlanks)
+	local flame = piece("FireplaceFlame", Vector3.new(3, 3.5, 1), Vector3.new(0, 3, 2.6), STYLE.Warm, Enum.Material.Neon)
+	holidayGlow(flame, STYLE.Warm, 16, 1.1)
+	return model
+end
+
+local function buildLobbyArchitecture(lobby)
+	buildGate(lobby, "LobbyEntry", CFrame.new(0, 44.5, 252), 46, 14, STYLE.Navy)
+	for _, z in ipairs({ 270, 330, 390 }) do
+		for _, side in ipairs({ -1, 1 }) do
+			decorPart(lobby, "HallColumn", Vector3.new(3, 20, 3), CFrame.new(side * 94, 54.5, z), STYLE.Ivory, Enum.Material.Cobblestone)
+			decorPart(lobby, "HallColumnTrim", Vector3.new(3.6, 0.7, 3.6), CFrame.new(side * 94, 63.5, z), STYLE.Gold, Enum.Material.Metal)
+		end
+		decorPart(lobby, "HallRib", Vector3.new(190, 2, 2), CFrame.new(0, 65, z), STYLE.Navy, Enum.Material.Slate)
+	end
+	for _, side in ipairs({ -1, 1 }) do
+		for _, z in ipairs({ 300, 340, 380 }) do
+			decorPart(lobby, "WindowGlass", Vector3.new(0.5, 10, 18), CFrame.new(side * 101, 51, z), STYLE.Ice, Enum.Material.Glass).Transparency = 0.28
+			decorPart(lobby, "WindowTop", Vector3.new(1, 0.7, 19), CFrame.new(side * 101, 56.2, z), STYLE.Navy, Enum.Material.Metal)
+			decorPart(lobby, "WindowMullion", Vector3.new(1, 10, 0.6), CFrame.new(side * 101, 51, z), STYLE.Navy, Enum.Material.Metal)
+		end
+		buildFireplace(lobby, Vector3.new(side * 85, 44.5, 335), 0.9)
+	end
+	decorPart(lobby, "GalleryBackdrop", Vector3.new(170, 11, 0.8), CFrame.new(0, 50.5, 265), STYLE.Navy, Enum.Material.Fabric)
+	decorPart(lobby, "GalleryCrown", Vector3.new(172, 0.55, 1), CFrame.new(0, 56.2, 265), STYLE.Gold, Enum.Material.Metal)
+	decorPart(lobby, "HallAxis", Vector3.new(2, 0.12, 145), CFrame.new(0, 44.58, 330), STYLE.Navy, Enum.Material.Metal)
+	for _, side in ipairs({ -1, 1 }) do
+		decorPart(lobby, "HallAxisGold", Vector3.new(0.35, 0.14, 145), CFrame.new(side * 2, 44.6, 330), STYLE.Gold, Enum.Material.Metal)
+	end
+	for _, entry in ipairs({
+		{ Vector3.new(-48, 44.6, 344), STYLE.Blue }, { Vector3.new(48, 44.6, 344), STYLE.Gold },
+		{ Vector3.new(-48, 44.6, 300), STYLE.Warm }, { Vector3.new(48, 44.6, 300), Color3.fromRGB(178, 125, 224) },
+	}) do
+		decorPart(lobby, "ShopRug", Vector3.new(20, 0.12, 16), CFrame.new(entry[1]), entry[2], Enum.Material.Fabric)
+	end
+	local signAnchor = decorPart(lobby, "FrostfireSign", Vector3.new(1, 1, 1), CFrame.new(0, 62, 330), C.White, Enum.Material.SmoothPlastic)
+	signAnchor.Transparency = 1
+	billboard(signAnchor, "FROSTFIRE  //  WINTER OPS", STYLE.Gold, Vector3.zero, UDim2.fromOffset(440, 70))
+	for _, z in ipairs({ 280, 320, 360, 400 }) do
+		local lamp = decorPart(lobby, "HallLight", Vector3.new(2, 0.5, 2), CFrame.new(0, 62, z), STYLE.Warm, Enum.Material.Neon)
+		holidayGlow(lamp, STYLE.Warm, 14, 0.8)
+	end
+end
+
+local function buildArenaArchitecture(arena)
+	for _, side in ipairs({ -1, 1 }) do
+		local canal = decorPart(arena, "FrozenCanal", Vector3.new(420, 0.12, 7), CFrame.new(0, 0.08, side * 84), STYLE.Ice, Enum.Material.Ice)
+		canal.Transparency = 0.18
+		for _, x in ipairs({ -100, 0, 100 }) do
+			decorPart(arena, "CanalBridge", Vector3.new(20, 0.35, 13), CFrame.new(x, 0.25, side * 84), STYLE.Ivory, Enum.Material.Cobblestone)
+			decorPart(arena, "BridgeInlay", Vector3.new(14, 0.1, 1), CFrame.new(x, 0.48, side * 84), STYLE.Gold, Enum.Material.Metal)
+		end
+		for _, x in ipairs({ -72, 72 }) do
+			buildGate(arena, "LaneGate", CFrame.new(x, 0, side * 62) * CFrame.Angles(0, math.rad(90), 0), 18, 9, STYLE.Navy)
+		end
+	end
+	for _, z in ipairs({ -11, 11, -69, -55, 55, 69 }) do
+		decorPart(arena, "LaneBorder", Vector3.new(300, 0.12, 0.8), CFrame.new(0, 0.38, z), STYLE.Gold, Enum.Material.Metal)
+	end
+	for index = 0, 7 do
+		local angle = math.rad(index * 45)
+		decorPart(arena, "CapturePlazaTile", Vector3.new(8, 0.25, 3), CFrame.new(math.cos(angle) * 19, 0.25, math.sin(angle) * 19) * CFrame.Angles(0, -angle, 0), index % 2 == 0 and STYLE.Ivory or STYLE.Navy, Enum.Material.Cobblestone)
+	end
+	for _, position in ipairs({
+		Vector3.new(-45, 3, -35), Vector3.new(45, 3, 35), Vector3.new(-45, 3, 35), Vector3.new(45, 3, -35),
+	}) do
+		decorPart(arena, "CoverCap", Vector3.new(12.5, 0.5, 8.5), CFrame.new(position + Vector3.new(0, 3.3, 0)), STYLE.Ivory, Enum.Material.Cobblestone)
+		decorPart(arena, "CoverInlay", Vector3.new(1, 0.55, 8.7), CFrame.new(position + Vector3.new(0, 3.35, 0)), STYLE.Navy, Enum.Material.Metal)
+	end
+	for _, side in ipairs({ -1, 1 }) do
+		for _, forward in ipairs({ -1, 1 }) do
+			buildCitadelTower(arena, "PerimeterTower", Vector3.new(side * 244, 0, forward * 94), STYLE.Navy)
+		end
 	end
 end
 
@@ -680,7 +744,7 @@ local function buildBase(arena, structures, team)
 	local base = Config.BasePosition(team)
 	local baseCFrame = Config.BaseCFrame(team)
 	local presentation = Config.Presentation
-	local platform = makePart(arena, team .. "BasePlatform", Vector3.new(presentation.BaseWidth, 4, presentation.BaseDepth), CFrame.new(base.X, 2, 0), C.Stone, Enum.Material.Cobblestone, true)
+	local platform = makePart(arena, team .. "BasePlatform", Vector3.new(presentation.BaseWidth, 4, presentation.BaseDepth), CFrame.new(base.X, 2, 0), STYLE.IvoryDark, Enum.Material.Cobblestone, true)
 	platform:SetAttribute("Team", team)
 	makePart(arena, team .. "BaseGrass", Vector3.new(presentation.BaseWidth - 6, 0.5, presentation.BaseDepth - 6), CFrame.new(base.X, 4.15, 0), C.Grass, Enum.Material.Grass, true)
 	for _, side in ipairs({ -1, 1 }) do
@@ -699,7 +763,7 @@ local function buildBase(arena, structures, team)
 			flag.CanQuery = false
 		end
 	end
-	buildBaseCrown(arena, team, baseCFrame, color, C.StoneDark)
+	buildBaseArchitecture(arena, team, baseCFrame, color)
 	local marker = makePart(arena, team .. "BaseMarker", Vector3.new(1, 1, 1), CFrame.new(base + Vector3.new(0, 25, 0)), color, Enum.Material.SmoothPlastic, false)
 	marker.Transparency = 1
 	marker.CanQuery = false
@@ -746,110 +810,11 @@ local function buildNpc(parent, name, position, color, title, action, descriptio
 	return prompt(root, action, description)
 end
 
-local function buildLantern(parent, position, scale, color)
-	local model = Instance.new("Model")
-	model.Name = "CitadelLantern"
-	model.Parent = parent
-	decorPart(model, "LanternFoot", Vector3.new(2.2 * scale, 0.5 * scale, 2.2 * scale), CFrame.new(position + Vector3.new(0, 0.25 * scale, 0)), C.StoneDark, Enum.Material.Cobblestone)
-	decorPart(model, "LanternPole", Vector3.new(0.45 * scale, 5.5 * scale, 0.45 * scale), CFrame.new(position + Vector3.new(0, 3 * scale, 0)), C.Wood, Enum.Material.WoodPlanks)
-	decorPart(model, "LanternCap", Vector3.new(2.2 * scale, 0.45 * scale, 2.2 * scale), CFrame.new(position + Vector3.new(0, 6.1 * scale, 0)), C.StoneDark, Enum.Material.Metal)
-	local glow = decorPart(model, "LanternGlow", Vector3.new(1.25 * scale, 1.6 * scale, 1.25 * scale), CFrame.new(position + Vector3.new(0, 5.1 * scale, 0)), color or HOLIDAY.Warm, Enum.Material.Neon)
-	if scale >= 1 then holidayGlow(glow, color or HOLIDAY.Warm, 11 * scale, 0.85) end
-	return model
-end
-
-local function buildIceCluster(parent, position, scale, color)
-	local model = Instance.new("Model")
-	model.Name = "FrostGarden"
-	model.Parent = parent
-	decorPart(model, "IceSnowBed", Vector3.new(12 * scale, 0.35 * scale, 10 * scale), CFrame.new(position + Vector3.new(0, 0.2 * scale, 0)), HOLIDAY.Snow, Enum.Material.Snow)
-	for index = 1, 5 do
-		local angle = math.rad(index * 72)
-		local height = (4.5 + (index % 3) * 1.8) * scale
-		local offset = 3.2 * scale
-		local shard = decorPart(model, "IceShard", Vector3.new(1.8 * scale, height, 1.8 * scale), CFrame.new(position + Vector3.new(math.cos(angle) * offset, height / 2, math.sin(angle) * offset)) * CFrame.Angles(0, angle, math.rad((index % 2 == 0 and 1 or -1) * 8)), color or Color3.fromRGB(122, 220, 255), Enum.Material.Ice)
-		shard.Transparency = 0.12
-	end
-	return model
-end
-
-local function buildWatchtower(parent, position, scale, color)
-	local model = Instance.new("Model")
-	model.Name = "CitadelWatchtower"
-	model.Parent = parent
-	decorPart(model, "WatchtowerBody", Vector3.new(10 * scale, 18 * scale, 10 * scale), CFrame.new(position + Vector3.new(0, 9 * scale, 0)), C.StoneDark, Enum.Material.Cobblestone)
-	decorPart(model, "WatchtowerBand", Vector3.new(10.5 * scale, 1.1 * scale, 10.5 * scale), CFrame.new(position + Vector3.new(0, 13 * scale, 0)), color, Enum.Material.Fabric)
-	decorPart(model, "WatchtowerSnow", Vector3.new(11.5 * scale, 0.65 * scale, 11.5 * scale), CFrame.new(position + Vector3.new(0, 18.35 * scale, 0)), HOLIDAY.Snow, Enum.Material.Snow)
-	for index = 0, 3 do
-		local angle = math.rad(index * 90)
-		decorPart(model, "WatchtowerBattlement", Vector3.new(2.4 * scale, 2 * scale, 2.4 * scale), CFrame.new(position + Vector3.new(math.cos(angle) * 3.8 * scale, 19.5 * scale, math.sin(angle) * 3.8 * scale)), C.StoneDark, Enum.Material.Cobblestone)
-	end
-	decorPart(model, "WatchtowerPole", Vector3.new(0.35 * scale, 8 * scale, 0.35 * scale), CFrame.new(position + Vector3.new(0, 23 * scale, 0)), C.Wood, Enum.Material.WoodPlanks)
-	decorPart(model, "WatchtowerFlag", Vector3.new(4.5 * scale, 2.8 * scale, 0.3 * scale), CFrame.new(position + Vector3.new(2.2 * scale, 25 * scale, 0)), color, Enum.Material.Fabric)
-	local lamp = decorPart(model, "WatchtowerLamp", Vector3.new(1.2 * scale, 1.5 * scale, 1.2 * scale), CFrame.new(position + Vector3.new(0, 15 * scale, 5.2 * scale)), HOLIDAY.Warm, Enum.Material.Neon)
-	holidayGlow(lamp, HOLIDAY.Warm, 10 * scale, 0.7)
-	return model
-end
-
-local function buildMarketStall(parent, position, scale, color)
-	local model = Instance.new("Model")
-	model.Name = "WinterMarketStall"
-	model.Parent = parent
-	decorPart(model, "MarketCounter", Vector3.new(14 * scale, 2.2 * scale, 5 * scale), CFrame.new(position + Vector3.new(0, 1.4 * scale, 0)), C.Wood, Enum.Material.WoodPlanks)
-	for _, side in ipairs({ -1, 1 }) do
-		decorPart(model, "MarketPost", Vector3.new(0.8 * scale, 8 * scale, 0.8 * scale), CFrame.new(position + Vector3.new(side * 5.7 * scale, 4 * scale, 0)), C.Wood, Enum.Material.WoodPlanks)
-	end
-	decorPart(model, "MarketRoof", Vector3.new(15 * scale, 0.7 * scale, 7 * scale), CFrame.new(position + Vector3.new(0, 8 * scale, 0)), color, Enum.Material.Fabric)
-	for index = 0, 4 do
-		decorPart(model, "MarketAwning", Vector3.new(2.8 * scale, 0.35 * scale, 7.2 * scale), CFrame.new(position + Vector3.new((index - 2) * 2.8 * scale, 7.55 * scale, 0)), index % 2 == 0 and HOLIDAY.Snow or color, Enum.Material.Fabric)
-	end
-	for _, side in ipairs({ -1, 1 }) do
-		decorPart(model, "MarketCrate", Vector3.new(2.4 * scale, 2.4 * scale, 2.4 * scale), CFrame.new(position + Vector3.new(side * 4 * scale, 3.5 * scale, -0.3 * scale)), C.Gold, Enum.Material.WoodPlanks)
-	end
-	local sign = decorPart(model, "MarketSign", Vector3.new(7 * scale, 2 * scale, 0.35 * scale), CFrame.new(position + Vector3.new(0, 6.2 * scale, 3.6 * scale)), C.StoneDark, Enum.Material.WoodPlanks)
-	billboard(sign, "WINTER MARKET", HOLIDAY.Gold, Vector3.new(0, 0, 0), UDim2.fromScale(1, 1))
-	return model
-end
-
-local function buildFireBowl(parent, position, scale)
-	local model = Instance.new("Model")
-	model.Name = "LobbyFireBowl"
-	model.Parent = parent
-	decorPart(model, "FireBowlBase", Vector3.new(5 * scale, 1.2 * scale, 5 * scale), CFrame.new(position + Vector3.new(0, 0.6 * scale, 0)), C.StoneDark, Enum.Material.Cobblestone)
-	decorPart(model, "FireBowlRim", Vector3.new(5.5 * scale, 0.45 * scale, 5.5 * scale), CFrame.new(position + Vector3.new(0, 1.25 * scale, 0)), HOLIDAY.Gold, Enum.Material.Metal)
-	local flame = decorPart(model, "FireBowlFlame", Vector3.new(2.2 * scale, 3.2 * scale, 2.2 * scale), CFrame.new(position + Vector3.new(0, 3 * scale, 0)), Color3.fromRGB(255, 133, 71), Enum.Material.Neon)
-	holidayGlow(flame, Color3.fromRGB(255, 133, 71), 15 * scale, 1.2)
-	return model
-end
-
-local function buildLobbyExpansion(lobby)
-	local signAnchor = decorPart(lobby, "GrandLobbySignAnchor", Vector3.new(1, 1, 1), CFrame.new(0, 69, 330), C.White, Enum.Material.SmoothPlastic)
-	signAnchor.Transparency = 1
-	billboard(signAnchor, "WINTER CITADEL  //  BLOCK SIEGE", HOLIDAY.Gold, Vector3.zero, UDim2.fromOffset(620, 90))
-	decorPart(lobby, "GrandLobbySignFrame", Vector3.new(58, 8, 1), CFrame.new(0, 68, 329), C.StoneDark, Enum.Material.WoodPlanks)
-	for _, side in ipairs({ -1, 1 }) do
-		for _, z in ipairs({ 258, 302, 346, 390, 410 }) do
-			decorPart(lobby, "GrandPergolaColumn", Vector3.new(2.4, 22, 2.4), CFrame.new(side * 103, 55, z), C.StoneDark, Enum.Material.Cobblestone)
-			decorPart(lobby, "GrandPergolaSnow", Vector3.new(3.2, 0.5, 3.2), CFrame.new(side * 103, 66.2, z), HOLIDAY.Snow, Enum.Material.Snow)
-		end
-		decorPart(lobby, "GrandPergolaBeam", Vector3.new(2.8, 2, 156), CFrame.new(side * 103, 67, 334), C.Wood, Enum.Material.WoodPlanks)
-		decorPart(lobby, "GrandLoungeRug", Vector3.new(28, 0.16, 24), CFrame.new(side * 94, 44.65, 360), Color3.fromRGB(48, 74, 105), Enum.Material.Fabric)
-		buildMarketStall(lobby, Vector3.new(side * 91, 44.5, 282), 0.85, side < 0 and HOLIDAY.Blue or HOLIDAY.Red)
-		buildFireBowl(lobby, Vector3.new(side * 82, 44.5, 410), 0.9)
-		buildIceCluster(lobby, Vector3.new(side * 101, 44.5, 250), 0.7, HOLIDAY.Blue)
-		for _, z in ipairs({ 306, 336, 366, 396 }) do
-			buildLantern(lobby, Vector3.new(side * 101, 44.5, z), 1, HOLIDAY.Warm)
-		end
-	end
-	buildGarland(lobby, Vector3.new(-101, 66, 258), Vector3.new(101, 66, 258), 1.5, 14)
-	buildGarland(lobby, Vector3.new(-101, 66, 410), Vector3.new(101, 66, 410), 1.5, 14)
-end
-
 local function buildLobby(lobby)
 	local presentation = Config.Presentation
 	local lobbyWidth = presentation.LobbyWidth
 	local lobbyDepth = presentation.LobbyDepth
-	makePart(lobby, "LobbyStone", Vector3.new(lobbyWidth, 8, lobbyDepth), CFrame.new(0, 36, 330), C.StoneDark, Enum.Material.Cobblestone, true)
+	makePart(lobby, "LobbyStone", Vector3.new(lobbyWidth, 8, lobbyDepth), CFrame.new(0, 36, 330), STYLE.Navy, Enum.Material.Cobblestone, true)
 	makePart(lobby, "LobbyDirt", Vector3.new(lobbyWidth - 4, 5, lobbyDepth - 4), CFrame.new(0, 41, 330), C.Dirt, Enum.Material.Ground, true)
 	makePart(lobby, "LobbyGrass", Vector3.new(lobbyWidth - 6, 1, lobbyDepth - 6), CFrame.new(0, 44, 330), C.Grass, Enum.Material.Grass, true)
 	local spawnCFrame = CFrame.lookAt(Vector3.new(0, 48, 365), Vector3.new(0, 48, 330))
@@ -857,25 +822,25 @@ local function buildLobby(lobby)
 	spawn.Neutral = true
 	spawn.CanQuery = false
 
-	-- Continuous glass safety walls scale with the larger lobby: no new fall gaps.
+	-- Continuous safety walls follow the new hall footprint, including its corners.
 	local halfWidth = lobbyWidth / 2
 	local halfDepth = lobbyDepth / 2
 	for _, side in ipairs({ -1, 1 }) do
-		makePart(lobby, "LobbySafetyWall", Vector3.new(1.5, 18, lobbyDepth - 4), CFrame.new(side * (halfWidth - 3), 53, 330), Color3.fromRGB(110, 170, 175), Enum.Material.Glass, true).Transparency = 0.72
-		makePart(lobby, "LobbyFenceRail", Vector3.new(1.2, 1, lobbyDepth - 4), CFrame.new(side * (halfWidth - 3.5), 48, 330), C.Gold, Enum.Material.Metal, true)
+		makePart(lobby, "LobbySafetyWall", Vector3.new(1.5, 18, lobbyDepth - 4), CFrame.new(side * (halfWidth - 3), 53, 330), Color3.fromRGB(135, 190, 210), Enum.Material.Glass, true).Transparency = 0.72
+		makePart(lobby, "LobbyFenceRail", Vector3.new(1.2, 1, lobbyDepth - 4), CFrame.new(side * (halfWidth - 3.5), 48, 330), STYLE.Gold, Enum.Material.Metal, true)
 		local sidePostCount = math.floor((lobbyDepth - 8) / 15.5)
 		for index = 0, sidePostCount do
 			local z = 330 - (lobbyDepth - 8) / 2 + index * 15.5
-			makePart(lobby, "LobbyFencePost", Vector3.new(2, 7, 2), CFrame.new(side * (halfWidth - 3.5), 47.5, z), C.StoneDark, Enum.Material.Cobblestone, true)
+			makePart(lobby, "LobbyFencePost", Vector3.new(2, 7, 2), CFrame.new(side * (halfWidth - 3.5), 47.5, z), STYLE.Navy, Enum.Material.Cobblestone, true)
 		end
 	end
 	for _, side in ipairs({ -1, 1 }) do
-		makePart(lobby, "LobbySafetyWall", Vector3.new(lobbyWidth - 4, 18, 1.5), CFrame.new(0, 53, 330 + side * (halfDepth - 2)), Color3.fromRGB(110, 170, 175), Enum.Material.Glass, true).Transparency = 0.72
-		makePart(lobby, "LobbyFenceRail", Vector3.new(lobbyWidth - 4, 1, 1.2), CFrame.new(0, 48, 330 + side * (halfDepth - 2.5)), C.Gold, Enum.Material.Metal, true)
+		makePart(lobby, "LobbySafetyWall", Vector3.new(lobbyWidth - 4, 18, 1.5), CFrame.new(0, 53, 330 + side * (halfDepth - 2)), Color3.fromRGB(135, 190, 210), Enum.Material.Glass, true).Transparency = 0.72
+		makePart(lobby, "LobbyFenceRail", Vector3.new(lobbyWidth - 4, 1, 1.2), CFrame.new(0, 48, 330 + side * (halfDepth - 2.5)), STYLE.Gold, Enum.Material.Metal, true)
 		local frontPostCount = math.floor((lobbyWidth - 8) / 15.5)
 		for index = 0, frontPostCount do
 			local x = -(lobbyWidth - 8) / 2 + index * 15.5
-			makePart(lobby, "LobbyFencePost", Vector3.new(2, 7, 2), CFrame.new(x, 47.5, 330 + side * (halfDepth - 2.5)), C.StoneDark, Enum.Material.Cobblestone, true)
+			makePart(lobby, "LobbyFencePost", Vector3.new(2, 7, 2), CFrame.new(x, 47.5, 330 + side * (halfDepth - 2.5)), STYLE.Navy, Enum.Material.Cobblestone, true)
 		end
 	end
 
@@ -913,11 +878,7 @@ local function buildLobby(lobby)
 		labelAnchor.Transparency = 1
 		labelAnchor.CanQuery = false
 		local definition = Catalog.GetWeapon(weaponId)
-		local frameColor = Catalog.RarityColors[definition.Rarity]
-		decorPart(lobby, "WeaponGalleryFrame", Vector3.new(11, 9, 0.6), CFrame.new(x, 50, z - 4.8), C.StoneDark, Enum.Material.Fabric)
-		decorPart(lobby, "WeaponGalleryTrim", Vector3.new(11.4, 0.45, 0.75), CFrame.new(x, 54.5, z - 4.7), frameColor, Enum.Material.Neon)
-		decorPart(lobby, "WeaponGalleryFoot", Vector3.new(10.5, 0.3, 0.8), CFrame.new(x, 45.2, z - 4.7), frameColor, Enum.Material.Neon)
-		billboard(labelAnchor, definition.Name, frameColor, Vector3.zero)
+		billboard(labelAnchor, definition.Name, Catalog.RarityColors[definition.Rarity], Vector3.zero)
 	end
 
 	local upgradePrompt = buildNpc(lobby, "UpgradeForge", Vector3.new(-48, 44.5, 344), Color3.fromRGB(88, 220, 255), "FORGE // УЛУЧШЕНИЯ", "УЛУЧШИТЬ", "HP · броня · скорость · постройки")
@@ -937,61 +898,8 @@ local function buildLobby(lobby)
 		buildChristmasTree(lobby, position, 0.55)
 	end
 	decorateLobby(lobby)
-	buildLobbyExpansion(lobby)
+	buildLobbyArchitecture(lobby)
 	return spawnCFrame, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt, defensePrompt
-end
-
-local function buildArenaExpansion(arena)
-	local presentation = Config.Presentation
-	-- A broad, readable outer ring gives the place a much larger silhouette while
-	-- leaving the original lanes, spawn positions and capture radius untouched.
-	for _, side in ipairs({ -1, 1 }) do
-		decorPart(arena, "OuterSnowLane", Vector3.new(presentation.ArenaWidth - 42, 0.18, 8), CFrame.new(0, 0.22, side * 105), HOLIDAY.Snow, Enum.Material.Snow)
-		decorPart(arena, "OuterLaneInlay", Vector3.new(presentation.ArenaWidth - 56, 0.12, 1.2), CFrame.new(0, 0.34, side * 105), HOLIDAY.Gold, Enum.Material.Metal)
-		buildGarland(arena, Vector3.new(-250, 14, side * 114), Vector3.new(250, 14, side * 114), 2.5, 12)
-		-- Small ruined gateways are landmarks, not new collision obstacles.
-		for _, x in ipairs({ -18, 18 }) do
-			decorPart(arena, "FrostGatePillar", Vector3.new(4, 14, 4), CFrame.new(x, 7, side * 112), C.StoneDark, Enum.Material.Cobblestone)
-			decorPart(arena, "FrostGateSnow", Vector3.new(4.8, 0.5, 4.8), CFrame.new(x, 14.25, side * 112), HOLIDAY.Snow, Enum.Material.Snow)
-		end
-		decorPart(arena, "FrostGateBeam", Vector3.new(40, 3, 4), CFrame.new(0, 14, side * 112), C.StoneDark, Enum.Material.Cobblestone)
-		decorPart(arena, "FrostGateBeamSnow", Vector3.new(41, 0.5, 4.8), CFrame.new(0, 15.75, side * 112), HOLIDAY.Snow, Enum.Material.Snow)
-	end
-	for _, side in ipairs({ -1, 1 }) do
-		decorPart(arena, "OuterSnowLane", Vector3.new(8, 0.18, 196), CFrame.new(side * 240, 0.22, 0), HOLIDAY.Snow, Enum.Material.Snow)
-		for _, z in ipairs({ -94, 0, 94 }) do
-			buildWatchtower(arena, Vector3.new(side * 246, 0, z), z == 0 and 1.25 or 1.05, side < 0 and HOLIDAY.Blue or HOLIDAY.Red)
-		end
-		for _, z in ipairs({ -42, 42 }) do
-			buildChristmasTree(arena, Vector3.new(side * 218, 0, z), 0.8)
-		end
-		for _, z in ipairs({ -72, 72 }) do
-			buildIceCluster(arena, Vector3.new(side * 204, 0, z), 1.1, side < 0 and HOLIDAY.Blue or HOLIDAY.Red)
-		end
-		for _, z in ipairs({ -72, -24, 24, 72 }) do
-			buildLantern(arena, Vector3.new(side * 228, 0, z), 0.85, HOLIDAY.Warm)
-		end
-	end
-	for _, z in ipairs({ -108, 108 }) do
-		buildIceCluster(arena, Vector3.new(0, 0, z), 0.85, HOLIDAY.Blue)
-	end
-	for _, z in ipairs({ -105, 105 }) do
-		for _, x in ipairs({ -180, -60, 60, 180 }) do
-			buildLantern(arena, Vector3.new(x, 0, z), 0.85, HOLIDAY.Warm)
-		end
-	end
-	for index = 1, 36 do
-		local x = -250 + ((index * 67) % 500)
-		local z = (index % 2 == 0 and -1 or 1) * (96 + ((index * 13) % 17))
-		decorPart(arena, "OuterWinterGrass", Vector3.new(0.35, 1.1 + (index % 3) * 0.25, 0.35), CFrame.new(x, 0.6, z) * CFrame.Angles(0, math.rad(index * 31), 0), index % 3 == 0 and HOLIDAY.Blue or C.Grass, Enum.Material.Grass)
-	end
-	for _, position in ipairs({
-		Vector3.new(-182, 0.1, -104), Vector3.new(182, 0.1, -104),
-		Vector3.new(-182, 0.1, 104), Vector3.new(182, 0.1, 104),
-		Vector3.new(-238, 0.1, -28), Vector3.new(238, 0.1, 28),
-	}) do
-		decorPart(arena, "OuterSnowPatch", Vector3.new(26, 0.25, 15), CFrame.new(position), HOLIDAY.Snow, Enum.Material.Snow)
-	end
 end
 
 local function buildCapturePoint(parent)
@@ -1012,16 +920,6 @@ local function buildCapturePoint(parent)
 		local angle = math.rad(index * 90)
 		makePart(model, "CaptureRing", Vector3.new(8, 0.3, 1), CFrame.new(math.cos(angle) * 9, 1.1, math.sin(angle) * 9) * CFrame.Angles(0, -angle, 0), Color3.fromRGB(237, 190, 64), Enum.Material.Neon, false)
 	end
-	for index = 0, 7 do
-		local angle = math.rad(index * 45)
-		decorPart(model, "CaptureRune", Vector3.new(2.2, 0.16, 2.2), CFrame.new(math.cos(angle) * 17, 0.95, math.sin(angle) * 17) * CFrame.Angles(0, angle, 0), HOLIDAY.Gold, Enum.Material.Neon)
-	end
-	for _, side in ipairs({ -1, 1 }) do
-		for _, forward in ipairs({ -1, 1 }) do
-			local shard = decorPart(model, "CaptureOuterCrystal", Vector3.new(1.8, 4.5, 1.8), CFrame.new(side * 17, 2.25, forward * 17) * CFrame.Angles(0, math.rad(45), math.rad(side * 8)), Color3.fromRGB(255, 211, 78), Enum.Material.Ice)
-			shard.Transparency = 0.15
-		end
-	end
 	local light = Instance.new("PointLight")
 	light.Name = "CaptureLight"
 	light.Color = Color3.fromRGB(237, 190, 64)
@@ -1034,7 +932,7 @@ local function buildCapturePoint(parent)
 	sparkles.Parent = crystal
 	local gui = billboard(crystal, "67", Color3.fromRGB(255, 222, 105), Vector3.new(0, 8, 0), UDim2.fromScale(1, 1))
 	gui.Name = "Capture67Label"
-	gui.Size = UDim2.fromOffset(300, 160)
+	gui.Size = UDim2.fromOffset(250, 140)
 	local label = gui:FindFirstChild("TextLabel")
 	label.TextStrokeTransparency = 0.05
 	local subtitleAnchor = makePart(model, "CaptureSubtitleAnchor", Vector3.new(1, 1, 1), CFrame.new(0, 2, 0), C.White, Enum.Material.SmoothPlastic, false)
@@ -1071,27 +969,25 @@ function WorldBuilder.Build()
 	local presentation = Config.Presentation
 	makePart(arena, "ArenaDirt", Vector3.new(presentation.ArenaWidth, 8, presentation.ArenaDepth), CFrame.new(0, -6, 0), C.Dirt, Enum.Material.Ground, true)
 	makePart(arena, "ArenaGrass", Vector3.new(presentation.ArenaWidth, 2, presentation.ArenaDepth), CFrame.new(0, -1, 0), C.Grass, Enum.Material.Grass, true)
-	makePart(arena, "CenterLane", Vector3.new(210, 0.35, 18), CFrame.new(0, 0.15, 0), C.Sand, Enum.Material.Ground, true)
+	makePart(arena, "CenterLane", Vector3.new(300, 0.35, 22), CFrame.new(0, 0.15, 0), C.Sand, Enum.Material.Ground, true)
 	for _, z in ipairs({ -62, 62 }) do
-		makePart(arena, "SideLane", Vector3.new(230, 0.3, 10), CFrame.new(0, 0.12, z), C.Sand, Enum.Material.Ground, true)
+		makePart(arena, "SideLane", Vector3.new(320, 0.3, 14), CFrame.new(0, 0.12, z), C.Sand, Enum.Material.Ground, true)
 	end
-	for index = 0, 27 do
-		local x = -270 + index * 20
+	for index = 0, 25 do
+		local x = -250 + index * 20
 		local height = 8 + (index * 5 % 7)
 		for _, side in ipairs({ -1, 1 }) do
-			makePart(arena, "CliffDirt", Vector3.new(20, height, 6), CFrame.new(x, -10 - height / 2, side * (presentation.ArenaEdgeZ)), C.Dirt, Enum.Material.Ground, true)
-			makePart(arena, "CliffStone", Vector3.new(18, 3, 6.5), CFrame.new(x, -12, side * (presentation.ArenaEdgeZ)), C.StoneDark, Enum.Material.Slate, true)
+			makePart(arena, "CliffDirt", Vector3.new(20, height, 6), CFrame.new(x, -10 - height / 2, side * presentation.ArenaEdgeZ), C.Dirt, Enum.Material.Ground, true)
+			makePart(arena, "CliffStone", Vector3.new(18, 3, 6.5), CFrame.new(x, -12, side * presentation.ArenaEdgeZ), STYLE.Navy, Enum.Material.Slate, true)
 		end
 	end
-	-- Visible perimeter walls keep the enlarged place enclosed without becoming
-	-- bot navigation targets or changing the tactical geodata footprint.
 	for _, side in ipairs({ -1, 1 }) do
-		local zWall = makePart(arena, "ArenaBoundary", Vector3.new(presentation.ArenaWidth, 24, 2), CFrame.new(0, 10, side * (presentation.ArenaEdgeZ)), C.StoneDark, Enum.Material.Slate, true)
+		local zWall = makePart(arena, "ArenaBoundary", Vector3.new(presentation.ArenaWidth, 20, 2), CFrame.new(0, 8, side * presentation.ArenaEdgeZ), STYLE.Navy, Enum.Material.Slate, true)
 		zWall.CanQuery = false
-		decorPart(arena, "ArenaBoundarySnow", Vector3.new(presentation.ArenaWidth, 0.5, 2.5), CFrame.new(0, 22.25, side * (presentation.ArenaEdgeZ)), HOLIDAY.Snow, Enum.Material.Snow)
-		local xWall = makePart(arena, "ArenaBoundary", Vector3.new(2, 24, presentation.ArenaDepth), CFrame.new(side * (presentation.ArenaEdgeX), 10, 0), C.StoneDark, Enum.Material.Slate, true)
+		decorPart(arena, "ArenaBoundarySnow", Vector3.new(presentation.ArenaWidth, 0.5, 2.5), CFrame.new(0, 18.25, side * presentation.ArenaEdgeZ), HOLIDAY.Snow, Enum.Material.Snow)
+		local xWall = makePart(arena, "ArenaBoundary", Vector3.new(2, 20, presentation.ArenaDepth), CFrame.new(side * presentation.ArenaEdgeX, 8, 0), STYLE.Navy, Enum.Material.Slate, true)
 		xWall.CanQuery = false
-		decorPart(arena, "ArenaBoundarySnow", Vector3.new(2.5, 0.5, presentation.ArenaDepth), CFrame.new(side * (presentation.ArenaEdgeX), 22.25, 0), HOLIDAY.Snow, Enum.Material.Snow)
+		decorPart(arena, "ArenaBoundarySnow", Vector3.new(2.5, 0.5, presentation.ArenaDepth), CFrame.new(side * presentation.ArenaEdgeX, 18.25, 0), HOLIDAY.Snow, Enum.Material.Snow)
 	end
 	for index = 1, 48 do
 		local x = (index * 47 % 180) - 90
@@ -1130,17 +1026,17 @@ function WorldBuilder.Build()
 		makePart(arena, "StoneCover", entry[2], CFrame.new(entry[1]), C.Stone, Enum.Material.Cobblestone, true)
 	end
 	decorateArena(arena)
-	buildArenaExpansion(arena)
+	buildArenaArchitecture(arena)
 
 	local capturePoint = buildCapturePoint(arena)
 	local lobbySpawn, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt, defensePrompt = buildLobby(lobby)
-	Lighting.Brightness = 2
-	Lighting.ClockTime = 14.5
-	Lighting.EnvironmentDiffuseScale = 0.35
-	Lighting.EnvironmentSpecularScale = 0.25
+	Lighting.Brightness = 2.2
+	Lighting.ClockTime = 15
+	Lighting.EnvironmentDiffuseScale = 0.45
+	Lighting.EnvironmentSpecularScale = 0.3
 	Lighting.GlobalShadows = true
-	Lighting.OutdoorAmbient = Color3.fromRGB(137, 151, 146)
-	Lighting.ColorShift_Top = Color3.fromRGB(255, 244, 215)
+	Lighting.OutdoorAmbient = Color3.fromRGB(170, 188, 205)
+	Lighting.ColorShift_Top = Color3.fromRGB(220, 238, 255)
 	local function ensureEffect(className, name)
 		local effect = Lighting:FindFirstChild(name)
 		if not effect then
@@ -1151,13 +1047,13 @@ function WorldBuilder.Build()
 		return effect
 	end
 	local atmosphere = ensureEffect("Atmosphere", "BlockSiegeAtmosphere")
-	atmosphere.Density = 0.28
-	atmosphere.Haze = 0.7
+	atmosphere.Density = 0.22
+	atmosphere.Haze = 0.45
 	local colorCorrection = ensureEffect("ColorCorrectionEffect", "BlockSiegeColor")
-	colorCorrection.Saturation = 0.12
-	colorCorrection.Contrast = 0.04
+	colorCorrection.Saturation = 0.06
+	colorCorrection.Contrast = 0.06
 	local bloom = ensureEffect("BloomEffect", "BlockSiegeBloom")
-	bloom.Intensity = 0.22
+	bloom.Intensity = 0.18
 	bloom.Size = 18
 	bloom.Threshold = 1.05
 	local rays = ensureEffect("SunRaysEffect", "BlockSiegeSun")

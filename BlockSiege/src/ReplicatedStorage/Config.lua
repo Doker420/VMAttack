@@ -20,23 +20,20 @@ local Config = {
 		MaxBuildPerPlayer = 14,
 		BotBuildsPerBot = 3,
 		HideEnemyBaseDuringBuild = true,
-		-- Tactical movement stays on the proven combat footprint. The larger
-		-- presentation ring is scenic and does not silently change bot routes.
 		BotBoundsX = 205,
 		BotBoundsZ = 88,
 	},
 
-	-- Grand Winter Citadel presentation dimensions. BaseX and build zones above
-	-- intentionally remain stable so 6x6 combat and construction keep their balance.
+	-- Frostfire Bastion: a bright three-lane valley, not a decorative outer ring.
 	Presentation = {
-		ArenaWidth = 560,
-		ArenaDepth = 250,
-		ArenaEdgeX = 279,
-		ArenaEdgeZ = 124,
-		LobbyWidth = 230,
-		LobbyDepth = 190,
-		BaseWidth = 120,
-		BaseDepth = 136,
+		ArenaWidth = 520,
+		ArenaDepth = 220,
+		ArenaEdgeX = 259,
+		ArenaEdgeZ = 109,
+		LobbyWidth = 220,
+		LobbyDepth = 170,
+		BaseWidth = 112,
+		BaseDepth = 128,
 	},
 
 	DataStoreName = "BlockSiege_PlayerData_v1",
