@@ -1,0 +1,37 @@
+{
+  "name": "BlockSiege",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "BlockSiege": {
+        "$path": "src/ReplicatedStorage"
+      }
+    },
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "BlockSiegeServer": {
+        "$path": "src/ServerScriptService"
+      }
+    },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "$path": "src/StarterPlayer/StarterPlayerScripts"
+      }
+    },
+    "Players": {
+      "$className": "Players",
+      "$properties": {
+        "CharacterAutoLoads": false
+      }
+    },
+    "Workspace": {
+      "$className": "Workspace"
+    },
+    "Lighting": {
+      "$className": "Lighting"
+    }
+  }
+}
