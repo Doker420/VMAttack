@@ -5,9 +5,12 @@ local Catalog = require(Shared:WaitForChild("Catalog"))
 
 local WeaponModels = {}
 local DARK = Color3.fromRGB(43, 51, 52)
+local GRAPHITE = Color3.fromRGB(25, 32, 42)
 local METAL = Color3.fromRGB(103, 116, 115)
 local WOOD = Color3.fromRGB(155, 105, 54)
 local LIGHT = Color3.fromRGB(238, 241, 218)
+local GOLD = Color3.fromRGB(235, 177, 50)
+local GOLD_LIGHT = Color3.fromRGB(255, 226, 137)
 
 local function block(model, name, size, cframe, color, material)
 	local part = Instance.new("Part")
@@ -16,6 +19,7 @@ local function block(model, name, size, cframe, color, material)
 	part.CFrame = cframe
 	part.Color = color
 	part.Material = material or Enum.Material.SmoothPlastic
+	part.Reflectance = part.Material == Enum.Material.Metal and 0.08 or 0
 	part.Anchored = false
 	part.CanCollide = false
 	part.CanTouch = false
@@ -27,6 +31,37 @@ local function block(model, name, size, cframe, color, material)
 	part.BottomSurface = Enum.SurfaceType.Smooth
 	part.Parent = model
 	return part
+end
+
+local function polishModel(model, weapon)
+	-- Small manufactured details make the procedural models read as equipment rather
+	-- than single colored blocks. All details remain local, anchored-safe voxel parts.
+	local bodyNames = { "Body", "HeavyBody", "RailBody", "VortexBody", "PrismReceiver", "TeslaBody", "GauntletPalm", "MeteorHead" }
+	local body
+	for _, name in ipairs(bodyNames) do
+		body = model:FindFirstChild(name)
+		if body then
+			break
+		end
+	end
+	if body then
+		if body.Material == Enum.Material.SmoothPlastic then
+			body.Material = Enum.Material.Metal
+			body.Reflectance = 0.08
+		end
+		block(model, "PrecisionTopRail", Vector3.new(math.max(0.35, body.Size.X * 0.58), 0.1, math.max(0.4, body.Size.Z * 0.62)), body.CFrame * CFrame.new(0, body.Size.Y * 0.5 + 0.07, 0), GRAPHITE, Enum.Material.Metal)
+		for _, side in ipairs({ -1, 1 }) do
+			block(model, "AccentArmor", Vector3.new(0.1, math.max(0.18, body.Size.Y * 0.42), math.max(0.35, body.Size.Z * 0.56)), body.CFrame * CFrame.new(side * (body.Size.X * 0.5 + 0.055), 0, 0), weapon.Color, Enum.Material.Metal)
+		end
+	end
+
+	local handle = model:FindFirstChild("Handle")
+	if handle and weapon.Model ~= "Gauntlet" then
+		block(model, "GripCollar", Vector3.new(handle.Size.X * 1.16, 0.14, handle.Size.Z * 1.16), handle.CFrame * CFrame.new(0, handle.Size.Y * 0.38, 0), weapon.Color, Enum.Material.Metal)
+		block(model, "GripBase", Vector3.new(handle.Size.X * 1.12, 0.16, handle.Size.Z * 1.12), handle.CFrame * CFrame.new(0, -handle.Size.Y * 0.5 - 0.08, 0), GRAPHITE, Enum.Material.Metal)
+	end
+	model:SetAttribute("WeaponRarity", weapon.Rarity)
+	model:SetAttribute("Finish", "ContrastMetal")
 end
 
 function WeaponModels.Build(weaponId)
@@ -195,30 +230,83 @@ function WeaponModels.Build(weaponId)
 		block(model, "Stock", Vector3.new(0.95, 0.72, 1.25), CFrame.new(0, 0.25, 0.95), WOOD, Enum.Material.WoodPlanks)
 		block(model, "Sight", Vector3.new(0.4, 0.4, 0.7), CFrame.new(0, 0.95, -1.15), LIGHT)
 	end
+	polishModel(model, weapon)
 	return model
 end
 
 function WeaponModels.ApplySkin(model, skinId)
-	if not model or skinId ~= "GoldenArsenal" then
+	if not model then
 		return
 	end
+	if skinId ~= "GoldenArsenal" then
+		model:SetAttribute("CosmeticSkin", skinId or "Default")
+		return
+	end
+
+	local energyNames = {
+		Sight = true,
+		ScopeGlass = true,
+		EnergyRing = true,
+		BladeEdge = true,
+		PrismShard = true,
+		PrismBarrel = true,
+		TeslaGlow = true,
+		TeslaArc = true,
+		MeteorCore = true,
+		MeteorFragment = true,
+		VoidOrb = true,
+		VoidEdge = true,
+		VoidCounterweight = true,
+	}
 	for _, part in ipairs(model:GetDescendants()) do
 		if part:IsA("BasePart") then
-			part.Color = Color3.fromRGB(244, 190, 55)
-			part.Material = Enum.Material.Metal
-			if part.Name == "Sight" or part.Name == "ScopeGlass" or part.Name == "EnergyRing" or part.Name == "InfinityGem" or part.Name == "BladeEdge" or part.Name == "PrismShard" or part.Name == "PrismBarrel" or part.Name == "TeslaGlow" or part.Name == "TeslaArc" or part.Name == "MeteorCore" or part.Name == "MeteorFragment" or part.Name == "VoidOrb" or part.Name == "VoidEdge" then
+			local name = part.Name
+			local lowerName = string.lower(name)
+			local originalColor = part.Color
+			local isEnergy = energyNames[name] == true or part.Material == Enum.Material.Neon
+			local isGrip = name == "Handle" or name == "Stock" or name == "Magazine" or name == "Pump"
+				or string.find(lowerName, "grip", 1, true) ~= nil
+				or string.find(lowerName, "stock", 1, true) ~= nil
+				or name == "Counterweight"
+				or name == "TeslaCapacitor"
+			if name == "InfinityGem" then
+				-- The six stones keep their identity under the gold finish.
 				part.Material = Enum.Material.Neon
-				part.Color = Color3.fromRGB(255, 232, 128)
+				part.Color = originalColor
+				part.Reflectance = 0
+			elseif isEnergy then
+				part.Material = Enum.Material.Neon
+				part.Color = originalColor:Lerp(GOLD_LIGHT, 0.22)
+				part.Reflectance = 0
+			elseif isGrip then
+				part.Material = name == "Handle" and Enum.Material.Fabric or Enum.Material.Metal
+				part.Color = GRAPHITE
+				part.Reflectance = 0.04
+			elseif name == "KnifeBlade" or name == "KnifeTip" then
+				part.Material = Enum.Material.Metal
+				part.Color = Color3.fromRGB(255, 239, 184)
+				part.Reflectance = 0.16
+			else
+				part.Material = Enum.Material.Metal
+				part.Color = GOLD
+				part.Reflectance = 0.12
 			end
 		end
 	end
-	local light = Instance.new("PointLight")
-	light.Name = "GoldenWeaponGlow"
-	light.Color = Color3.fromRGB(255, 196, 65)
-	light.Brightness = 0.8
-	light.Range = 5
-	light.Parent = model.PrimaryPart
+	if model.PrimaryPart then
+		local oldLight = model.PrimaryPart:FindFirstChild("GoldenWeaponGlow")
+		if oldLight then
+			oldLight:Destroy()
+		end
+		local light = Instance.new("PointLight")
+		light.Name = "GoldenWeaponGlow"
+		light.Color = Color3.fromRGB(255, 196, 65)
+		light.Brightness = 1.1
+		light.Range = 6
+		light.Parent = model.PrimaryPart
+	end
 	model:SetAttribute("CosmeticSkin", skinId)
+	model:SetAttribute("Finish", "GoldGraphiteAccent")
 end
 
 function WeaponModels.Equip(character, weaponId, skinId)

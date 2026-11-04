@@ -296,7 +296,7 @@ local function ensureBuildGhost(kind)
 	}, Workspace)
 	buildGhostOutline = new("SelectionBox", {
 		Name = "GhostOutline",
-		Adornnee = buildGhost,
+		Adornee = buildGhost,
 		Color3 = Color3.fromRGB(255, 65, 65),
 		LineThickness = 0.06,
 		SurfaceTransparency = 0.7,
