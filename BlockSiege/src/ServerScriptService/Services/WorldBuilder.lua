@@ -80,6 +80,254 @@ local function buildTree(parent, position, scale)
 	return model
 end
 
+local HOLIDAY = {
+	Red = Color3.fromRGB(202, 48, 64),
+	Green = Color3.fromRGB(30, 137, 91),
+	Pine = Color3.fromRGB(24, 87, 65),
+	Snow = Color3.fromRGB(237, 248, 255),
+	Ice = Color3.fromRGB(128, 222, 255),
+	Gold = Color3.fromRGB(255, 205, 83),
+	Warm = Color3.fromRGB(255, 164, 70),
+	Ink = Color3.fromRGB(28, 42, 57),
+}
+
+local function decorPart(parent, name, size, cframe, color, material)
+	local part = makePart(parent, name, size, cframe, color, material, false)
+	part.CanCollide = false
+	part.CanTouch = false
+	part.CanQuery = false
+	part:SetAttribute("HolidayDecor", true)
+	return part
+end
+
+local function holidayGlow(part, color, range, brightness)
+	local light = Instance.new("PointLight")
+	light.Name = "HolidayGlow"
+	light.Color = color
+	light.Range = range or 10
+	light.Brightness = brightness or 1
+	light.Parent = part
+	return light
+end
+
+local function buildGift(parent, position, scale, color)
+	local model = Instance.new("Model")
+	model.Name = "HolidayGift"
+	model:SetAttribute("HolidayDecor", true)
+	model.Parent = parent
+	local box = decorPart(model, "GiftBox", Vector3.new(3.4, 2.7, 3.4) * scale, CFrame.new(position + Vector3.new(0, 1.35 * scale, 0)), color or HOLIDAY.Red, Enum.Material.Fabric)
+	model.PrimaryPart = box
+	decorPart(model, "GiftLid", Vector3.new(3.65, 0.42, 3.65) * scale, CFrame.new(position + Vector3.new(0, 2.82 * scale, 0)), color or HOLIDAY.Red, Enum.Material.Fabric)
+	decorPart(model, "GiftRibbon", Vector3.new(0.46, 2.95, 3.55) * scale, CFrame.new(position + Vector3.new(0, 1.5 * scale, 0)), HOLIDAY.Gold, Enum.Material.Metal)
+	decorPart(model, "GiftRibbon", Vector3.new(3.55, 2.95, 0.46) * scale, CFrame.new(position + Vector3.new(0, 1.5 * scale, 0)), HOLIDAY.Gold, Enum.Material.Metal)
+	for _, side in ipairs({ -1, 1 }) do
+		decorPart(model, "GiftBow", Vector3.new(1.5, 0.38, 0.58) * scale, CFrame.new(position + Vector3.new(side * 0.62 * scale, 3.35 * scale, 0)) * CFrame.Angles(0, 0, side * math.rad(28)), HOLIDAY.Gold, Enum.Material.Metal)
+	end
+	return model
+end
+
+local function buildChristmasTree(parent, position, scale)
+	local model = Instance.new("Model")
+	model.Name = "HolidayTree"
+	model:SetAttribute("HolidayDecor", true)
+	model.Parent = parent
+	local trunk = decorPart(model, "TreeTrunk", Vector3.new(2.1, 4, 2.1) * scale, CFrame.new(position + Vector3.new(0, 2 * scale, 0)), C.Wood, Enum.Material.WoodPlanks)
+	model.PrimaryPart = trunk
+	local tiers = {
+		{ Width = 11, Height = 3.4, Y = 5.5 },
+		{ Width = 8.8, Height = 3.1, Y = 8.2 },
+		{ Width = 6.5, Height = 2.8, Y = 10.7 },
+		{ Width = 4.2, Height = 2.4, Y = 13 },
+	}
+	for tierIndex, tier in ipairs(tiers) do
+		local width = tier.Width * scale
+		local height = tier.Height * scale
+		local center = position + Vector3.new(0, tier.Y * scale, 0)
+		local rotation = CFrame.Angles(0, math.rad(tierIndex % 2 == 0 and 45 or 0), 0)
+		decorPart(model, "PineTier", Vector3.new(width, height, width), CFrame.new(center) * rotation, HOLIDAY.Pine, Enum.Material.Grass)
+		decorPart(model, "SnowCap", Vector3.new(width * 0.82, 0.34 * scale, width * 0.82), CFrame.new(center + Vector3.new(0, height * 0.5 + 0.16 * scale, 0)) * rotation, HOLIDAY.Snow, Enum.Material.Snow)
+		for sideIndex, side in ipairs({ -1, 1 }) do
+			local ornamentColor = sideIndex == 1 and HOLIDAY.Red or HOLIDAY.Gold
+			for _, forward in ipairs({ -1, 1 }) do
+				local ornament = decorPart(model, "TreeOrnament", Vector3.new(0.62, 0.62, 0.62) * scale, CFrame.new(center + Vector3.new(side * width * 0.43, 0, forward * width * 0.43)), ornamentColor, Enum.Material.Neon)
+				ornament.Shape = Enum.PartType.Ball
+			end
+		end
+		for _, forward in ipairs({ -1, 1 }) do
+			decorPart(model, "TreeGarland", Vector3.new(width * 0.68, 0.14 * scale, 0.14 * scale), CFrame.new(center + Vector3.new(0, 0.35 * scale, forward * width * 0.51)) * rotation, HOLIDAY.Gold, Enum.Material.Neon)
+			decorPart(model, "TreeGarland", Vector3.new(0.14 * scale, 0.14 * scale, width * 0.68), CFrame.new(center + Vector3.new(forward * width * 0.51, 0.35 * scale, 0)) * rotation, HOLIDAY.Gold, Enum.Material.Neon)
+		end
+	end
+	local starPosition = position + Vector3.new(0, 15.5 * scale, 0)
+	decorPart(model, "StarVertical", Vector3.new(0.35, 2.2, 0.35) * scale, CFrame.new(starPosition), HOLIDAY.Gold, Enum.Material.Neon)
+	decorPart(model, "StarHorizontal", Vector3.new(2.2, 0.35, 0.35) * scale, CFrame.new(starPosition), HOLIDAY.Gold, Enum.Material.Neon)
+	for _, angle in ipairs({ -45, 45 }) do
+		decorPart(model, "StarRay", Vector3.new(0.28, 2.25, 0.28) * scale, CFrame.new(starPosition) * CFrame.Angles(0, 0, math.rad(angle)), HOLIDAY.Gold, Enum.Material.Neon)
+	end
+	local star = decorPart(model, "StarCore", Vector3.new(0.72, 0.72, 0.72) * scale, CFrame.new(starPosition), HOLIDAY.Gold, Enum.Material.Neon)
+	star.Shape = Enum.PartType.Ball
+	holidayGlow(star, HOLIDAY.Gold, 16 * scale, 2)
+	return model
+end
+
+local function buildSnowman(parent, position, scale)
+	local model = Instance.new("Model")
+	model.Name = "HolidaySnowman"
+	model:SetAttribute("HolidayDecor", true)
+	model.Parent = parent
+	local function snowball(name, diameter, y)
+		local part = decorPart(model, name, Vector3.new(diameter, diameter, diameter) * scale, CFrame.new(position + Vector3.new(0, y * scale, 0)), HOLIDAY.Snow, Enum.Material.Snow)
+		part.Shape = Enum.PartType.Ball
+		return part
+	end
+	snowball("SnowmanBody", 3.5, 1.75)
+	snowball("SnowmanMiddle", 2.65, 4.05)
+	snowball("SnowmanHead", 1.95, 6.15)
+	for _, y in ipairs({ 3.55, 4.25 }) do
+		local button = decorPart(model, "CoalButton", Vector3.new(0.25, 0.25, 0.25) * scale, CFrame.new(position + Vector3.new(0, y * scale, -1.27 * scale)), HOLIDAY.Ink, Enum.Material.SmoothPlastic)
+		button.Shape = Enum.PartType.Ball
+	end
+	for _, side in ipairs({ -1, 1 }) do
+		local eye = decorPart(model, "CoalEye", Vector3.new(0.22, 0.22, 0.22) * scale, CFrame.new(position + Vector3.new(side * 0.36 * scale, 6.42 * scale, -0.86 * scale)), HOLIDAY.Ink, Enum.Material.SmoothPlastic)
+		eye.Shape = Enum.PartType.Ball
+		decorPart(model, "SnowmanArm", Vector3.new(2.2, 0.22, 0.22) * scale, CFrame.new(position + Vector3.new(side * 2.1 * scale, 4.1 * scale, 0)) * CFrame.Angles(0, 0, side * math.rad(22)), C.Wood, Enum.Material.WoodPlanks)
+	end
+	decorPart(model, "CarrotNose", Vector3.new(0.28, 0.28, 0.85) * scale, CFrame.new(position + Vector3.new(0, 6.1 * scale, -1.12 * scale)), Color3.fromRGB(255, 133, 48), Enum.Material.SmoothPlastic)
+	decorPart(model, "Scarf", Vector3.new(2.25, 0.42, 2.25) * scale, CFrame.new(position + Vector3.new(0, 5.12 * scale, 0)), HOLIDAY.Red, Enum.Material.Fabric)
+	decorPart(model, "ScarfTail", Vector3.new(0.48, 1.55, 0.25) * scale, CFrame.new(position + Vector3.new(0.72 * scale, 4.35 * scale, -1.05 * scale)), HOLIDAY.Red, Enum.Material.Fabric)
+	decorPart(model, "HatBrim", Vector3.new(2.5, 0.3, 2.5) * scale, CFrame.new(position + Vector3.new(0, 7.2 * scale, 0)), HOLIDAY.Ink, Enum.Material.Fabric)
+	decorPart(model, "Hat", Vector3.new(1.55, 1.35, 1.55) * scale, CFrame.new(position + Vector3.new(0, 7.85 * scale, 0)), HOLIDAY.Ink, Enum.Material.Fabric)
+	decorPart(model, "HatBand", Vector3.new(1.62, 0.25, 1.62) * scale, CFrame.new(position + Vector3.new(0, 7.55 * scale, 0)), HOLIDAY.Red, Enum.Material.Fabric)
+	return model
+end
+
+local function buildSnowflake(parent, position, scale)
+	local model = Instance.new("Model")
+	model.Name = "HolidaySnowflake"
+	model:SetAttribute("HolidayDecor", true)
+	model.Parent = parent
+	for index = 0, 2 do
+		decorPart(model, "SnowflakeRay", Vector3.new(0.22, 4, 0.22) * scale, CFrame.new(position) * CFrame.Angles(0, 0, math.rad(index * 60)), HOLIDAY.Ice, Enum.Material.Neon)
+	end
+	local center = decorPart(model, "SnowflakeCenter", Vector3.new(0.5, 0.5, 0.5) * scale, CFrame.new(position), HOLIDAY.Snow, Enum.Material.Neon)
+	center.Shape = Enum.PartType.Ball
+	return model
+end
+
+local function buildGarland(parent, startPoint, endPoint, sag, segments)
+	local previous = startPoint
+	for index = 0, segments do
+		local alpha = index / segments
+		local point = startPoint:Lerp(endPoint, alpha) - Vector3.new(0, math.sin(alpha * math.pi) * (sag or 2), 0)
+		if index > 0 then
+			local delta = point - previous
+			if delta.Magnitude > 0.05 then
+				decorPart(parent, "GarlandCable", Vector3.new(0.14, 0.14, delta.Magnitude), CFrame.lookAt((previous + point) * 0.5, point), HOLIDAY.Pine, Enum.Material.Metal)
+			end
+		end
+		local colors = { HOLIDAY.Red, HOLIDAY.Gold, HOLIDAY.Ice, HOLIDAY.Green }
+		local bulb = decorPart(parent, "GarlandBulb", Vector3.new(0.58, 0.58, 0.58), CFrame.new(point - Vector3.new(0, 0.25, 0)), colors[(index % #colors) + 1], Enum.Material.Neon)
+		bulb.Shape = Enum.PartType.Ball
+		if index % 4 == 0 then
+			holidayGlow(bulb, bulb.Color, 7, 0.7)
+		end
+		previous = point
+	end
+end
+
+local function buildSnowEmitter(parent, position, size, rate)
+	local anchor = decorPart(parent, "SnowfallEmitter", size, CFrame.new(position), HOLIDAY.Snow, Enum.Material.SmoothPlastic)
+	anchor.Transparency = 1
+	local snow = Instance.new("ParticleEmitter")
+	snow.Name = "HolidaySnowfall"
+	snow.Rate = rate or 12
+	snow.Lifetime = NumberRange.new(4, 7)
+	snow.Speed = NumberRange.new(1, 2)
+	snow.Acceleration = Vector3.new(0, -1.5, 0)
+	snow.EmissionDirection = Enum.NormalId.Bottom
+	snow.SpreadAngle = Vector2.new(35, 35)
+	snow.RotSpeed = NumberRange.new(-35, 35)
+	snow.Size = NumberSequence.new(0.18)
+	snow.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.15), NumberSequenceKeypoint.new(1, 0.75) })
+	snow.Color = ColorSequence.new(HOLIDAY.Snow)
+	snow.LightEmission = 0.15
+	snow.Parent = anchor
+	return snow
+end
+
+local function buildFestiveArch(parent, position)
+	local model = Instance.new("Model")
+	model.Name = "HolidayArch"
+	model:SetAttribute("HolidayDecor", true)
+	model.Parent = parent
+	for _, side in ipairs({ -1, 1 }) do
+		decorPart(model, "ArchPillar", Vector3.new(2.2, 13, 2.2), CFrame.new(position + Vector3.new(side * 27, 6.5, 0)), HOLIDAY.Red, Enum.Material.Fabric)
+		for _, y in ipairs({ 2, 10.5 }) do
+			decorPart(model, "ArchBand", Vector3.new(2.5, 0.45, 2.5), CFrame.new(position + Vector3.new(side * 27, y, 0)), HOLIDAY.Gold, Enum.Material.Metal)
+		end
+	end
+	decorPart(model, "ArchBeam", Vector3.new(58, 2.2, 2.2), CFrame.new(position + Vector3.new(0, 13, 0)), HOLIDAY.Green, Enum.Material.Fabric)
+	decorPart(model, "ArchSnow", Vector3.new(58.5, 0.4, 2.5), CFrame.new(position + Vector3.new(0, 14.25, 0)), HOLIDAY.Snow, Enum.Material.Snow)
+	local sign = decorPart(model, "ArchSign", Vector3.new(1, 1, 1), CFrame.new(position + Vector3.new(0, 11.5, -1.3)), HOLIDAY.Snow, Enum.Material.SmoothPlastic)
+	sign.Transparency = 1
+	billboard(sign, "С НОВЫМ ГОДОМ // 2026", HOLIDAY.Gold, Vector3.zero, UDim2.fromScale(1, 1))
+	return model
+end
+
+local function decorateLobby(lobby)
+	buildFestiveArch(lobby, Vector3.new(0, 44.5, 385))
+	for _, entry in ipairs({
+		{ Vector3.new(-58, 44.58, 372), Vector3.new(18, 0.16, 9) }, { Vector3.new(58, 44.58, 372), Vector3.new(18, 0.16, 9) },
+		{ Vector3.new(-62, 44.58, 286), Vector3.new(14, 0.16, 8) }, { Vector3.new(62, 44.58, 286), Vector3.new(14, 0.16, 8) },
+	}) do
+		decorPart(lobby, "LobbySnowPatch", entry[2], CFrame.new(entry[1]), HOLIDAY.Snow, Enum.Material.Snow)
+	end
+	decorPart(lobby, "LootboxSnowCap", Vector3.new(9.2, 0.34, 9.2), CFrame.new(0, 51.65, 318), HOLIDAY.Snow, Enum.Material.Snow)
+	buildChristmasTree(lobby, Vector3.new(-24, 44.5, 350), 0.72)
+	for _, entry in ipairs({
+		{ Vector3.new(-8, 44.5, 347), 0.8, HOLIDAY.Red }, { Vector3.new(8, 44.5, 347), 0.75, HOLIDAY.Green },
+		{ Vector3.new(-8, 44.5, 318), 0.65, HOLIDAY.Green }, { Vector3.new(8, 44.5, 318), 0.7, HOLIDAY.Red },
+	}) do
+		buildGift(lobby, entry[1], entry[2], entry[3])
+	end
+	buildSnowman(lobby, Vector3.new(-68, 44.5, 350), 0.9)
+	buildSnowman(lobby, Vector3.new(68, 44.5, 350), 0.9)
+	buildGarland(lobby, Vector3.new(-78, 60, 268), Vector3.new(78, 60, 268), 3, 16)
+	buildGarland(lobby, Vector3.new(-78, 60, 392), Vector3.new(78, 60, 392), 3, 16)
+	buildGarland(lobby, Vector3.new(-81, 60, 275), Vector3.new(-81, 60, 385), 2, 12)
+	buildGarland(lobby, Vector3.new(81, 60, 275), Vector3.new(81, 60, 385), 2, 12)
+	for _, position in ipairs({
+		Vector3.new(-81, 55, 300), Vector3.new(-81, 55, 360), Vector3.new(81, 55, 300), Vector3.new(81, 55, 360),
+		Vector3.new(-48, 57, 391), Vector3.new(48, 57, 391),
+	}) do
+		buildSnowflake(lobby, position, 1.1)
+	end
+	buildSnowEmitter(lobby, Vector3.new(0, 76, 330), Vector3.new(150, 1, 110), 18)
+end
+
+local function decorateArena(arena)
+	for _, entry in ipairs({
+		{ Vector3.new(-120, 0.08, -62), Vector3.new(19, 0.16, 9) }, { Vector3.new(120, 0.08, 62), Vector3.new(19, 0.16, 9) },
+		{ Vector3.new(-76, 0.08, 42), Vector3.new(13, 0.16, 8) }, { Vector3.new(76, 0.08, -42), Vector3.new(13, 0.16, 8) },
+		{ Vector3.new(0, 0.08, -72), Vector3.new(22, 0.16, 7) }, { Vector3.new(0, 0.08, 72), Vector3.new(22, 0.16, 7) },
+	}) do
+		decorPart(arena, "SnowPatch", entry[2], CFrame.new(entry[1]), HOLIDAY.Snow, Enum.Material.Snow)
+	end
+	buildChristmasTree(arena, Vector3.new(-116, 0, 80), 0.55)
+	buildChristmasTree(arena, Vector3.new(116, 0, -80), 0.55)
+	buildSnowman(arena, Vector3.new(-125, 0, -74), 0.85)
+	buildSnowman(arena, Vector3.new(125, 0, 74), 0.85)
+	buildGift(arena, Vector3.new(-28, 0, -76), 0.8, HOLIDAY.Red)
+	buildGift(arena, Vector3.new(28, 0, 76), 0.8, HOLIDAY.Green)
+	buildGift(arena, Vector3.new(-100, 0, 70), 0.65, HOLIDAY.Green)
+	buildGift(arena, Vector3.new(100, 0, -70), 0.65, HOLIDAY.Red)
+	buildGarland(arena, Vector3.new(-190, 10, -88), Vector3.new(190, 10, -88), 4, 24)
+	buildGarland(arena, Vector3.new(-190, 10, 88), Vector3.new(190, 10, 88), 4, 24)
+	buildSnowflake(arena, Vector3.new(-18, 9, -88), 1.3)
+	buildSnowflake(arena, Vector3.new(18, 9, 88), 1.3)
+	buildSnowEmitter(arena, Vector3.new(0, 28, 0), Vector3.new(390, 1, 170), 10)
+end
+
 local function buildCloud(parent, position, scale)
 	local model = Instance.new("Model")
 	model.Name = "BlockCloud"
@@ -241,8 +489,9 @@ local function buildLobby(lobby)
 	defensePad.CanQuery = false
 
 	for _, position in ipairs({ Vector3.new(-70, 44.5, 370), Vector3.new(70, 44.5, 370), Vector3.new(-70, 44.5, 280), Vector3.new(70, 44.5, 280) }) do
-		buildTree(lobby, position, 0.8)
+		buildChristmasTree(lobby, position, 0.55)
 	end
+	decorateLobby(lobby)
 	return spawnCFrame, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt, defensePrompt
 end
 
@@ -358,6 +607,7 @@ function WorldBuilder.Build()
 	}) do
 		makePart(arena, "StoneCover", entry[2], CFrame.new(entry[1]), C.Stone, Enum.Material.Cobblestone, true)
 	end
+	decorateArena(arena)
 
 	local capturePoint = buildCapturePoint(arena)
 	local lobbySpawn, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt, defensePrompt = buildLobby(lobby)
@@ -381,12 +631,12 @@ function WorldBuilder.Build()
 	atmosphere.Density = 0.28
 	atmosphere.Haze = 0.7
 	local colorCorrection = ensureEffect("ColorCorrectionEffect", "BlockSiegeColor")
-	colorCorrection.Saturation = 0.07
+	colorCorrection.Saturation = 0.12
 	colorCorrection.Contrast = 0.04
 	local bloom = ensureEffect("BloomEffect", "BlockSiegeBloom")
-	bloom.Intensity = 0.16
+	bloom.Intensity = 0.22
 	bloom.Size = 18
-	bloom.Threshold = 1.15
+	bloom.Threshold = 1.05
 	local rays = ensureEffect("SunRaysEffect", "BlockSiegeSun")
 	rays.Intensity = 0.025
 

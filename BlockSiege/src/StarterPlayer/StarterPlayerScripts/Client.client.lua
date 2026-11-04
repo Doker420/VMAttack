@@ -114,6 +114,21 @@ for index, team in ipairs({ "Blue", "Orange" }) do
 	coreFills[team] = fill
 end
 
+local seasonLabel = text(top, "NEW YEAR // WINTER OPS", UDim2.new(1, -24, 0, 12), UDim2.new(0, 12, 0, 88), 11, Color3.fromRGB(255, 215, 116))
+seasonLabel.Font = Enum.Font.GothamBold
+seasonLabel.TextXAlignment = Enum.TextXAlignment.Center
+seasonLabel.TextStrokeTransparency = 0.5
+local seasonRule = new("Frame", {
+	Position = UDim2.new(0, 10, 1, -3),
+	Size = UDim2.new(1, -20, 0, 2),
+	BackgroundColor3 = Color3.fromRGB(202, 48, 64),
+	BorderSizePixel = 0,
+}, top)
+new("UIGradient", {
+	Rotation = 0,
+	Color = ColorSequence.new(Color3.fromRGB(202, 48, 64), Color3.fromRGB(30, 137, 91)),
+}, seasonRule)
+
 local lobbyDock = new("Frame", { Position = UDim2.new(0, 16, 1, -166), Size = UDim2.new(0, 260, 0, 150), BackgroundTransparency = 1 }, gui)
 local queueButton = button(lobbyDock, "В ОЧЕРЕДЬ 6×6", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 0), C.Blue)
 local quickButton = button(lobbyDock, "БЫСТРЫЙ СТАРТ + БОТЫ", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 49), C.Orange)
