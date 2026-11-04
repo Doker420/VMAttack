@@ -1,7 +1,7 @@
 -- Оружие и честные игровые кейсы. Случайные награды нельзя купить за Robux.
 local Catalog = {}
 
-Catalog.WeaponOrder = { "Carbine", "SMG", "Scatter", "Marksman", "Demolisher", "Rail", "Vortex", "ThanosGauntlet", "TacticalKnife", "ShadowKnives" }
+Catalog.WeaponOrder = { "Carbine", "SMG", "Scatter", "Marksman", "Demolisher", "Rail", "Vortex", "ThanosGauntlet", "TacticalKnife", "ShadowKnives", "PrismLance", "TeslaCarbine", "MeteorMaul", "VoidScythe" }
 Catalog.Weapons = {
 	Carbine = {
 		Id = "Carbine", Name = "BLOCK CARBINE", Rarity = "Starter", Model = "Carbine",
@@ -53,6 +53,26 @@ Catalog.Weapons = {
 		Damage = 82, Cooldown = 0.65, Range = 16, Spread = 0, Pellets = 1, StructureMultiplier = 0.8, Melee = true,
 		Color = Color3.fromRGB(186, 104, 255),
 	},
+	PrismLance = {
+		Id = "PrismLance", Name = "PRISM LANCE", Rarity = "Legendary", Model = "PrismLance",
+		Damage = 72, Cooldown = 0.85, Range = 245, Spread = 0.001, Pellets = 1, StructureMultiplier = 1.65,
+		Color = Color3.fromRGB(113, 224, 255),
+	},
+	TeslaCarbine = {
+		Id = "TeslaCarbine", Name = "TESLA CARBINE", Rarity = "Rare", Model = "TeslaCarbine",
+		Damage = 18, Cooldown = 0.18, Range = 135, Spread = 0.014, Pellets = 1, StructureMultiplier = 1.05,
+		Color = Color3.fromRGB(102, 239, 255),
+	},
+	MeteorMaul = {
+		Id = "MeteorMaul", Name = "METEOR MAUL", Rarity = "Rare", Model = "MeteorMaul",
+		Damage = 96, Cooldown = 1.05, Range = 18, Spread = 0, Pellets = 1, StructureMultiplier = 3, Melee = true,
+		Color = Color3.fromRGB(255, 119, 54),
+	},
+	VoidScythe = {
+		Id = "VoidScythe", Name = "VOID SCYTHE", Rarity = "Legendary", Model = "VoidScythe",
+		Damage = 110, Cooldown = 0.9, Range = 19, Spread = 0, Pellets = 1, StructureMultiplier = 1.4, Melee = true,
+		Color = Color3.fromRGB(184, 101, 255),
+	},
 }
 
 Catalog.RarityNames = { Starter = "СТАРТОВОЕ", Common = "ОБЫЧНОЕ", Rare = "РЕДКОЕ", Legendary = "ЛЕГЕНДАРНОЕ" }
@@ -69,8 +89,8 @@ Catalog.Case = {
 	LegendaryPity = 20,
 	Pool = {
 		Common = { "SMG", "Scatter" },
-		Rare = { "Marksman", "Demolisher", "TacticalKnife" },
-		Legendary = { "Rail", "Vortex", "ThanosGauntlet", "ShadowKnives" },
+		Rare = { "Marksman", "Demolisher", "TacticalKnife", "TeslaCarbine", "MeteorMaul" },
+		Legendary = { "Rail", "Vortex", "ThanosGauntlet", "ShadowKnives", "PrismLance", "VoidScythe" },
 	},
 	DuplicateCoins = { Common = 8, Rare = 18, Legendary = 40 },
 }

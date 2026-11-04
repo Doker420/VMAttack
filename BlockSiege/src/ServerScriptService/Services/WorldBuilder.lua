@@ -127,6 +127,13 @@ local function buildBase(arena, structures, team)
 	local spawn = makePart(arena, team .. "Spawn", Vector3.new(12, 1, 12), spawnCFrame, color, Enum.Material.Neon, false, "SpawnLocation")
 	spawn.Neutral = true
 	spawn.CanQuery = false
+	-- Tags let the local visibility controller hide only the opposing base during Build.
+	for _, part in ipairs(arena:GetChildren()) do
+		if part:IsA("BasePart") and string.sub(part.Name, 1, #team) == team then
+			part:SetAttribute("Team", team)
+			part:SetAttribute("BaseGeometry", true)
+		end
+	end
 	return spawnCFrame + Vector3.new(0, 3, 0)
 end
 
@@ -197,10 +204,11 @@ local function buildLobby(lobby)
 	billboard(board, "BLOCK // БОЙ 6×6", C.White, Vector3.new(0, 0, 0))
 	local startPrompt = prompt(board, "В БОЙ", "Быстрый старт · боты заполняют команды")
 
+	local displayColumns = math.max(1, math.ceil(#Catalog.WeaponOrder / 2))
 	for index, weaponId in ipairs(Catalog.WeaponOrder) do
-		local row = math.floor((index - 1) / 5)
-		local column = (index - 1) % 5
-		local x = -56 + column * 28
+		local row = math.floor((index - 1) / displayColumns)
+		local column = (index - 1) % displayColumns
+		local x = (column - (displayColumns - 1) / 2) * 24
 		local z = 292 - row * 16
 		makePart(lobby, "WeaponPedestal", Vector3.new(10, 3, 10), CFrame.new(x, 46, z), C.Stone, Enum.Material.Cobblestone, true)
 		local weapon = WeaponModels.Build(weaponId)

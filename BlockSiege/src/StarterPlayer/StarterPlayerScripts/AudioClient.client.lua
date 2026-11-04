@@ -74,7 +74,7 @@ local function updateMusic()
 	end
 	local sound = Instance.new("Sound")
 	sound.Name = currentTheme .. "Music"
-	sound.SoundId = "rbxassetid://" .. assetId
+	sound.SoundId = string.format("rbxassetid://%.0f", assetId)
 	sound.Looped = true
 	sound.Volume = 0
 	sound.Parent = audioFolder
@@ -93,7 +93,7 @@ local function playSfx(name, volume, playbackSpeed)
 	end
 	local sound = Instance.new("Sound")
 	sound.Name = name .. "SFX"
-	sound.SoundId = "rbxassetid://" .. assetId
+	sound.SoundId = string.format("rbxassetid://%.0f", assetId)
 	sound.Volume = (volume or 1) * Config.Audio.SFXVolume
 	sound.PlaybackSpeed = playbackSpeed or 1
 	sound.Parent = audioFolder
@@ -128,8 +128,15 @@ remotes.CombatFX.OnClientEvent:Connect(function(payload)
 	if payload.Melee == true or payload.Kind == "Melee" then
 		playSfx("Hit", 0.58, 1.18)
 	elseif payload.Kind == "Shot" then
-		local heavy = payload.WeaponId == "Rail" or payload.WeaponId == "Demolisher" or payload.WeaponId == "Marksman" or payload.WeaponId == "ThanosGauntlet"
-		local pitch = payload.WeaponId == "SMG" and 1.16 or (payload.WeaponId == "Scatter" and 0.86 or ((payload.WeaponId == "Rail" or payload.WeaponId == "ThanosGauntlet") and 0.78 or 1))
+		local heavy = payload.WeaponId == "Rail" or payload.WeaponId == "Demolisher" or payload.WeaponId == "Marksman" or payload.WeaponId == "ThanosGauntlet" or payload.WeaponId == "PrismLance"
+		local pitch = 1
+		if payload.WeaponId == "SMG" or payload.WeaponId == "TeslaCarbine" then
+			pitch = 1.16
+		elseif payload.WeaponId == "Scatter" then
+			pitch = 0.86
+		elseif payload.WeaponId == "Rail" or payload.WeaponId == "ThanosGauntlet" or payload.WeaponId == "PrismLance" then
+			pitch = 0.78
+		end
 		playSfx(heavy and "HeavyShot" or "Shot", heavy and 0.7 or 0.42, pitch)
 	elseif payload.Kind == "StructureHit" then
 		playSfx("Hit", 0.32, 0.95 + math.random() * 0.1)
