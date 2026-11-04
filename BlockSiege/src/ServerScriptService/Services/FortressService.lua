@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("BlockSiege")
 local Config = require(Shared:WaitForChild("Config"))
 local CombatModels = require(Shared:WaitForChild("CombatModels"))
+local VisualModels = require(Shared:WaitForChild("VisualModels"))
 
 local vector3Type = typeof(Vector3.new())
 local FortressService = {}
@@ -163,17 +164,27 @@ local function createStructure(team, kind, cframe)
 	model.PrimaryPart = root
 	if kind == "LaneTower" then
 		model:SetAttribute("Objective", "LaneTower")
-		makeBlock(model, "TowerBase", Vector3.new(11, 1.2, 11), cframe * CFrame.new(0, -6.4, 0), dark, Enum.Material.Cobblestone, true)
-		makeBlock(model, "TowerBand", Vector3.new(8.5, 0.7, 8.5), cframe * CFrame.new(0, 3.8, 0), color, Enum.Material.Metal, false)
-		makeBlock(model, "TowerHead", Vector3.new(7, 3, 7), cframe * CFrame.new(0, 5.5, 0), color, Enum.Material.DiamondPlate, true)
-		makeBlock(model, "TowerBarrel", Vector3.new(1.4, 1.4, 8), cframe * CFrame.new(0, 5.5, -5), Color3.fromRGB(222, 238, 244), Enum.Material.Metal, false)
+		-- Keep the original collision/damage parts as invisible proxies. The
+		-- visible tower is a sculpted mesh-style assembly, not a stack of cubes.
+		root.Transparency = 1
+		local oldBase = makeBlock(model, "TowerBase", Vector3.new(11, 1.2, 11), cframe * CFrame.new(0, -6.4, 0), dark, Enum.Material.Cobblestone, true)
+		oldBase.Transparency = 1
+		local oldBand = makeBlock(model, "TowerBand", Vector3.new(8.5, 0.7, 8.5), cframe * CFrame.new(0, 3.8, 0), color, Enum.Material.Metal, false)
+		oldBand.Transparency = 1
+		local oldHead = makeBlock(model, "TowerHead", Vector3.new(7, 3, 7), cframe * CFrame.new(0, 5.5, 0), color, Enum.Material.DiamondPlate, true)
+		oldHead.Transparency = 1
+		local barrel = makeBlock(model, "TowerBarrel", Vector3.new(8, 1.4, 1.4), cframe * CFrame.new(0, 5.5, -5) * CFrame.Angles(0, math.rad(90), 0), Color3.fromRGB(222, 238, 244), Enum.Material.Metal, false)
+		barrel.Shape = Enum.PartType.Cylinder
 		local eye = makeBlock(model, "TowerEye", Vector3.new(2.2, 0.65, 0.4), cframe * CFrame.new(0, 6, -3.6), Color3.fromRGB(255, 211, 99), Enum.Material.Neon, false)
+		eye.Transparency = 1
 		local glow = Instance.new("PointLight")
 		glow.Name = "TowerGlow"
 		glow.Color = color
 		glow.Brightness = 1.4
 		glow.Range = 16
 		glow.Parent = eye
+		local ground = cframe.Position - Vector3.new(0, 7, 0)
+		VisualModels.Tower(model, "LaneTowerVisual", ground, 0.62, color)
 	elseif definition.Trap then
 		model:SetAttribute("IsTrap", true)
 		model:SetAttribute("DefenseId", kind)
