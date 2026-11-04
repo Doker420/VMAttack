@@ -24,7 +24,7 @@ local Config = {
 		BotBoundsZ = 88,
 	},
 
-	-- Frostfire Bastion: a bright three-lane valley, not a decorative outer ring.
+	-- Aurora Bastion: a bright three-lane valley, not a decorative outer ring.
 	Presentation = {
 		ArenaWidth = 520,
 		ArenaDepth = 220,

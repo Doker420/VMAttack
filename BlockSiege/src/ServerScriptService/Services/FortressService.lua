@@ -118,6 +118,7 @@ local function createCore(team)
 	local teamColor = Config.Teams[team].Color
 	local baseCFrame = Config.BaseCFrame(team)
 	local heart = makeBlock(model, "CoreHeart", Vector3.new(10, 12, 10), baseCFrame * CFrame.new(0, 7, 0), teamColor, Enum.Material.Neon, true)
+	heart.Shape = Enum.PartType.Ball
 	model.PrimaryPart = heart
 	makeBlock(model, "CorePedestal", Vector3.new(18, 2, 18), baseCFrame * CFrame.new(0, 1, 0), Config.Teams[team].Dark, Enum.Material.Cobblestone, true)
 	for _, height in ipairs({ 2, 12 }) do
@@ -128,6 +129,7 @@ local function createCore(team)
 	end
 	for index, offset in ipairs({ Vector3.new(-7, 6, -7), Vector3.new(-7, 8, 7), Vector3.new(7, 8, -7), Vector3.new(7, 6, 7) }) do
 		local orbital = makeBlock(model, "CoreOrbital", Vector3.new(2.4, 2.4, 2.4), baseCFrame * CFrame.new(offset) * CFrame.Angles(0, math.rad(index * 18), 0), teamColor, Enum.Material.Neon, false)
+		orbital.Shape = Enum.PartType.Ball
 		orbital.Transparency = 0.12
 	end
 	local coreLight = Instance.new("PointLight")
@@ -268,8 +270,10 @@ function FortressService.Reset()
 	for _, team in ipairs(Config.TeamOrder) do
 		createCore(team)
 		local baseCFrame = Config.BaseCFrame(team)
-		for index = 1, 4 do
-			createStructure(team, "Wall", baseCFrame * CFrame.new((index - 2.5) * 14, 6, -28))
+		-- Two wall pairs leave a real central gate. The old -21/-7/7/21
+		-- layout had only 2-stud slits, too narrow for the R6 pathfinding agent.
+		for _, x in ipairs({ -35, -21, 21, 35 }) do
+			createStructure(team, "Wall", baseCFrame * CFrame.new(x, 6, -28))
 		end
 		for _, side in ipairs({ -1, 1 }) do
 			createStructure(team, "Barricade", baseCFrame * CFrame.new(side * 42, 2.5, 4) * CFrame.Angles(0, math.rad(90), 0))

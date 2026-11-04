@@ -20,15 +20,15 @@ local WeaponModels = require(Shared:WaitForChild("WeaponModels"))
 local WorldBuilder = {}
 local buildSerial = 0
 local C = {
-	Grass = Color3.fromRGB(91, 145, 73),
-	Dirt = Color3.fromRGB(114, 79, 48),
-	Stone = Color3.fromRGB(107, 118, 112),
-	StoneDark = Color3.fromRGB(63, 73, 70),
-	Wood = Color3.fromRGB(159, 111, 57),
-	Leaf = Color3.fromRGB(63, 119, 61),
-	Sand = Color3.fromRGB(190, 170, 111),
-	White = Color3.fromRGB(239, 240, 215),
-	Gold = Color3.fromRGB(239, 179, 52),
+	Grass = Color3.fromRGB(83, 128, 112),
+	Dirt = Color3.fromRGB(76, 72, 77),
+	Stone = Color3.fromRGB(113, 138, 153),
+	StoneDark = Color3.fromRGB(37, 55, 74),
+	Wood = Color3.fromRGB(128, 91, 68),
+	Leaf = Color3.fromRGB(42, 100, 88),
+	Sand = Color3.fromRGB(155, 174, 184),
+	White = Color3.fromRGB(235, 245, 255),
+	Gold = Color3.fromRGB(255, 204, 102),
 }
 
 -- Public Roblox material color maps add real tiled surface detail without a custom
@@ -95,7 +95,7 @@ local function billboard(parent, text, color, offset, size)
 	local label = Instance.new("TextLabel")
 	label.Size = size or UDim2.fromScale(1, 1)
 	label.BackgroundTransparency = 1
-	label.Font = Enum.Font.Code
+	label.Font = Enum.Font.GothamBold
 	label.Text = text
 	label.TextColor3 = color
 	label.TextStrokeTransparency = 0.35
@@ -138,13 +138,13 @@ local HOLIDAY = {
 }
 
 local STYLE = {
-	Ivory = Color3.fromRGB(211, 224, 229),
-	IvoryDark = Color3.fromRGB(157, 181, 193),
-	Navy = Color3.fromRGB(25, 48, 72),
-	Blue = Color3.fromRGB(73, 174, 216),
-	Ice = Color3.fromRGB(142, 225, 247),
-	Gold = Color3.fromRGB(244, 194, 83),
-	Warm = Color3.fromRGB(255, 171, 93),
+	Ivory = Color3.fromRGB(205, 226, 237),
+	IvoryDark = Color3.fromRGB(125, 161, 181),
+	Navy = Color3.fromRGB(17, 35, 59),
+	Blue = Color3.fromRGB(69, 190, 239),
+	Ice = Color3.fromRGB(137, 231, 255),
+	Gold = Color3.fromRGB(255, 204, 102),
+	Warm = Color3.fromRGB(255, 151, 85),
 }
 
 local function decorPart(parent, name, size, cframe, color, material, className)
@@ -640,6 +640,13 @@ end
 local function buildBaseArchitecture(arena, team, baseCFrame, accent)
 	buildGate(arena, team .. "FrostGate", baseCFrame * CFrame.new(0, 0, 50), 30, 13, accent)
 	buildGate(arena, team .. "RearGate", baseCFrame * CFrame.new(0, 0, -52), 64, 12, STYLE.Navy)
+	-- A readable, non-colliding gate frame sits exactly over the playable
+	-- opening between the two initial wall pairs.
+	buildGate(arena, team .. "InnerGate", baseCFrame * CFrame.new(0, 0, -28), 32, 11, accent)
+	decorPart(arena, team .. "GateLane", Vector3.new(8, 0.12, 68), baseCFrame * CFrame.new(0, 0.55, 3), STYLE.Navy, Enum.Material.Metal)
+	for _, side in ipairs({ -1, 1 }) do
+		decorPart(arena, team .. "GateLaneEdge", Vector3.new(0.35, 0.14, 68), baseCFrame * CFrame.new(side * 4.2, 0.62, 3), accent, Enum.Material.Neon)
+	end
 	for _, side in ipairs({ -1, 1 }) do
 		for _, forward in ipairs({ -42, 42 }) do
 			local towerCFrame = baseCFrame * CFrame.new(side * 44, 0, forward)
@@ -700,7 +707,7 @@ local function buildLobbyArchitecture(lobby)
 	end
 	local signAnchor = decorPart(lobby, "FrostfireSign", Vector3.new(1, 1, 1), CFrame.new(0, 62, 330), C.White, Enum.Material.SmoothPlastic)
 	signAnchor.Transparency = 1
-	billboard(signAnchor, "FROSTFIRE  //  WINTER OPS", STYLE.Gold, Vector3.zero, UDim2.fromOffset(440, 70))
+	billboard(signAnchor, "AURORA  //  BASTION", STYLE.Gold, Vector3.zero, UDim2.fromOffset(440, 70))
 	for _, z in ipairs({ 280, 320, 360, 400 }) do
 		local lamp = decorPart(lobby, "HallLight", Vector3.new(2, 0.5, 2), CFrame.new(0, 62, z), STYLE.Warm, Enum.Material.Neon)
 		holidayGlow(lamp, STYLE.Warm, 14, 0.8)
@@ -747,6 +754,17 @@ local function buildBase(arena, structures, team)
 	local platform = makePart(arena, team .. "BasePlatform", Vector3.new(presentation.BaseWidth, 4, presentation.BaseDepth), CFrame.new(base.X, 2, 0), STYLE.IvoryDark, Enum.Material.Cobblestone, true)
 	platform:SetAttribute("Team", team)
 	makePart(arena, team .. "BaseGrass", Vector3.new(presentation.BaseWidth - 6, 0.5, presentation.BaseDepth - 6), CFrame.new(base.X, 4.15, 0), C.Grass, Enum.Material.Grass, true)
+	-- The courtyard is raised above the field. Broad, shallow steps give
+	-- Humanoid navigation a real walkable descent instead of a 4.4-stud cliff.
+	for _, laneX in ipairs({ -42, 0, 42 }) do
+		for step = 1, 5 do
+			local top = 4.4 * (1 - step / 5)
+			local height = 0.88
+			local centerY = top - height / 2
+			local stepPart = makePart(arena, team .. "ExitStep", Vector3.new(10, height, 4), baseCFrame * CFrame.new(laneX, centerY - base.Y, -62 - step * 4), STYLE.IvoryDark, Enum.Material.Cobblestone, true)
+			stepPart:SetAttribute("BotWalkway", true)
+		end
+	end
 	for _, side in ipairs({ -1, 1 }) do
 		for _, forward in ipairs({ -42, 42 }) do
 			local towerCFrame = baseCFrame * CFrame.new(side * 44, 5, forward)
@@ -1030,13 +1048,13 @@ function WorldBuilder.Build()
 
 	local capturePoint = buildCapturePoint(arena)
 	local lobbySpawn, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt, defensePrompt = buildLobby(lobby)
-	Lighting.Brightness = 2.2
-	Lighting.ClockTime = 15
-	Lighting.EnvironmentDiffuseScale = 0.45
-	Lighting.EnvironmentSpecularScale = 0.3
+	Lighting.Brightness = 2.6
+	Lighting.ClockTime = 15.5
+	Lighting.EnvironmentDiffuseScale = 0.55
+	Lighting.EnvironmentSpecularScale = 0.45
 	Lighting.GlobalShadows = true
-	Lighting.OutdoorAmbient = Color3.fromRGB(170, 188, 205)
-	Lighting.ColorShift_Top = Color3.fromRGB(220, 238, 255)
+	Lighting.OutdoorAmbient = Color3.fromRGB(155, 181, 211)
+	Lighting.ColorShift_Top = Color3.fromRGB(214, 235, 255)
 	local function ensureEffect(className, name)
 		local effect = Lighting:FindFirstChild(name)
 		if not effect then
@@ -1047,13 +1065,13 @@ function WorldBuilder.Build()
 		return effect
 	end
 	local atmosphere = ensureEffect("Atmosphere", "BlockSiegeAtmosphere")
-	atmosphere.Density = 0.22
-	atmosphere.Haze = 0.45
+	atmosphere.Density = 0.18
+	atmosphere.Haze = 0.35
 	local colorCorrection = ensureEffect("ColorCorrectionEffect", "BlockSiegeColor")
-	colorCorrection.Saturation = 0.06
-	colorCorrection.Contrast = 0.06
+	colorCorrection.Saturation = 0.02
+	colorCorrection.Contrast = 0.1
 	local bloom = ensureEffect("BloomEffect", "BlockSiegeBloom")
-	bloom.Intensity = 0.18
+	bloom.Intensity = 0.25
 	bloom.Size = 18
 	bloom.Threshold = 1.05
 	local rays = ensureEffect("SunRaysEffect", "BlockSiegeSun")

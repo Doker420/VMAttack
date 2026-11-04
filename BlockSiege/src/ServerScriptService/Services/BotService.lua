@@ -32,6 +32,10 @@ local nextBotId = 0
 
 local botWeapons = { "Carbine", "SMG", "Scatter", "Marksman", "Demolisher", "Vortex", "ThanosGauntlet", "TacticalKnife", "ShadowKnives", "PrismLance", "TeslaCarbine", "MeteorMaul", "VoidScythe" }
 local roles = { "Defender", "Assault", "Support", "Defender", "Assault", "Support" }
+-- Bots should cross the 520-stud arena decisively, while defenders retain a
+-- little more restraint. These values are applied again after Humanoid starts.
+local BOT_SPEEDS = { Assault = 30, Support = 27, Defender = 24 }
+local BOT_LANES = { -42, 0, 42 }
 local botSkins = {
 	{ Id = "Scout", Name = "SCOUT", Primary = Color3.fromRGB(66, 168, 164), Secondary = Color3.fromRGB(35, 74, 83), Accent = Color3.fromRGB(156, 255, 224), Head = Color3.fromRGB(224, 190, 145) },
 	{ Id = "Heavy", Name = "HEAVY", Primary = Color3.fromRGB(128,  90, 76), Secondary = Color3.fromRGB(62, 53, 55), Accent = Color3.fromRGB(255, 190,  70), Head = Color3.fromRGB(193, 153, 119) },
@@ -105,7 +109,7 @@ local function addNameTag(head, entry)
 	local label = Instance.new("TextLabel")
 	label.Size = UDim2.fromScale(1, 0.65)
 	label.BackgroundTransparency = 1
-	label.Font = Enum.Font.Code
+	label.Font = Enum.Font.GothamBold
 	label.Text = string.format("%s BOT %02d", string.upper(entry.Team), entry.Slot)
 	label.TextColor3 = Config.Teams[entry.Team].Color
 	label.TextStrokeTransparency = 0.3
@@ -116,7 +120,7 @@ local function addNameTag(head, entry)
 	role.Position = UDim2.fromScale(0, 0.65)
 	role.Size = UDim2.fromScale(1, 0.35)
 	role.BackgroundTransparency = 1
-	role.Font = Enum.Font.Code
+	role.Font = Enum.Font.Gotham
 	role.Text = (entry.Role == "Defender" and "DEFENSE" or (entry.Role == "Support" and "SUPPORT" or "ASSAULT")) .. " · " .. entry.Skin.Name
 	role.TextColor3 = Color3.fromRGB(235, 240, 235)
 	role.TextStrokeTransparency = 0.4
@@ -128,11 +132,16 @@ local function resetPath(entry)
 	entry.Path = nil
 	entry.PathIndex = 1
 	entry.PathGoal = nil
+	entry.NavigationGoal = nil
 	entry.NextPath = 0
 end
 
 local function spawnModel(entry)
 	local spawn = world.TeamSpawns[entry.Team] * CFrame.new((entry.Slot - 3.5) * 3, 0, 0)
+	-- TeamSpawns includes clearance for a player character. This custom R6 rig's
+	-- feet sit 2.8 studs below its root, so start close to the spawn pad instead
+	-- of dropping the assembly from the player spawn height.
+	spawn = spawn * CFrame.new(0, -3.25, 0)
 	local model = Instance.new("Model")
 	model.Name = "Bot_" .. entry.Id
 	model:SetAttribute("Team", entry.Team)
@@ -183,7 +192,7 @@ local function spawnModel(entry)
 	local humanoid = Instance.new("Humanoid")
 	humanoid.MaxHealth = 120
 	humanoid.Health = 120
-	humanoid.WalkSpeed = entry.Role == "Assault" and 20 or (entry.Role == "Defender" and 16 or 18)
+	humanoid.WalkSpeed = BOT_SPEEDS[entry.Role] or 24
 	humanoid.JumpPower = 50
 	humanoid.HipHeight = 0
 	humanoid.RigType = Enum.HumanoidRigType.R6
@@ -203,6 +212,7 @@ local function spawnModel(entry)
 	entry.Humanoid = humanoid
 	entry.LastPosition = root.Position
 	entry.StuckTime = 0
+	entry.LaneOffset = 0
 	entry.NextJump = 0
 	entry.Target = nil
 	entry.LastHeal = 0
@@ -391,6 +401,53 @@ local function basePoint(team, localX, localZ)
 	return (Config.BaseCFrame(team) * CFrame.new(localX or 0, 0, localZ or 16)).Position
 end
 
+local function laneForSlot(slot)
+	return BOT_LANES[((slot - 1) % #BOT_LANES) + 1]
+end
+
+local function laneForEntry(entry)
+	local index = (entry.Slot - 1 + (entry.LaneOffset or 0)) % #BOT_LANES
+	return BOT_LANES[index + 1]
+end
+
+local function exitPoint(team, slot, lane)
+	-- BaseCFrame looks at the enemy with -Z. The initial wall line is at -28;
+	-- this point is beyond it, on a side lane with enough room for an R6 agent.
+	return basePoint(team, lane or laneForSlot(slot), -54)
+end
+
+local function enemyAttackPoint(team)
+	-- CorePedestal reaches local Z=-9; with an R6 agent radius the safe
+	-- approach must be farther out than the heart itself. -17 leaves room for
+	-- the whole rig while remaining close enough for a melee ray.
+	return basePoint(Config.OtherTeam(team), 0, -17)
+end
+
+local function enemyAimPoint(team)
+	-- Aim at the lower front of CoreHeart (front=-5), above the pedestal's
+	-- top edge. The ray remains inside Tactical Knife's 14-stud range and still
+	-- hits the heart after the pedestal has been destroyed.
+	return basePoint(Config.OtherTeam(team), 0, -5) + Vector3.new(0, 2, 0)
+end
+
+local function captureApproach(position, slot)
+	-- The crystal is solid; stand just outside its 28-stud base but inside the
+	-- 22-stud capture radius instead of pathing to the crystal's centre.
+	local side = slot % 2 == 0 and 1 or -1
+	return Vector3.new(position.X, 0, position.Z + side * 18)
+end
+
+local function insideOwnBase(entry, position)
+	local localPosition = Config.BaseCFrame(entry.Team):PointToObjectSpace(position)
+	return math.abs(localPosition.X) < 62 and localPosition.Z > -48 and localPosition.Z < 70
+end
+
+local function routeToDestination(entry, destination)
+	-- Only use the exit leg when the tactical target is actually outside. A
+	-- defender chasing an intruder inside its own base must not turn around.
+	return insideOwnBase(entry, destination) and "Direct" or "Field"
+end
+
 local function computePath(entry, destination, now)
 	if not PathfindingService or not entry.Model or not entry.Model.PrimaryPart then
 		return nil
@@ -443,49 +500,77 @@ local function jumpForObstacle(entry, root, humanoid, now)
 	end
 end
 
-local function followDestination(entry, destination, now)
+local function followDestination(entry, destination, now, route)
 	local root = entry.Model and entry.Model:FindFirstChild("HumanoidRootPart")
 	local humanoid = entry.Humanoid
 	if not root or not humanoid then
 		return
 	end
+	route = route or "Direct"
 	local goalChanged = not entry.PathGoal or (entry.PathGoal - destination).Magnitude > 10
-	local navigationDestination = destination
-	if goalChanged or now >= (entry.NextPath or 0) then
-		if geodataService then
-			local avoidance = geodataService.GetAvoidancePoint(root.Position, destination, entry.Slot)
-			if avoidance and (avoidance - root.Position).Magnitude > 5 and (avoidance - destination).Magnitude > 5 then
-				navigationDestination = avoidance
+	local routeDestination = destination
+
+	-- A direct MoveTo(CoreHeart.Position) is a reliable way to make a bot push
+	-- against a wall forever: the requested endpoint is inside solid geometry.
+	-- Use explicit tactical legs instead. The first leg always gets the bot out
+	-- through a side lane; assaults then stage outside the enemy wall before
+	-- approaching the attack point. No teleporting and no jump spam is involved.
+	if route == "Assault" then
+		if insideOwnBase(entry, root.Position) then
+			routeDestination = exitPoint(entry.Team, entry.Slot, laneForEntry(entry))
+		else
+			local enemyTeam = Config.OtherTeam(entry.Team)
+			local approach = basePoint(enemyTeam, laneForEntry(entry), -54)
+			local enemyLocal = Config.BaseCFrame(enemyTeam):PointToObjectSpace(root.Position)
+			if (root.Position - approach).Magnitude > 12 and enemyLocal.Z < -44 then
+				routeDestination = approach
 			end
 		end
-		entry.Path = computePath(entry, navigationDestination, now)
+	elseif route == "Return" and not insideOwnBase(entry, root.Position) then
+		local approach = exitPoint(entry.Team, entry.Slot, laneForEntry(entry))
+		if (root.Position - approach).Magnitude > 12 then
+			routeDestination = approach
+		end
+	elseif route == "Field" and insideOwnBase(entry, root.Position) then
+		routeDestination = exitPoint(entry.Team, entry.Slot, laneForEntry(entry))
+	end
+
+	local navigationChanged = not entry.NavigationGoal or (entry.NavigationGoal - routeDestination).Magnitude > 6
+	if goalChanged or navigationChanged or now >= (entry.NextPath or 0) then
+		local pathDestination = routeDestination
+		if geodataService then
+			local avoidance = geodataService.GetAvoidancePoint(root.Position, routeDestination, entry.Slot)
+			if avoidance and (avoidance - root.Position).Magnitude > 5 and (avoidance - routeDestination).Magnitude > 5 then
+				pathDestination = avoidance
+			end
+		end
+		entry.Path = computePath(entry, pathDestination, now)
 		entry.PathIndex = 1
 		entry.PathGoal = destination
-		entry.NextPath = now + 1.4
+		entry.NavigationGoal = routeDestination
+		entry.NextPath = now + 1.8
 	end
 	local waypoints = entry.Path
 	if waypoints and #waypoints > 0 then
 		local waypoint = waypoints[entry.PathIndex]
+		while waypoint and (waypoint.Position - root.Position).Magnitude < 4 do
+			entry.PathIndex = entry.PathIndex + 1
+			waypoint = waypoints[entry.PathIndex]
+		end
 		if waypoint then
-			if (waypoint.Position - root.Position).Magnitude < 4 then
-				entry.PathIndex = entry.PathIndex + 1
-				waypoint = waypoints[entry.PathIndex]
-			end
-			if waypoint then
-				humanoid:MoveTo(waypoint.Position)
-				if waypoint.Action == Enum.PathWaypointAction.Jump then
-					if now >= (entry.NextJump or 0) then
-						humanoid.Jump = true
-						entry.NextJump = now + 1.5
-					end
-				else
-					jumpForObstacle(entry, root, humanoid, now)
+			humanoid:MoveTo(waypoint.Position)
+			if waypoint.Action == Enum.PathWaypointAction.Jump then
+				if now >= (entry.NextJump or 0) then
+					humanoid.Jump = true
+					entry.NextJump = now + 1.5
 				end
-				return
+			else
+				jumpForObstacle(entry, root, humanoid, now)
 			end
+			return
 		end
 	end
-	humanoid:MoveTo(navigationDestination)
+	humanoid:MoveTo(routeDestination)
 	jumpForObstacle(entry, root, humanoid, now)
 end
 
@@ -533,22 +618,26 @@ local function battleThink(entry, now)
 	local enemy, enemyDistance = nearestEnemy(entry, position)
 	entry.Target = enemy
 	local retreating = humanoid.Health / math.max(1, humanoid.MaxHealth) < 0.3
-	local destination = enemyCore
-	local targetPosition = enemyCore + Vector3.new(0, 1, 0)
+	local destination = enemyAttackPoint(entry.Team)
+	local route = "Assault"
+	local targetPosition = enemyAimPoint(entry.Team)
 	local shouldFire = true
 
 	if retreating then
-		destination = basePoint(entry.Team, (entry.Slot - 3.5) * 5, 18)
-		targetPosition = enemy and modelPosition(enemy) or enemyCore
+		destination = basePoint(entry.Team, laneForSlot(entry.Slot), 18)
+		route = "Return"
+		targetPosition = enemy and modelPosition(enemy) or enemyAimPoint(entry.Team)
 		shouldFire = enemy ~= nil and enemyDistance < weapon.Range * 0.8
 	elseif entry.Role == "Defender" then
 		local threatDistance = enemy and (modelPosition(enemy) - ownCore).Magnitude or math.huge
 		if enemy and (threatDistance < 115 or enemyDistance < 60) then
 			targetPosition = modelPosition(enemy) + Vector3.new(0, 1.5, 0)
 			destination = targetPosition
+			route = routeToDestination(entry, destination)
 		else
-			destination = basePoint(entry.Team, (entry.Slot - 3.5) * 9, 18)
-			targetPosition = enemyCore
+			destination = basePoint(entry.Team, laneForSlot(entry.Slot), 18)
+			route = "Direct"
+			targetPosition = enemyAimPoint(entry.Team)
 			shouldFire = (enemyCore - position).Magnitude < weapon.Range * 0.8
 		end
 	elseif entry.Role == "Support" then
@@ -556,35 +645,56 @@ local function battleThink(entry, now)
 		if enemy and enemyDistance < 105 then
 			targetPosition = modelPosition(enemy) + Vector3.new(0, 1.5, 0)
 			destination = targetPosition
+			route = routeToDestination(entry, destination)
 		elseif ally and allyDistance > 14 then
 			destination = modelPosition(ally)
-			targetPosition = enemyCore
+			route = routeToDestination(entry, destination)
+			targetPosition = enemyAimPoint(entry.Team)
 			shouldFire = false
 		else
-			destination = basePoint(entry.Team, (entry.Slot - 3.5) * 7, 8)
-			targetPosition = enemyCore
+			-- An idle support is still an escort, not a spawn-pad statue. Move
+			-- toward 67 when available, otherwise follow the assault approach.
+			local capturePosition = captureService and captureService.GetPosition() or nil
+			if capturePosition then
+				destination = captureApproach(capturePosition, entry.Slot)
+				route = "Field"
+			else
+				destination = enemyAttackPoint(entry.Team)
+				route = "Assault"
+			end
+			targetPosition = enemyAimPoint(entry.Team)
 		end
-	else -- Assault: keep pressure on the core, but respond to a close defender and contest 67.
+	else -- Assault: pressure the core, answer close defenders, and contest 67.
 		if enemy and enemyDistance < 72 then
 			targetPosition = modelPosition(enemy) + Vector3.new(0, 1.5, 0)
 			destination = targetPosition
+			route = routeToDestination(entry, destination)
 		else
 			local capturePosition = captureService and captureService.GetPosition() or nil
 			local captureOwner = captureService and captureService.GetOwner() or nil
 			if capturePosition and captureOwner ~= entry.Team and entry.Slot % 2 == 0 then
-				destination = capturePosition
-				targetPosition = enemyCore + Vector3.new(0, 1, 0)
+				destination = captureApproach(capturePosition, entry.Slot)
+				route = "Field"
+				targetPosition = enemyAimPoint(entry.Team)
 				shouldFire = false
 			else
-				destination = enemyCore
-				targetPosition = enemyCore + Vector3.new(0, 1, 0)
+				destination = enemyAttackPoint(entry.Team)
+				route = "Assault"
+				targetPosition = enemyAimPoint(entry.Team)
 			end
 		end
 	end
 
 	local distance = (targetPosition - position).Magnitude
-	if distance > weapon.Range * 0.55 or (retreating and not shouldFire) then
-		followDestination(entry, destination, now)
+	local destinationDistance = (destination - position).Magnitude
+	local moving = distance > weapon.Range * 0.55
+	if retreating or not shouldFire then
+		-- Capture/escort/retreat destinations are movement goals, not firing
+		-- targets. Do not let a long-range weapon park the bot halfway there.
+		moving = destinationDistance > 6
+	end
+	if moving then
+		followDestination(entry, destination, now, route)
 	else
 		humanoid:MoveTo(position)
 	end
@@ -593,11 +703,17 @@ local function battleThink(entry, now)
 	end
 	supportHeal(entry, now)
 
-	if entry.LastPosition and (position - entry.LastPosition).Magnitude < 0.35 and distance > 20 then
+	-- Measure progress only when this think actually requested movement. A
+	-- marksman holding a firing angle is not "stuck" and must not be re-pathed.
+	if moving and entry.LastPosition and (position - entry.LastPosition).Magnitude < 0.35 and destinationDistance > 20 then
 		entry.StuckTime = entry.StuckTime + 0.25
 		if entry.StuckTime > 1.2 then
-			-- Re-path around obstacles. Jumping is handled only by jumpForObstacle/path waypoints.
-			entry.NextPath = 0
+			-- Clear both the tactical and navigation goals so the next think takes
+			-- the safe exit/approach leg again instead of repeating a failed path.
+			-- Rotate through side lanes as well: player-built walls may have changed
+			-- the geodata since the last successful route.
+			entry.LaneOffset = (entry.LaneOffset or 0) + 1
+			resetPath(entry)
 			entry.StuckTime = 0
 		end
 	else
@@ -618,6 +734,9 @@ function BotService.Step(deltaTime)
 		local root = model and model:FindFirstChild("HumanoidRootPart")
 		if model and model.Parent and humanoid and humanoid.Health > 0 and root then
 			entry.Humanoid = humanoid
+			-- Humanoid initialization and external slows must not silently restore
+			-- the old 16–20 speeds; fast crossing is part of the bot role behavior.
+			humanoid.WalkSpeed = BOT_SPEEDS[entry.Role] or 24
 			if phase == "Build" then
 				if entry.Builds < Config.Arena.BotBuildsPerBot and now >= entry.NextBuild then
 					local built = fortressService.BuildBot(entry.Team, entry.Slot, entry.Builds + 1)
@@ -628,11 +747,13 @@ function BotService.Step(deltaTime)
 				end
 				if entry.Builds < Config.Arena.BotBuildsPerBot then
 					local pad = basePoint(entry.Team, (entry.Slot - 3.5) * 7, 20)
-					followDestination(entry, pad, now)
+					followDestination(entry, pad, now, "Direct")
 				elseif entry.Role == "Defender" then
-					followDestination(entry, basePoint(entry.Team, (entry.Slot - 3.5) * 8, 20), now)
+					followDestination(entry, basePoint(entry.Team, laneForSlot(entry.Slot), 20), now, "Direct")
 				else
-					humanoid:MoveTo(root.Position)
+					-- Construction is still protected, but finished attackers gather
+					-- near the front instead of standing frozen on the spawn pad.
+					followDestination(entry, basePoint(entry.Team, laneForSlot(entry.Slot), -18), now, "Direct")
 				end
 			elseif phase == "Battle" and now >= entry.NextThink then
 				entry.NextThink = now + 0.25

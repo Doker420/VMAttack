@@ -46,7 +46,7 @@ local function collectStatic()
 		return
 	end
 	for _, part in ipairs(world.Arena:GetDescendants()) do
-		if part:IsA("BasePart") and not ignoredNames[part.Name] and not string.find(part.Name, "BasePlatform", 1, true) and not string.find(part.Name, "BaseGrass", 1, true) then
+		if part:IsA("BasePart") and not ignoredNames[part.Name] and not string.find(part.Name, "BasePlatform", 1, true) and not string.find(part.Name, "BaseGrass", 1, true) and not string.find(part.Name, "ExitStep", 1, true) then
 			addPart(staticObstacles, part, "Static")
 		end
 	end

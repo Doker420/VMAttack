@@ -16,14 +16,14 @@ local remotes = Shared:WaitForChild("Remotes")
 local state = Shared:WaitForChild("MatchState")
 
 local C = {
-	Background = Color3.fromRGB(30, 39, 39),
-	Panel = Color3.fromRGB(45, 57, 55),
-	Text = Color3.fromRGB(240, 241, 217),
-	Muted = Color3.fromRGB(174, 187, 178),
-	Blue = Color3.fromRGB(45, 157, 203),
-	Orange = Color3.fromRGB(235, 139, 44),
-	Gold = Color3.fromRGB(239, 179, 52),
-	Green = Color3.fromRGB(102, 190, 130),
+	Background = Color3.fromRGB(12, 20, 34),
+	Panel = Color3.fromRGB(25, 39, 58),
+	Text = Color3.fromRGB(236, 245, 255),
+	Muted = Color3.fromRGB(147, 170, 196),
+	Blue = Color3.fromRGB(58, 184, 255),
+	Orange = Color3.fromRGB(255, 133, 74),
+	Gold = Color3.fromRGB(255, 204, 102),
+	Green = Color3.fromRGB(73, 221, 174),
 }
 
 local function new(className, properties, parent)
@@ -41,7 +41,7 @@ end
 
 local function gradient(object, topColor, bottomColor)
 	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(topColor, bottomColor) }, object)
-	new("UIStroke", { Color = Color3.fromRGB(91, 108, 101), Thickness = 1 }, object)
+	new("UIStroke", { Color = Color3.fromRGB(68, 100, 135), Thickness = 1, Transparency = 0.12 }, object)
 end
 
 local function text(parent, value, size, position, textSize, color)
@@ -49,7 +49,7 @@ local function text(parent, value, size, position, textSize, color)
 		BackgroundTransparency = 1,
 		Size = size,
 		Position = position or UDim2.new(),
-		Font = Enum.Font.Code,
+		Font = Enum.Font.Gotham,
 		Text = value,
 		TextColor3 = color or C.Text,
 		TextSize = textSize or 18,
@@ -62,14 +62,15 @@ local function button(parent, value, size, position, color)
 		BackgroundColor3 = color or C.Panel,
 		Size = size,
 		Position = position or UDim2.new(),
-		Font = Enum.Font.Code,
+		Font = Enum.Font.GothamBold,
 		Text = value,
 		TextColor3 = C.Text,
-		TextSize = 17,
+		TextSize = 16,
+		TextStrokeTransparency = 1,
 		AutoButtonColor = true,
 	}, parent)
-	corner(object)
-	new("UIStroke", { Color = Color3.fromRGB(91, 108, 101), Thickness = 1 }, object)
+	corner(object, 8)
+	new("UIStroke", { Color = Color3.fromRGB(68, 100, 135), Thickness = 1, Transparency = 0.12 }, object)
 	return object
 end
 
@@ -88,7 +89,7 @@ local top = new("Frame", {
 	BackgroundTransparency = 0.08,
 }, gui)
 corner(top, 7)
-gradient(top, Color3.fromRGB(43, 57, 54), Color3.fromRGB(25, 34, 34))
+gradient(top, Color3.fromRGB(28, 48, 72), Color3.fromRGB(10, 18, 31))
 local phaseLabel = text(top, "ЛОББИ", UDim2.new(0.42, 0, 0, 30), UDim2.new(0.02, 0, 0, 7), 23)
 phaseLabel.TextXAlignment = Enum.TextXAlignment.Left
 local timeLabel = text(top, "", UDim2.new(0.25, 0, 0, 32), UDim2.new(0.38, 0, 0, 5), 25, C.Gold)
@@ -106,7 +107,7 @@ for index, team in ipairs({ "Blue", "Orange" }) do
 	local back = new("Frame", {
 		Position = UDim2.new(left and 0.02 or 0.54, 0, 0, 71),
 		Size = UDim2.new(0.44, 0, 0, 17),
-		BackgroundColor3 = Color3.fromRGB(20, 27, 27),
+		BackgroundColor3 = Color3.fromRGB(8, 15, 27),
 	}, coreFrame)
 	corner(back, 3)
 	local fill = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = C[team] }, back)
@@ -114,7 +115,7 @@ for index, team in ipairs({ "Blue", "Orange" }) do
 	coreFills[team] = fill
 end
 
-local seasonLabel = text(top, "NEW YEAR // WINTER OPS", UDim2.new(1, -24, 0, 12), UDim2.new(0, 12, 0, 88), 11, Color3.fromRGB(255, 215, 116))
+local seasonLabel = text(top, "NEW YEAR // AURORA OPS", UDim2.new(1, -24, 0, 12), UDim2.new(0, 12, 0, 88), 11, Color3.fromRGB(255, 215, 116))
 seasonLabel.Font = Enum.Font.GothamBold
 seasonLabel.TextXAlignment = Enum.TextXAlignment.Center
 seasonLabel.TextStrokeTransparency = 0.5
@@ -129,40 +130,59 @@ new("UIGradient", {
 	Color = ColorSequence.new(Color3.fromRGB(202, 48, 64), Color3.fromRGB(30, 137, 91)),
 }, seasonRule)
 
-local lobbyDock = new("Frame", { Position = UDim2.new(0, 16, 1, -166), Size = UDim2.new(0, 260, 0, 150), BackgroundTransparency = 1 }, gui)
-local queueButton = button(lobbyDock, "В ОЧЕРЕДЬ 6×6", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 0), C.Blue)
-local quickButton = button(lobbyDock, "БЫСТРЫЙ СТАРТ + БОТЫ", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 49), C.Orange)
-local caseButton = button(lobbyDock, "ЛУТБОКС / ОРУЖИЕ  [L]", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 98), C.Panel)
+local lobbyDock = new("Frame", {
+	Position = UDim2.new(0, 16, 1, -190), Size = UDim2.new(0, 280, 0, 174),
+	BackgroundColor3 = C.Background, BackgroundTransparency = 0.04, BorderSizePixel = 0,
+}, gui)
+corner(lobbyDock, 10)
+gradient(lobbyDock, Color3.fromRGB(28, 48, 72), Color3.fromRGB(10, 18, 31))
+text(lobbyDock, "BLOCKSIEGE  /  6V6", UDim2.new(1, -24, 0, 24), UDim2.new(0, 12, 0, 7), 14, C.Gold)
+local queueButton = button(lobbyDock, "В ОЧЕРЕДЬ 6×6", UDim2.new(1, -24, 0, 38), UDim2.new(0, 12, 0, 36), C.Blue)
+local quickButton = button(lobbyDock, "БЫСТРЫЙ СТАРТ + БОТЫ", UDim2.new(1, -24, 0, 38), UDim2.new(0, 12, 0, 80), C.Orange)
+local caseButton = button(lobbyDock, "ЛУТБОКС / ОРУЖИЕ  [L]", UDim2.new(1, -24, 0, 38), UDim2.new(0, 12, 0, 124), C.Panel)
 local lobbyHint = text(gui, "6×6 · драфт команд по уровню · боты заполняют пустые слоты", UDim2.new(0, 480, 0, 52), UDim2.new(0, 290, 1, -112), 17, C.Muted)
 
 local buildDock = new("Frame", {
-	AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -16), Size = UDim2.new(0, 530, 0, 122), BackgroundColor3 = C.Background,
+	AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -16), Size = UDim2.new(0.9, 0, 0, 132), BackgroundColor3 = C.Background,
 }, gui)
-corner(buildDock, 7)
-local buildTitle = text(buildDock, "СТРОИТЕЛЬСТВО · зелёный = можно · красный = нельзя", UDim2.new(1, -16, 0, 26), UDim2.new(0, 8, 0, 5), 16, C.Gold)
+new("UISizeConstraint", { MinSize = Vector2.new(360, 132), MaxSize = Vector2.new(600, 132) }, buildDock)
+corner(buildDock, 10)
+gradient(buildDock, Color3.fromRGB(25, 46, 67), Color3.fromRGB(10, 18, 31))
+local buildTitle = text(buildDock, "СТРОИТЕЛЬСТВО  ·  ТОЧНЫЙ ПРЕДПРОСМОТР", UDim2.new(1, -16, 0, 26), UDim2.new(0, 12, 0, 5), 16, C.Gold)
 local buildButtons = {}
 for index, entry in ipairs({ { "Wall", "1 СТЕНА" }, { "Barricade", "2 БАРРИКАДА" }, { "Tower", "3 БАШНЯ" } }) do
 	local buildButton = button(buildDock, entry[2], UDim2.new(0.31, 0, 0, 38), UDim2.new((index - 1) * 0.345 + 0.015, 0, 0, 38), C.Panel)
 	buildButtons[entry[1]] = buildButton
 end
-local buildRemaining = text(buildDock, "", UDim2.new(0.45, 0, 0, 30), UDim2.new(0.02, 0, 0, 84), 16, C.Muted)
-local rotateButton = button(buildDock, "R ⟳ 0°", UDim2.new(0.15, 0, 0, 34), UDim2.new(0.49, 0, 0, 82), C.Panel)
-local placeButton = button(buildDock, "ПОСТАВИТЬ", UDim2.new(0.32, 0, 0, 34), UDim2.new(0.66, 0, 0, 82), C.Green)
+local buildRemaining = text(buildDock, "", UDim2.new(0.30, 0, 0, 38), UDim2.new(0.02, 0, 0, 84), 14, C.Muted)
+local rotateLeftButton = button(buildDock, "↶ 90°", UDim2.new(0.13, 0, 0, 40), UDim2.new(0.34, 0, 0, 82), C.Panel)
+rotateLeftButton.Name = "RotateLeftButton"
+rotateLeftButton.TextSize = 15
+local rotationReadout = text(buildDock, "R  ·  0°", UDim2.new(0.12, 0, 0, 40), UDim2.new(0.48, 0, 0, 82), 18, C.Gold)
+rotationReadout.Name = "RotationReadout"
+rotationReadout.TextXAlignment = Enum.TextXAlignment.Center
+local rotateRightButton = button(buildDock, "90° ↷", UDim2.new(0.13, 0, 0, 40), UDim2.new(0.61, 0, 0, 82), C.Panel)
+rotateRightButton.Name = "RotateRightButton"
+rotateRightButton.TextSize = 15
+local placeButton = button(buildDock, "ПОСТАВИТЬ", UDim2.new(0.23, 0, 0, 40), UDim2.new(0.75, 0, 0, 82), C.Green)
+placeButton.Name = "PlaceBuildButton"
 local trapDock = new("Frame", {
-	AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -144), Size = UDim2.new(0, 530, 0, 44), BackgroundTransparency = 1,
+	AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -154), Size = UDim2.new(0.9, 0, 0, 44), BackgroundTransparency = 1,
 }, gui)
+new("UISizeConstraint", { MinSize = Vector2.new(360, 44), MaxSize = Vector2.new(600, 44) }, trapDock)
 for index, id in ipairs(Catalog.DefenseOrder) do
 	local definition = Catalog.Defenses[id]
-	local trapButton = button(trapDock, tostring(index + 3) .. " " .. definition.Name, UDim2.new(0.31, 0, 0, 40), UDim2.new((index - 1) * 0.345 + 0.015, 0, 0, 0), Color3.fromRGB(126, 70, 48))
+	local trapButton = button(trapDock, tostring(index + 3) .. " " .. definition.Name, UDim2.new(0.31, 0, 0, 40), UDim2.new((index - 1) * 0.345 + 0.015, 0, 0, 0), Color3.fromRGB(116, 61, 51))
 	buildButtons[id] = trapButton
 end
 
 local captureFrame = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 118), Size = UDim2.new(0, 350, 0, 62), BackgroundColor3 = C.Background,
 }, gui)
-corner(captureFrame)
+corner(captureFrame, 9)
+gradient(captureFrame, Color3.fromRGB(28, 48, 72), Color3.fromRGB(10, 18, 31))
 local captureTitle = text(captureFrame, "67 // ЗАХВАТ", UDim2.new(1, -16, 0, 27), UDim2.new(0, 8, 0, 4), 17, C.Gold)
-local captureTrack = new("Frame", { Position = UDim2.new(0, 10, 0, 36), Size = UDim2.new(1, -20, 0, 14), BackgroundColor3 = Color3.fromRGB(47, 57, 57), BorderSizePixel = 0 }, captureFrame)
+local captureTrack = new("Frame", { Position = UDim2.new(0, 10, 0, 36), Size = UDim2.new(1, -20, 0, 14), BackgroundColor3 = Color3.fromRGB(8, 15, 27), BorderSizePixel = 0 }, captureFrame)
 corner(captureTrack, 4)
 local captureFill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = C.Gold, BorderSizePixel = 0 }, captureTrack)
 corner(captureFill, 4)
@@ -192,7 +212,7 @@ local casePanel = new("Frame", {
 	BackgroundColor3 = C.Background, Visible = false,
 }, gui)
 corner(casePanel, 8)
-gradient(casePanel, Color3.fromRGB(48, 62, 58), Color3.fromRGB(25, 34, 34))
+gradient(casePanel, Color3.fromRGB(28, 48, 72), Color3.fromRGB(10, 18, 31))
 new("UISizeConstraint", { MinSize = Vector2.new(300, 330), MaxSize = Vector2.new(590, 650) }, casePanel)
 text(casePanel, "GEAR // ЛУТБОКС И ОРУЖИЕ", UDim2.new(1, -60, 0, 40), UDim2.new(0, 16, 0, 8), 23, C.Gold)
 local closeCase = button(casePanel, "×", UDim2.new(0, 42, 0, 38), UDim2.new(1, -52, 0, 8), C.Panel)
@@ -217,7 +237,7 @@ local resultsPanel = new("Frame", {
 	BackgroundColor3 = C.Background, Visible = false,
 }, gui)
 corner(resultsPanel, 8)
-gradient(resultsPanel, Color3.fromRGB(54, 65, 56), Color3.fromRGB(28, 35, 35))
+gradient(resultsPanel, Color3.fromRGB(35, 53, 76), Color3.fromRGB(12, 20, 34))
 local resultTitle = text(resultsPanel, "МАТЧ ЗАВЕРШЁН", UDim2.new(1, -20, 0, 48), UDim2.new(0, 10, 0, 18), 28, C.Gold)
 local resultReason = text(resultsPanel, "", UDim2.new(1, -30, 0, 60), UDim2.new(0, 15, 0, 76), 20)
 local resultReward = text(resultsPanel, "", UDim2.new(1, -30, 0, 46), UDim2.new(0, 15, 0, 143), 18, C.Green)
@@ -284,7 +304,7 @@ local function clearBuildGhost()
 	ghostKind = nil
 	ghostHasServerPreview = false
 	placeButton.BackgroundColor3 = C.Green
-	buildTitle.Text = "СТРОИТЕЛЬСТВО · зелёный = можно · красный = нельзя"
+	buildTitle.Text = "СТРОИТЕЛЬСТВО  ·  ТОЧНЫЙ ПРЕДПРОСМОТР"
 	buildTitle.TextColor3 = C.Gold
 end
 
@@ -418,12 +438,19 @@ local function buildPosition()
 	return hit and hit.Position or camera.CFrame.Position + camera.CFrame.LookVector * 32
 end
 
-local function rotateBuild()
-	buildRotation = (buildRotation + 90) % 360
-	rotateButton.Text = "R ⟳ " .. tostring(buildRotation) .. "°"
+local function rotateBuild(direction)
+	buildRotation = (buildRotation + (direction or 1) * 90) % 360
+	rotationReadout.Text = "R  ·  " .. tostring(buildRotation) .. "°"
+	-- Force a fresh server validation at the new angle; the destination ghost
+	-- continues to show the exact snapped CFrame returned by the server.
 	ghostHasServerPreview = false
 end
-rotateButton.Activated:Connect(rotateBuild)
+rotateLeftButton.Activated:Connect(function()
+	rotateBuild(-1)
+end)
+rotateRightButton.Activated:Connect(function()
+	rotateBuild(1)
+end)
 
 local function requestBuild()
 	if state:GetAttribute("Phase") == "Build" then
@@ -463,7 +490,9 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		local index = input.KeyCode == Enum.KeyCode.Four and 1 or (input.KeyCode == Enum.KeyCode.Five and 2 or 3)
 		selectBuildKind(Catalog.DefenseOrder[index])
 	elseif input.KeyCode == Enum.KeyCode.R then
-		rotateBuild()
+		rotateBuild(1)
+	elseif input.KeyCode == Enum.KeyCode.Q then
+		rotateBuild(-1)
 	elseif input.KeyCode == Enum.KeyCode.B then
 		requestBuild()
 	elseif input.KeyCode == Enum.KeyCode.L then
