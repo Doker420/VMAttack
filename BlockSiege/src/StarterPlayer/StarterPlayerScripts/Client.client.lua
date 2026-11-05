@@ -657,6 +657,12 @@ local function setBuildKind(kind)
 	end
 end
 local function selectBuildKind(kind)
+	if state:GetAttribute("Phase") == "Build" and (player:GetAttribute("BuildRemaining") or 0) <= 0 then
+		local used = player:GetAttribute("BuildUsed") or 0
+		local limit = player:GetAttribute("BuildLimit") or 0
+		notify("Лимит строений: " .. tostring(used) .. "/" .. tostring(limit))
+		return
+	end
 	local defense = Catalog.GetDefense(kind)
 	if defense and player:GetAttribute("Defense_" .. kind) ~= true then
 		notify(defense.Name .. ": купите чертёж у DEFENSE в лобби")
@@ -900,7 +906,12 @@ local function refresh()
 	local team = player:GetAttribute("Team") or ""
 	teamLabel.Text = rich(team ~= "" and ((team == "Blue" and "СИНИЕ" or "ОРАНЖЕВЫЕ") .. " · Lv " .. tostring(player:GetAttribute("MatchLevel") or 1)) or "НАБЛЮДЕНИЕ", C[team] or C.Muted)
 	teamLabel.TextColor3 = C[team] or C.Muted
-	buildRemaining.Text = string.format('<font color="#A9BED8">Осталось построек:</font> <font color="#FFD166"><b>%d</b></font>', player:GetAttribute("BuildRemaining") or 0)
+	local buildLeft = player:GetAttribute("BuildRemaining") or 0
+	local buildLimit = player:GetAttribute("BuildLimit") or player:GetAttribute("BuildCapacity") or Config.Arena.BuildCapacity
+	local buildUsed = player:GetAttribute("BuildUsed") or math.max(0, buildLimit - buildLeft)
+	buildRemaining.Text = string.format('<font color="#FFD166"><b>%d/%d</b></font><br><font color="#A9BED8">осталось %d</font>', buildUsed, buildLimit, buildLeft)
+	placeButton.Active = buildLeft > 0
+	placeButton.AutoButtonColor = buildLeft > 0
 	local equippedWeapon = Catalog.GetWeapon(player:GetAttribute("SelectedWeapon") or "Carbine") or Catalog.Weapons.Carbine
 	local weaponSkin = player:GetAttribute("Cosmetic_WeaponSkin")
 	local weaponFinish = weaponSkin == "GoldenArsenal" and " · GOLD" or (weaponSkin == "CelestialArsenal" and " · CELESTIAL" or "")
@@ -1051,6 +1062,10 @@ end)
 
 local function requestBuild()
 	if state:GetAttribute("Phase") ~= "Build" then
+		return
+	end
+	if (player:GetAttribute("BuildRemaining") or 0) <= 0 then
+		notify("Лимит строений исчерпан · " .. tostring(player:GetAttribute("BuildUsed") or 0) .. "/" .. tostring(player:GetAttribute("BuildLimit") or 0))
 		return
 	end
 	-- Confirm exactly what the player sees. Never use a fresh mouse.Hit after

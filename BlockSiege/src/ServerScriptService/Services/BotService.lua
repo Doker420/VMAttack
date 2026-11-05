@@ -18,7 +18,6 @@ local world
 local fortressService
 local weaponService
 local geodataService
-local captureService
 local abilityService
 local squadLevelProvider = function()
 	return 1
@@ -35,7 +34,7 @@ local matchId = 0
 local nextBotId = 0
 
 local botWeapons = { "Carbine", "SMG", "Scatter", "Marksman", "Demolisher", "Vortex", "ThanosGauntlet", "TacticalKnife", "ShadowKnives", "PrismLance", "TeslaCarbine", "MeteorMaul", "VoidScythe" }
-local roles = { "Defender", "Assault", "Support", "Defender", "Assault", "Support" }
+local roles = { "Assault", "Assault", "Support", "Defender", "Assault", "Support" }
 -- Bots cross the expanded 640-stud arena decisively, while defenders retain
 -- a little more restraint. Lane offsets are shared with WorldBuilder/Fortress.
 local BOT_SPEEDS = { Assault = 30, Support = 27, Defender = 24 }
@@ -215,7 +214,10 @@ local function spawnModel(entry)
 	humanoid.RequiresNeck = false
 	humanoid.BreakJointsOnDeath = false
 	humanoid.AutoRotate = true
+	humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+	humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 	humanoid.Parent = model
+	humanoid:ChangeState(Enum.HumanoidStateType.Running)
 	-- RootPart is read-only in current Roblox runtime. The correctly named
 	-- HumanoidRootPart and Motor6D RootJoint let Humanoid resolve it automatically.
 	model:SetAttribute("Rig", "Motor6D")
@@ -233,6 +235,9 @@ local function spawnModel(entry)
 	entry.NextJump = 0
 	entry.Target = nil
 	entry.LastHeal = 0
+	entry.Retreating = false
+	entry.NextRecover = 0
+	entry.BattleStarted = nil
 	entry.NextAbility = os.clock() + 2 + entry.Slot * 0.2
 	resetPath(entry)
 	if abilityService then
@@ -292,7 +297,6 @@ function BotService.Init(dependencies)
 	fortressService = dependencies.FortressService
 	weaponService = dependencies.WeaponService
 	geodataService = dependencies.GeodataService
-	captureService = dependencies.CaptureService
 	abilityService = dependencies.AbilityService
 	squadLevelProvider = dependencies.SquadLevelProvider or squadLevelProvider
 end
@@ -399,39 +403,6 @@ local function nearestEnemy(entry, position)
 	return best, bestDistance
 end
 
-local function nearestAlly(entry, position)
-	local best
-	local bestDistance = math.huge
-	for _, model in ipairs(BotService.GetModels(entry.Team)) do
-		if model ~= entry.Model then
-			local root = model:FindFirstChild("HumanoidRootPart")
-			local humanoid = model:FindFirstChildOfClass("Humanoid")
-			if root and humanoid and humanoid.Health > 0 then
-				local distance = (root.Position - position).Magnitude
-				if distance < bestDistance then
-					best = model
-					bestDistance = distance
-				end
-			end
-		end
-	end
-	for _, player in ipairs(Players:GetPlayers()) do
-		if player:GetAttribute("Team") == entry.Team then
-			local model = player.Character
-			local root = model and model:FindFirstChild("HumanoidRootPart")
-			local humanoid = model and model:FindFirstChildOfClass("Humanoid")
-			if root and humanoid and humanoid.Health > 0 then
-				local distance = (root.Position - position).Magnitude
-				if distance < bestDistance then
-					best = model
-					bestDistance = distance
-				end
-			end
-		end
-	end
-	return best, bestDistance
-end
-
 local function basePoint(team, localX, localZ)
 	return (Config.BaseCFrame(team) * CFrame.new(localX or 0, 0, localZ or 16)).Position
 end
@@ -463,13 +434,6 @@ local function enemyAimPoint(team)
 	-- top edge. The ray remains inside Tactical Knife's 14-stud range and still
 	-- hits the heart after the pedestal has been destroyed.
 	return basePoint(Config.OtherTeam(team), 0, -5) + Vector3.new(0, 2, 0)
-end
-
-local function captureApproach(position, slot)
-	-- The crystal is solid; stand just outside its 28-stud base but inside the
-	-- 22-stud capture radius instead of pathing to the crystal's centre.
-	local side = slot % 2 == 0 and 1 or -1
-	return Vector3.new(position.X, 0, position.Z + side * 18)
 end
 
 local function insideOwnBase(entry, position)
@@ -644,79 +608,78 @@ end
 
 local function battleThink(entry, now)
 	local model = entry.Model
-	local root = model:FindFirstChild("HumanoidRootPart")
+	local root = model and model:FindFirstChild("HumanoidRootPart")
 	local humanoid = entry.Humanoid
 	local weapon = Catalog.GetWeapon(entry.WeaponId)
+	if not root or not humanoid or not weapon then
+		return
+	end
 	local position = root.Position
 	local ownCore = fortressService.GetCorePosition(entry.Team)
 	local enemyCore = fortressService.GetCorePosition(Config.OtherTeam(entry.Team))
 	local enemy, enemyDistance = nearestEnemy(entry, position)
 	entry.Target = enemy
-	local retreating = humanoid.Health / math.max(1, humanoid.MaxHealth) < 0.3
+	entry.BattleStarted = entry.BattleStarted or now
+
+	local healthRatio = humanoid.Health / math.max(1, humanoid.MaxHealth)
+	if entry.Retreating then
+		if healthRatio >= 0.68 then
+			entry.Retreating = false
+			resetPath(entry)
+		end
+	elseif healthRatio <= 0.28 then
+		entry.Retreating = true
+		resetPath(entry)
+	end
+	local retreating = entry.Retreating == true
 	local destination = enemyAttackPoint(entry.Team)
 	local route = "Assault"
 	local targetPosition = enemyAimPoint(entry.Team)
 	local shouldFire = true
+	local action = "ATTACK CORE"
 
 	if retreating then
+		action = "RECOVER"
 		destination = basePoint(entry.Team, laneForSlot(entry.Slot), 18)
 		route = "Return"
 		targetPosition = enemy and modelPosition(enemy) or enemyAimPoint(entry.Team)
 		shouldFire = enemy ~= nil and enemyDistance < weapon.Range * 0.8
 	elseif entry.Role == "Defender" then
 		local threatDistance = enemy and (modelPosition(enemy) - ownCore).Magnitude or math.huge
+		local joinedAssault = now - (entry.BattleStarted or now) >= 35
 		if enemy and (threatDistance < 115 or enemyDistance < 60) then
+			action = "ENGAGE"
 			targetPosition = modelPosition(enemy) + Vector3.new(0, 1.5, 0)
 			destination = targetPosition
 			route = routeToDestination(entry, destination)
+		elseif joinedAssault then
+			-- Defense has a timed purpose; it is not permission to remain on the
+			-- spawn pad for the entire round. A safe core releases the defender.
+			action = "ATTACK CORE"
 		else
-			destination = basePoint(entry.Team, laneForSlot(entry.Slot), 18)
+			action = "FORWARD DEFENSE"
+			destination = basePoint(entry.Team, laneForSlot(entry.Slot), -34)
 			route = "Direct"
 			targetPosition = enemyAimPoint(entry.Team)
 			shouldFire = (enemyCore - position).Magnitude < weapon.Range * 0.8
 		end
 	elseif entry.Role == "Support" then
-		local ally, allyDistance = nearestAlly(entry, position)
-		if enemy and enemyDistance < 105 then
+		if enemy and enemyDistance < 100 then
+			action = "ENGAGE + SUPPORT"
 			targetPosition = modelPosition(enemy) + Vector3.new(0, 1.5, 0)
 			destination = targetPosition
 			route = routeToDestination(entry, destination)
-		elseif ally and allyDistance > 14 then
-			destination = modelPosition(ally)
-			route = routeToDestination(entry, destination)
-			targetPosition = enemyAimPoint(entry.Team)
-			shouldFire = false
 		else
-			-- An idle support is still an escort, not a spawn-pad statue. Move
-			-- toward 67 when available, otherwise follow the assault approach.
-			local capturePosition = captureService and captureService.GetPosition() or nil
-			if capturePosition then
-				destination = captureApproach(capturePosition, entry.Slot)
-				route = "Field"
-			else
-				destination = enemyAttackPoint(entry.Team)
-				route = "Assault"
-			end
-			targetPosition = enemyAimPoint(entry.Team)
+			-- Support advances with the attack and heals on the way. Capture 67
+			-- remains incidental; it must not cancel the team's core assault.
+			action = "ATTACK + SUPPORT"
 		end
-	else -- Assault: pressure the core, answer close defenders, and contest 67.
+	else
 		if enemy and enemyDistance < 72 then
+			action = "ENGAGE"
 			targetPosition = modelPosition(enemy) + Vector3.new(0, 1.5, 0)
 			destination = targetPosition
 			route = routeToDestination(entry, destination)
-		else
-			local capturePosition = captureService and captureService.GetPosition() or nil
-			local captureOwner = captureService and captureService.GetOwner() or nil
-			if capturePosition and captureOwner ~= entry.Team and entry.Slot % 2 == 0 then
-				destination = captureApproach(capturePosition, entry.Slot)
-				route = "Field"
-				targetPosition = enemyAimPoint(entry.Team)
-				shouldFire = false
-			else
-				destination = enemyAttackPoint(entry.Team)
-				route = "Assault"
-				targetPosition = enemyAimPoint(entry.Team)
-			end
 		end
 	end
 
@@ -724,9 +687,11 @@ local function battleThink(entry, now)
 	local destinationDistance = (destination - position).Magnitude
 	local moving = distance > weapon.Range * 0.55
 	if retreating or not shouldFire then
-		-- Capture/escort/retreat destinations are movement goals, not firing
-		-- targets. Do not let a long-range weapon park the bot halfway there.
 		moving = destinationDistance > 6
+	end
+	-- Range is never an excuse to keep firing from inside the spawn/base.
+	if route == "Assault" and insideOwnBase(entry, position) and destinationDistance > 8 then
+		moving = true
 	end
 	if moving then
 		followDestination(entry, destination, now, route)
@@ -742,15 +707,21 @@ local function battleThink(entry, now)
 	end
 	supportHeal(entry, now)
 
-	-- Measure progress only when this think actually requested movement. A
-	-- marksman holding a firing angle is not "stuck" and must not be re-pathed.
+	-- A custom bot Humanoid has no default player CharacterHealth script. Limited
+	-- recovery at its own base closes the old permanent-retreat state and sends
+	-- the bot back once the 68% hysteresis threshold is reached.
+	if retreating and insideOwnBase(entry, position) and now >= (entry.NextRecover or 0) then
+		entry.NextRecover = now + 0.75
+		humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + 5)
+	end
+
+	model:SetAttribute("AIState", action)
+	model:SetAttribute("AITarget", enemy and enemy.Name or "CORE")
+	model:SetAttribute("AIDestination", destination)
+	model:SetAttribute("AIShouldFire", shouldFire)
 	if moving and entry.LastPosition and (position - entry.LastPosition).Magnitude < 0.35 and destinationDistance > 20 then
 		entry.StuckTime = entry.StuckTime + 0.25
 		if entry.StuckTime > 1.2 then
-			-- Clear both the tactical and navigation goals so the next think takes
-			-- the safe exit/approach leg again instead of repeating a failed path.
-			-- Rotate through side lanes as well: player-built walls may have changed
-			-- the geodata since the last successful route.
 			entry.LaneOffset = (entry.LaneOffset or 0) + 1
 			resetPath(entry)
 			entry.StuckTime = 0
@@ -758,6 +729,7 @@ local function battleThink(entry, now)
 	else
 		entry.StuckTime = 0
 	end
+	model:SetAttribute("AIStuckTime", entry.StuckTime)
 	entry.LastPosition = position
 end
 

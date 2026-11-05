@@ -394,6 +394,8 @@ function MatchService.StartMatch()
 	for _, player in ipairs(players) do
 		local stats = progressionService and progressionService.GetStats(player) or nil
 		local capacity = (stats and stats.BuildCapacity or Config.Arena.MaxBuildPerPlayer) + (abilityService and abilityService.GetBuildBonus(player) or 0)
+		player:SetAttribute("BuildLimit", capacity)
+		player:SetAttribute("BuildUsed", 0)
 		player:SetAttribute("BuildRemaining", capacity)
 	end
 	state:SetAttribute("BluePower", power.Blue)
@@ -573,6 +575,8 @@ function MatchService.OnPlayerAdded(player)
 	player:SetAttribute("Team", "")
 	player:SetAttribute("InMatch", false)
 	player:SetAttribute("ProfileLoaded", false)
+	player:SetAttribute("BuildLimit", 0)
+	player:SetAttribute("BuildUsed", 0)
 	player:SetAttribute("BuildRemaining", 0)
 	for _, name in ipairs({ "Builds", "Kills", "Structures", "Captures" }) do
 		publishStat(player, name, 0)
@@ -622,6 +626,8 @@ local function resetToLobby()
 		player:SetAttribute("Team", "")
 		player:SetAttribute("Queued", false)
 		player:SetAttribute("InMatch", false)
+		player:SetAttribute("BuildLimit", 0)
+		player:SetAttribute("BuildUsed", 0)
 		player:SetAttribute("BuildRemaining", 0)
 		for _, name in ipairs({ "Builds", "Kills", "Structures", "Captures" }) do
 			publishStat(player, name, 0)

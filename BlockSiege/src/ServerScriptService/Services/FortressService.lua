@@ -442,6 +442,8 @@ function FortressService.BuildPlayer(player, team, kind, position, rotation)
 	local count = (buildCounts[player.UserId] or 0) + 1
 	buildCounts[player.UserId] = count
 	local capacity = buildCapacityProvider(player)
+	player:SetAttribute("BuildLimit", capacity)
+	player:SetAttribute("BuildUsed", count)
 	player:SetAttribute("BuildRemaining", math.max(0, capacity - count))
 	remotes.BuildFX:FireAllClients({ Kind = "Build", Position = cframe.Position, Team = team })
 	return true, entry
