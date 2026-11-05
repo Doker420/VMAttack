@@ -7,7 +7,9 @@
 | Ключ в `Catalog.Cosmetics` | Слот | Каталожная цена | Поле для ID |
 |---|---|---:|---|
 | `GoldenArsenal` | `WeaponSkin` | 99 R$ | `GamePassId` |
+| `CelestialArsenal` | `WeaponSkin` | 199 R$ | `GamePassId` |
 | `AuroraAura` | `Aura` | 79 R$ | `GamePassId` |
+| `PhoenixAura` | `Aura` | 149 R$ | `GamePassId` |
 | `RoyalTrail` | `Trail` | 49 R$ | `GamePassId` |
 
 Цена в каталоге — отображаемая цена/план, а не самостоятельная настройка цены Game Pass. Цену и владельца нужно задать в Roblox Creator Dashboard. Не меняйте боевые значения в `Catalog.Weapons` при добавлении косметики.
@@ -15,12 +17,14 @@
 ## Настройка владельцем опыта
 
 1. Опубликуйте тестовую версию BLOCKSIEGE в своей вселенной Roblox.
-2. В **Creator Dashboard → Monetization → Passes** создайте три Game Passes с понятными названиями и описаниями «cosmetic only».
+2. В **Creator Dashboard → Monetization → Passes** создайте пять Game Passes с понятными названиями и описаниями «cosmetic only».
 3. Скопируйте числовые IDs в `src/ReplicatedStorage/Catalog.lua`:
    ```lua
    GoldenArsenal = { Name = "GOLDEN ARSENAL", GamePassId = 123456789, RobuxPrice = 99, Slot = "WeaponSkin", Description = "..." },
-   AuroraAura = { Name = "AURORA CORE", GamePassId = 123456790, RobuxPrice = 79, Slot = "Aura", Description = "..." },
-   RoyalTrail = { Name = "ROYAL TRAIL", GamePassId = 123456791, RobuxPrice = 49, Slot = "Trail", Description = "..." },
+   CelestialArsenal = { Name = "LEGENDARY // CELESTIAL ARSENAL", GamePassId = 123456790, RobuxPrice = 199, Slot = "WeaponSkin", Description = "..." },
+   AuroraAura = { Name = "AURORA CORE", GamePassId = 123456791, RobuxPrice = 79, Slot = "Aura", Description = "..." },
+   PhoenixAura = { Name = "LEGENDARY // PHOENIX AURA", GamePassId = 123456792, RobuxPrice = 149, Slot = "Aura", Description = "..." },
+   RoyalTrail = { Name = "ROYAL TRAIL", GamePassId = 123456793, RobuxPrice = 49, Slot = "Trail", Description = "..." },
    ```
    Используйте собственные IDs; числа выше только пример формата, не рабочие товары.
 4. Проверьте, что Game Passes принадлежат тому же владельцу/группе, который публикует опыт, и задайте цены в Dashboard.
@@ -45,7 +49,7 @@
 EnableStudioTestPurchases = true
 ```
 
-В Studio кнопка неоплаченного предмета помечается `TEST`; сервер выдаёт косметику без Robux через `GrantForTesting`. Это нужно для проверки ауры, Trail, золотого оружия и сохранения в памяти. В live `RunService:IsStudio()` равно false, поэтому этот путь не работает.
+В Studio кнопка неоплаченного предмета помечается `TEST`; сервер выдаёт косметику без Robux через `GrantForTesting`. Это нужно для проверки Aurora/Phoenix аур, Trail, Golden/Celestial оружия и сохранения в памяти. В live `RunService:IsStudio()` равно false, поэтому этот путь не работает.
 
 Для проверки отказов установите флаг `false` в отдельной тестовой копии. Не используйте Studio TEST как доказательство успешной live-транзакции.
 

@@ -96,6 +96,13 @@
       "seconds": 1.15,
       "loop": false,
       "sha256": "3ff7a921ad74c3e81dfe11cf476169e2a010915e2db30f49ed0a7d93490ddb0b"
+    },
+    {
+      "file": "DeathPulse.wav",
+      "kind": "sfx",
+      "seconds": 1.15,
+      "loop": false,
+      "sha256": "d6bc624f1ed423d8ac5ea5c82b5028f652fa8ba6af94d3ba7a4e008c7500c499"
     }
   ]
 }

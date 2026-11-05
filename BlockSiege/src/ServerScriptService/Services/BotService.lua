@@ -20,6 +20,9 @@ local weaponService
 local geodataService
 local captureService
 local abilityService
+local squadLevelProvider = function()
+	return 1
+end
 local phaseProvider = function()
 	return "Lobby"
 end
@@ -187,13 +190,25 @@ local function spawnModel(entry)
 		bodyPart(model, root, "HardHat", Vector3.new(2.6, 0.35, 2.6), Vector3.new(0, 3.85, 0), Color3.fromRGB(255, 211, 65))
 	end
 	addNameTag(head, entry)
+	local tacticalLight = Instance.new("SpotLight")
+	tacticalLight.Name = "BlockSiegeTacticalLight"
+	tacticalLight.Color = Color3.fromRGB(185, 220, 255)
+	tacticalLight.Face = Enum.NormalId.Front
+	tacticalLight.Angle = 64
+	tacticalLight.Range = 26
+	tacticalLight.Brightness = 0.8
+	tacticalLight.Shadows = false
+	tacticalLight.Enabled = phaseProvider() ~= "Build"
+	tacticalLight.Parent = root
 
 	-- Parent Humanoid only after the complete rig exists; otherwise it can die while
 	-- the model is still being assembled and never receive MoveTo commands.
+	local squadLevel = math.clamp(tonumber(entry.SquadLevel) or 1, 1, 10)
+	local squadHealth = 120 + (squadLevel - 1) * 4
 	local humanoid = Instance.new("Humanoid")
-	humanoid.MaxHealth = 120
-	humanoid.Health = 120
-	humanoid.WalkSpeed = BOT_SPEEDS[entry.Role] or 24
+	humanoid.MaxHealth = squadHealth
+	humanoid.Health = squadHealth
+	humanoid.WalkSpeed = (BOT_SPEEDS[entry.Role] or 24) + math.min(2, (squadLevel - 1) * 0.25)
 	humanoid.JumpPower = 50
 	humanoid.HipHeight = 0
 	humanoid.RigType = Enum.HumanoidRigType.R6
@@ -204,6 +219,7 @@ local function spawnModel(entry)
 	-- RootPart is read-only in current Roblox runtime. The correctly named
 	-- HumanoidRootPart and Motor6D RootJoint let Humanoid resolve it automatically.
 	model:SetAttribute("Rig", "Motor6D")
+	model:SetAttribute("SquadLevel", squadLevel)
 	-- Set ownership after every joint/part exists so the complete assembly stays
 	-- server-simulated even when a player is standing next to the bot.
 	pcall(function()
@@ -228,6 +244,12 @@ local function spawnModel(entry)
 		end
 	end
 	weaponService.EquipCharacter(model, entry.WeaponId)
+	entry.Animations = {}
+	for _, joint in ipairs(model:GetDescendants()) do
+		if joint:IsA("Motor6D") and joint.Part1 then
+			table.insert(entry.Animations, { Joint = joint, Name = joint.Part1.Name, C0 = joint.C0 })
+		end
+	end
 	local spawnMatch = entry.MatchId
 	humanoid.Died:Connect(function()
 		resetPath(entry)
@@ -255,6 +277,7 @@ local function addBot(team, slot)
 		Skin = botSkins[((nextBotId - 1) % #botSkins) + 1],
 		WeaponId = botWeapons[((nextBotId - 1) % #botWeapons) + 1],
 		MatchId = matchId,
+		SquadLevel = math.clamp(tonumber(squadLevelProvider(team)) or 1, 1, 10),
 		Builds = 0,
 		NextBuild = os.clock() + 1 + slot * 0.15,
 		NextThink = 0,
@@ -271,6 +294,7 @@ function BotService.Init(dependencies)
 	geodataService = dependencies.GeodataService
 	captureService = dependencies.CaptureService
 	abilityService = dependencies.AbilityService
+	squadLevelProvider = dependencies.SquadLevelProvider or squadLevelProvider
 end
 
 function BotService.SetProviders(phase, targets)
@@ -598,7 +622,7 @@ local function supportHeal(entry, now)
 			local allyRoot = ally:FindFirstChild("HumanoidRootPart")
 			local humanoid = ally:FindFirstChildOfClass("Humanoid")
 			if allyRoot and humanoid and humanoid.Health > 0 and humanoid.Health < humanoid.MaxHealth and (allyRoot.Position - root.Position).Magnitude < 24 then
-				humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + 8)
+				humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + 8 + ((entry.SquadLevel or 1) - 1) * 0.5)
 				entry.LastHeal = now
 				return
 			end
@@ -610,7 +634,7 @@ local function supportHeal(entry, now)
 			local allyRoot = ally and ally:FindFirstChild("HumanoidRootPart")
 			local humanoid = ally and ally:FindFirstChildOfClass("Humanoid")
 			if allyRoot and humanoid and humanoid.Health > 0 and humanoid.Health < humanoid.MaxHealth and (allyRoot.Position - root.Position).Magnitude < 24 then
-				humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + 8)
+				humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + 8 + ((entry.SquadLevel or 1) - 1) * 0.5)
 				entry.LastHeal = now
 				return
 			end
@@ -737,6 +761,32 @@ local function battleThink(entry, now)
 	entry.LastPosition = position
 end
 
+local function animateBot(entry, now)
+	local root = entry.Model and entry.Model:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return
+	end
+	local velocity = root.AssemblyLinearVelocity or Vector3.zero
+	local speed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+	local stride = math.clamp(speed / 24, 0, 1)
+	local cycle = now * (5 + stride * 4) + entry.Slot * 0.7
+	for _, animation in ipairs(entry.Animations or {}) do
+		if animation.Joint.Parent then
+			local swing = 0
+			if animation.Name == "Left Leg" or animation.Name == "Right Arm" then
+				swing = math.sin(cycle) * 0.52 * stride
+			elseif animation.Name == "Right Leg" or animation.Name == "Left Arm" then
+				swing = -math.sin(cycle) * 0.52 * stride
+			end
+			if animation.Name == "Head" then
+				animation.Joint.C0 = animation.C0 * CFrame.Angles(0, math.sin(now * 0.8 + entry.Slot) * 0.08, 0)
+			else
+				animation.Joint.C0 = animation.C0 * CFrame.Angles(swing, 0, 0)
+			end
+		end
+	end
+end
+
 function BotService.Step(deltaTime)
 	if not active then
 		return
@@ -748,10 +798,11 @@ function BotService.Step(deltaTime)
 		local humanoid = model and model:FindFirstChildOfClass("Humanoid")
 		local root = model and model:FindFirstChild("HumanoidRootPart")
 		if model and model.Parent and humanoid and humanoid.Health > 0 and root then
+			animateBot(entry, now)
 			entry.Humanoid = humanoid
 			-- Humanoid initialization and external slows must not silently restore
 			-- the old 16–20 speeds; fast crossing is part of the bot role behavior.
-			humanoid.WalkSpeed = (BOT_SPEEDS[entry.Role] or 24) + (tonumber(model:GetAttribute("AbilitySpeedBonus")) or 0)
+			humanoid.WalkSpeed = (BOT_SPEEDS[entry.Role] or 24) + math.min(2, ((entry.SquadLevel or 1) - 1) * 0.25) + (tonumber(model:GetAttribute("AbilitySpeedBonus")) or 0)
 			if phase == "Build" then
 				if entry.Builds < Config.Arena.BotBuildsPerBot and now >= entry.NextBuild then
 					local built = fortressService.BuildBot(entry.Team, entry.Slot, entry.Builds + 1)

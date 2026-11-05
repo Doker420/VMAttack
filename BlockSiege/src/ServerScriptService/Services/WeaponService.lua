@@ -58,7 +58,7 @@ local function watchHumanoid(character, humanoid)
 		local credit = damageCredits[humanoid]
 		damageCredits[humanoid] = nil
 		watched[humanoid] = nil
-		if credit and credit.Player and os.clock() - credit.Clock <= 10 and killHandler then
+		if credit and credit.Player and os.clock() - credit.Clock <= 10 and killHandler and character:GetAttribute("IsExpeditionEnemy") ~= true then
 			killHandler(credit.Player, character)
 		end
 	end)
@@ -151,7 +151,7 @@ function WeaponService.EquipPlayer(player)
 	return equipped
 end
 
-local function applyDamage(victim, amount, attackingTeam, player)
+local function applyDamage(victim, amount, attackingTeam, player, attackerName)
 	local humanoid = victim and victim:FindFirstChildOfClass("Humanoid")
 	if not victim or not humanoid or humanoid.Health <= 0 or not validTeam(attackingTeam) or victim:GetAttribute("Team") == attackingTeam then
 		return 0
@@ -162,11 +162,18 @@ local function applyDamage(victim, amount, attackingTeam, player)
 	local armor = tonumber(victim:GetAttribute("Armor")) or 0
 	local shield = tonumber(victim:GetAttribute("DamageTakenMultiplier")) or 1
 	local appliedDamage = amount * math.clamp(shield, 0.05, 1) * (1 - math.clamp(armor, 0, 0.65))
-	humanoid:TakeDamage(appliedDamage)
 	damageCredits[humanoid] = { Player = player, Clock = os.clock() }
+	victim:SetAttribute("LastDamageClock", os.clock())
 	if player then
 		victim:SetAttribute("LastAttackerUserId", player.UserId)
+		victim:SetAttribute("LastAttackerName", player.DisplayName)
+		victim:SetAttribute("LastDamageSource", "Player")
+	else
+		victim:SetAttribute("LastAttackerUserId", nil)
+		victim:SetAttribute("LastAttackerName", tostring(attackerName or "BOT"))
+		victim:SetAttribute("LastDamageSource", "Bot")
 	end
+	humanoid:TakeDamage(appliedDamage)
 	return appliedDamage
 end
 
@@ -215,7 +222,7 @@ local function fire(character, weapon, targetPosition, attackingTeam, player, ke
 			local victim = hit.Instance:FindFirstAncestorOfClass("Model")
 			local victimHumanoid = victim and victim:FindFirstChildOfClass("Humanoid")
 			if victimHumanoid and victimHumanoid.Health > 0 and victim ~= character then
-				applyDamage(victim, weapon.Damage * outgoing, attackingTeam, player)
+				applyDamage(victim, weapon.Damage * outgoing, attackingTeam, player, character.Name)
 			else
 				fortressService.DamagePart(hit.Instance, weapon.Damage * outgoing * weapon.StructureMultiplier, attackingTeam, player)
 			end

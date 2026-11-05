@@ -144,6 +144,14 @@ remotes.CombatFX.OnClientEvent:Connect(function(payload)
 		playSfx("Destroy", 0.72, 0.94 + math.random() * 0.12)
 	elseif payload.Kind == "CoreDestroyed" then
 		playSfx("CoreDestroyed", 1, 1)
+	elseif payload.Kind == "ExpeditionShot" then
+		playSfx("Shot", 0.36, 0.82)
+	elseif payload.Kind == "ExpeditionDefeated" then
+		playSfx("Destroy", 0.58, 1.08)
+	elseif payload.Kind == "ExpeditionBossWarning" then
+		playSfx("HeavyShot", 0.62, 0.68)
+	elseif payload.Kind == "ExpeditionBossSlam" then
+		playSfx("CoreDestroyed", 0.82, 0.76)
 	end
 end)
 remotes.BuildFX.OnClientEvent:Connect(function()
@@ -157,6 +165,19 @@ remotes.CaptureFX.OnClientEvent:Connect(function()
 end)
 remotes.CaseOpened.OnClientEvent:Connect(function()
 	playSfx("CaseOpened", 0.8, 1)
+end)
+remotes.SeasonFX.OnClientEvent:Connect(function()
+	playSfx("CaseOpened", 0.5, 1.18)
+end)
+remotes.ExpeditionFX.OnClientEvent:Connect(function(payload)
+	if payload.Type == "Completed" then
+		playSfx("Victory", 0.8, 1.06)
+	end
+end)
+remotes.DeathFX.OnClientEvent:Connect(function(payload)
+	if payload.VictimUserId == player.UserId then
+		playSfx(Config.Audio.DeathSfxId > 0 and "Death" or "Defeat", 0.85, 0.92)
+	end
 end)
 remotes.Results.OnClientEvent:Connect(function(result)
 	if result.Winner == "" then

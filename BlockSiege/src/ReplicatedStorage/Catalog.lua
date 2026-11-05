@@ -160,10 +160,12 @@ function Catalog.GetDefense(id)
 end
 
 -- Только косметика за Robux: никаких преимуществ в уроне, скорости или броне.
-Catalog.CosmeticOrder = { "GoldenArsenal", "AuroraAura", "RoyalTrail" }
+Catalog.CosmeticOrder = { "GoldenArsenal", "CelestialArsenal", "AuroraAura", "PhoenixAura", "RoyalTrail" }
 Catalog.Cosmetics = {
 	GoldenArsenal = { Name = "GOLDEN ARSENAL", GamePassId = 0, RobuxPrice = 99, Slot = "WeaponSkin", Description = "Золотые детали и свечение всего оружия" },
+	CelestialArsenal = { Name = "LEGENDARY // CELESTIAL ARSENAL", GamePassId = 0, RobuxPrice = 199, Slot = "WeaponSkin", Description = "Легендарный celestial-metal и cyan glow · только внешний вид" },
 	AuroraAura = { Name = "AURORA CORE", GamePassId = 0, RobuxPrice = 79, Slot = "Aura", Description = "Фиолетово-синяя аура и искры персонажа" },
+	PhoenixAura = { Name = "LEGENDARY // PHOENIX AURA", GamePassId = 0, RobuxPrice = 149, Slot = "Aura", Description = "Оранжево-розовое legendary свечение · без боевых бонусов" },
 	RoyalTrail = { Name = "ROYAL TRAIL", GamePassId = 0, RobuxPrice = 49, Slot = "Trail", Description = "Золотой след при движении" },
 }
 

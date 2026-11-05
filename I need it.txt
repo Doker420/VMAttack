@@ -1,0 +1,49 @@
+BLOCKSIEGE — ЕДИНЫЙ PRODUCTION-БРИФ
+Дата обновления: 2026-11-05
+Ветка: arena/d10a8bff-vmattack
+
+ЦЕЛЬ
+Собрать цельную, узнаваемую fortress-combat игру с сильным лобби, живыми боями, PvE-прогрессией, событиями, праздниками, социальными целями и честной монетизацией. Не заменять игру симулятором питомцев/фермы и не копировать чужую игру механика-в-механику.
+
+НЕПРИКОСНОВЕННАЯ ОСНОВА
+• Строго 6v6; solo и недостающие места заполняются ботами. Обе команды строят.
+• Build → Battle → Results; победа — уничтожение вражеской крепости/ядра.
+• Три линии, jungle/camps/towers, захват 67, случайные классы и F/G.
+• Видимые оружие, ножи, ловушки, мины, бомбы, модели, анимации, reload.
+• Лобби, showcases, кейсы, магазины, progression, New Year content, audio и fog-of-war сохраняются.
+• Точный ghost с destination/rotation; кнопки поворота; никакого преждевременного размещения.
+• Вражеская база скрыта до Battle; лобби защищено от падения.
+• AeroRush завершён и не изменяется.
+
+23 ПУНКТА ЗАПРОСА
+1. Уникальность: собственный BLOCKSIEGE visual language, читаемые силуэты, цвета команд, необычные fortress/события и связанная игровая петля; не заявлять «вирусность» или «идеал» как факт.
+2. Качественные лобби и ландшафт: безопасная навигация, понятные NPC/витрины, полноценные материалы, растительность, архитектура, декорации без перекрытия проходов и HUD.
+3. Качественные модели, эффекты боя и polish: оружие в руках, melee, deployables, impact/telegraph/death FX, без второй летящей пушки и невидимого оружия.
+4. Готовые ассеты: использовать только проверенные/разрешённые Creator Store assets, с fallback, очисткой скриптов/collision/вредоносных свойств и credits.
+5. Оружие из Toolbox: кандидатам нужны явные asset IDs, лицензия/разрешение, sanitization, pivot/scale/orientation check и живой Studio test; нельзя выдумывать ID или считать thumbnail доказательством качества.
+6. Исправить баги и отполировать: placement, rotation, reload, respawn, cleanup, сетевые проверки, responsive HUD, отсутствие перекрытий и регрессий.
+7. Система ивентов и связки всего: повторяемые scheduled/shared events, countdown, анонсы, реальные эффекты, participation rewards, строгий lifecycle cleanup; события не должны обесценивать обычную игру.
+8. Админки и legendary за Robux: owner/explicit admins только через server allowlist/group/отдельный Studio switch; никаких client-selected команд/валюты/урона/длительности. Robux — только cosmetic/legendary visual, не power и не admin rights; реальные Game Pass IDs настраивает владелец.
+9. Проработанные звуки и механика: фазовая музыка, оружие, reload, impacts, UI, capture, victory/defeat/death, mute, безопасные asset IDs и owner upload для новых WAV.
+10. Синхронизация и мощное обновление: server-authoritative состояние, ограниченные remotes, повторные матчи, respawn, profile commit, отсутствие старых эффектов после Results.
+11. Игра не должна ощущаться деревянной: movement/aim/recoil/reload, bot locomotion, telegraphs, feedback, короткие понятные цели и полезные награды; mocks не доказывают game feel.
+12. Удержание онлайна: daily/level goals, shared events, PvE unlocks, рейтинги, косметика и возвращение в следующий матч без pay-to-win и без гарантии популярности.
+13. Живые боты: role-based решения, geodata/pathfinding, безопасный выход из базы, retreat/support, разные skins, locomotion/weapon animation, отсутствие teleport/jump spam и застревания.
+14. Праздники по командам админа: Halloween, New Year, 23 февраля, 8 марта, Easter; фиксированный каталог, server validation, тематические props/цвета/объявления и полная очистка предыдущей темы.
+15. Роли игры: случайные классы людей и ботов, F/G, cooldowns, понятные описания и серверные эффекты.
+16. Свои локации и массовые PvP/PvE: level-gated expedition locations, волны/боссы, общие runs, полезные награды и squad/progression; основная 6v6 fortress battle сохраняется.
+17. Озвучки и анимации: weapon/bot/boss/death animation hooks и оригинальные audio assets; для voice/внешних animation IDs нужны реальные разрешённые assets и живой тест, не моковая галочка.
+18. Улучшить game design: ясный первый шаг, краткие цели, риск/награда, build/battle/PvE/loot/cosmetic loop, нормальная ценность вне событий.
+19. Таблички при смерти и звук: локальный death card с killer/respawn, kill feed, death SFX и cleanup; нельзя показывать поддельного killer.
+20. Монетизация: cosmetic Game Passes/legendary visuals, понятные цены, ownership re-check, duplicate/equip handling, Studio TEST отдельно от Production, никаких Robux random lootbox/power sales.
+21. Красивые полноценные интерфейсы лутбоксов: escaped Rich Text, rarity/pity/inventory/equip, понятные результаты и responsive layout; случайные награды выдаёт сервер.
+22. Level-based перемещение к другим локациям: unlock по серверному Level/XP, более серьёзные противники, возврат в fortress/лобби, награды и очистка run.
+23. Рейтинги в лобби: отдельные Level и Coins boards, server snapshots, корректные места/тай-брейки, online/offline ограничения явно документированы.
+
+MVP / TEST / PRODUCTION
+MVP: текущий fortress 6v6 + LiveOps/Admin + сезонный контроллер + PvE expedition + Level/Coins leaderboard + death feedback + cosmetic shop + исходники/place/ZIP.
+TEST: Luau parse/analyzer, native server suites, security/validation, lifecycle/reward/leaderboard/expedition tests, XML parity, ZIP CRC/byte parity, static HUD geometry. Это не live acceptance.
+PRODUCTION: владелец задаёт Game Pass IDs и загружает новые audio/Toolbox assets; затем обязательный Roblox Studio и приватный live test: реальный рендер, FPS, network delay, touch/gamepad, DataStore, purchases, permissions, 2–12 clients, bot navigation, animation/voice и визуальное качество. Только после этого Public release.
+
+ЗАПРЕЩЕНО ВЫДАВАВАТЬ ЗА ГОТОВОЕ
+Проценты, число деталей, compile PASS, mocks и screenshots чужих игр не доказывают красоту, отсутствие багов, удержание, синхронизацию или «идеал». Любой непроверенный live пункт должен оставаться в Studio/production checklist.

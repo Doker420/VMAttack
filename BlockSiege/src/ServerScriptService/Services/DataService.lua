@@ -7,6 +7,7 @@ local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("BlockSiege")
 local Config = require(Shared:WaitForChild("Config"))
 local Catalog = require(Shared:WaitForChild("Catalog"))
+local ExpeditionCatalog = require(Shared:WaitForChild("ExpeditionCatalog"))
 
 local DataService = {}
 local cache = {}
@@ -36,6 +37,10 @@ local function defaults()
 		SelectedCosmetics = { WeaponSkin = "Default", Aura = "Default", Trail = "Default" },
 		ClaimedLevelRewards = {},
 		LastDailyClaim = 0,
+		ExpeditionWins = 0,
+		ExpeditionBestWave = 0,
+		SquadXP = 0,
+		SelectedExpedition = "VerdantBastion",
 	}
 end
 
@@ -122,9 +127,10 @@ local function sanitize(value)
 	if type(value) ~= "table" then
 		return result
 	end
-	for _, key in ipairs({ "Coins", "CaseTokens", "Wins", "Matches", "Kills", "StructureDamage", "XP", "CasesOpened" }) do
+	for _, key in ipairs({ "Coins", "CaseTokens", "Wins", "Matches", "Kills", "StructureDamage", "XP", "CasesOpened", "ExpeditionWins", "ExpeditionBestWave", "SquadXP" }) do
 		result[key] = math.floor(number(value[key], result[key]))
 	end
+	result.SelectedExpedition = ExpeditionCatalog.Get(value.SelectedExpedition) and value.SelectedExpedition or "VerdantBastion"
 	result.LegendaryPity = math.floor(number(value.LegendaryPity, 0, Catalog.Case.LegendaryPity))
 	result.LastDailyClaim = math.floor(number(value.LastDailyClaim, 0, 2000000000))
 	result.OwnedWeapons = weaponDictionary(value.OwnedWeapons)
@@ -185,9 +191,10 @@ local function apply(player)
 	for _, name in ipairs({ "Wins", "Kills", "Coins" }) do
 		stats[name].Value = data[name]
 	end
-	for _, key in ipairs({ "Coins", "CaseTokens", "Wins", "Matches", "Kills", "StructureDamage", "XP", "CasesOpened", "LegendaryPity", "SelectedWeapon" }) do
+	for _, key in ipairs({ "Coins", "CaseTokens", "Wins", "Matches", "Kills", "StructureDamage", "XP", "CasesOpened", "LegendaryPity", "SelectedWeapon", "ExpeditionWins", "ExpeditionBestWave", "SquadXP", "SelectedExpedition" }) do
 		player:SetAttribute(key, data[key])
 	end
+	player:SetAttribute("SquadLevel", math.min(10, 1 + math.floor((data.SquadXP or 0) / 250)))
 	player:SetAttribute("Level", Catalog.LevelForXP(data.XP))
 	stats.Level.Value = Catalog.LevelForXP(data.XP)
 	for id, level in pairs(data.Upgrades) do
@@ -259,6 +266,11 @@ function DataService.Get(player)
 	return cache[player.UserId]
 end
 
+function DataService.GetSquadLevel(player)
+	local data = DataService.Get(player)
+	return data and math.min(10, 1 + math.floor((data.SquadXP or 0) / 250)) or 1
+end
+
 function DataService.GetSnapshot(player)
 	local data = cache[player.UserId]
 	return data and sanitize(data) or nil
@@ -315,6 +327,29 @@ function DataService.Step(deltaTime)
 			DataService.Save(player)
 		end)
 	end
+end
+
+function DataService.SetExpedition(player, id)
+	local data = cache[player.UserId]
+	if not data or not ExpeditionCatalog.Get(id) then
+		return false
+	end
+	data.SelectedExpedition = id
+	DataService.Commit(player, true)
+	return true
+end
+
+function DataService.AwardExpedition(player, locationId, wave, coins, xp)
+	local data = cache[player.UserId]
+	if not data then
+		return nil
+	end
+	data.ExpeditionWins = (data.ExpeditionWins or 0) + 1
+	data.ExpeditionBestWave = math.max(data.ExpeditionBestWave or 0, math.floor(tonumber(wave) or 0))
+	data.SquadXP = (data.SquadXP or 0) + math.max(0, math.floor(tonumber(xp) or 0))
+	local progress = DataService.Award(player, coins, xp, "PvE экспедиция · " .. tostring(locationId))
+	DataService.Commit(player, true)
+	return progress
 end
 
 function DataService.AddCoins(player, amount)
@@ -387,11 +422,11 @@ function DataService.Award(player, coins, xp, reason)
 	return progress
 end
 
-function DataService.AddKill(player)
+function DataService.AddKill(player, coins, xp, reason)
 	local data = cache[player.UserId]
 	if data then
 		data.Kills = data.Kills + 1
-		return DataService.Award(player, 2, 8, "Противник выведен из боя")
+		return DataService.Award(player, coins == nil and 2 or coins, xp == nil and 8 or xp, reason or "Противник выведен из боя")
 	end
 	return nil
 end

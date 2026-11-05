@@ -69,9 +69,9 @@ local gui = new("ScreenGui", {
 
 local panel = new("Frame", {
 	Name = "WeaponPreviewPanel",
-	AnchorPoint = Vector2.new(1, 0.5),
-	Position = UDim2.new(1, -18, 0.5, 12),
-	Size = UDim2.new(0.27, 0, 0, 246),
+	AnchorPoint = Vector2.new(1, 0),
+	Position = UDim2.new(1, -18, 0, 118),
+	Size = UDim2.new(0.27, 0, 0, 196),
 	BackgroundColor3 = C.Background,
 	BackgroundTransparency = 0.03,
 	BorderSizePixel = 0,
@@ -90,11 +90,11 @@ new("UIGradient", {
 	Color = ColorSequence.new(Color3.fromRGB(42, 61, 72), C.Background),
 }, panel)
 new("UISizeConstraint", {
-	MinSize = Vector2.new(218, 196),
+	MinSize = Vector2.new(40, 40),
 	MaxSize = Vector2.new(350, 270),
 }, panel)
 
-label(panel, "PreviewHeader", "ARSENAL // 3D LOADOUT", UDim2.new(1, -104, 0, 22), UDim2.new(0, 13, 0, 8), 12, C.Muted)
+local previewHeader = label(panel, "PreviewHeader", "ARSENAL // 3D LOADOUT", UDim2.new(1, -104, 0, 22), UDim2.new(0, 13, 0, 8), 12, C.Muted)
 local phaseLabel = label(panel, "PreviewPhase", "BUILD", UDim2.new(0, 78, 0, 22), UDim2.new(1, -91, 0, 8), 11, C.Build)
 phaseLabel.TextXAlignment = Enum.TextXAlignment.Right
 local accentBar = new("Frame", {
@@ -141,6 +141,8 @@ local modelCenter = Vector3.zero
 local modelDistance = 16
 local modelReady = false
 local lastPhase
+local lastViewportX = 0
+local lastViewportY = 0
 
 local function clearViewmodel()
 	if viewModel then
@@ -214,25 +216,61 @@ local function refreshLabels(phase)
 	weaponName.Text = weapon.Name
 	rarityLabel.Text = Catalog.RarityNames[weapon.Rarity] or string.upper(weapon.Rarity)
 	rarityLabel.TextColor3 = rarityColor
-	skinLabel.Text = skin == "GoldenArsenal" and "GOLDEN ARSENAL" or "STANDARD ISSUE"
-	skinLabel.TextColor3 = skin == "GoldenArsenal" and C.Gold or C.Muted
+	skinLabel.Text = skin == "GoldenArsenal" and "GOLDEN ARSENAL" or (skin == "CelestialArsenal" and "CELESTIAL LEGENDARY" or "STANDARD ISSUE")
+	skinLabel.TextColor3 = skin == "GoldenArsenal" and C.Gold or (skin == "CelestialArsenal" and C.Cyan or C.Muted)
 	phaseLabel.Text = phase == "Build" and "BUILD" or "BATTLE"
 	phaseLabel.TextColor3 = phase == "Build" and C.Build or C.Battle
 	panelStroke.Color = rarityColor
 	accentBar.BackgroundColor3 = rarityColor
 end
 
-local function updateLayout()
-	-- Keep the card clear of the centered build controls and the touch fire button.
+local function updateLayout(phase)
 	local camera = Workspace.CurrentCamera
 	local screen = camera and camera.ViewportSize or Vector2.new(1280, 720)
-	if screen.X < 760 or screen.Y < 520 then
-		panel.Size = UDim2.fromOffset(218, 196)
-		panel.Position = UDim2.new(1, -10, 0.5, -14)
+	local compact = screen.X < 700 or screen.Y < 680
+	local sideWidth = math.clamp((screen.X - 200) / 2, 100, 340)
+	panel.AnchorPoint = Vector2.new(1, 0)
+	panel.Position = UDim2.new(1, -16, 0, 118)
+	if compact then
+		panel.Size = UDim2.fromOffset(sideWidth, phase == "Build" and 62 or 120)
+		previewHeader.Visible = phase ~= "Build"
+		previewHeader.Size = UDim2.new(1, -12, 0, 18)
+		previewHeader.Position = UDim2.new(0, 6, 0, 4)
+		previewHeader.TextSize = sideWidth < 240 and 8 or 10
+		phaseLabel.Visible = false
+		accentBar.Visible = false
+		rarityLabel.Visible = false
+		skinLabel.Visible = false
+		weaponName.Visible = phase ~= "Build"
+		if phase == "Build" then
+			viewport.Position = UDim2.new(0, 4, 0, 4)
+			viewport.Size = UDim2.new(1, -8, 1, -8)
+		else
+			viewport.Position = UDim2.new(0, 6, 0, 26)
+			viewport.Size = UDim2.new(1, -12, 0, 58)
+			weaponName.Size = UDim2.new(1, -12, 0, 20)
+			weaponName.Position = UDim2.new(0, 6, 0, 94)
+			weaponName.TextSize = sideWidth < 240 and 9 or 11
+		end
 	else
-		panel.Size = UDim2.new(0.27, 0, 0, 246)
-		panel.Position = UDim2.new(1, -18, 0.5, 12)
+		panel.Size = UDim2.new(0.27, 0, 0, 196)
+		previewHeader.Visible = true
+		previewHeader.Size = UDim2.new(1, -104, 0, 22)
+		previewHeader.Position = UDim2.new(0, 13, 0, 8)
+		previewHeader.TextSize = 12
+		phaseLabel.Visible = true
+		accentBar.Visible = true
+		rarityLabel.Visible = true
+		skinLabel.Visible = true
+		weaponName.Visible = true
+		viewport.Position = UDim2.new(0, 10, 0, 42)
+		viewport.Size = UDim2.new(1, -20, 1, -104)
+		weaponName.Size = UDim2.new(1, -28, 0, 27)
+		weaponName.Position = UDim2.new(0, 14, 1, -62)
+		weaponName.TextSize = 17
 	end
+	lastViewportX = screen.X
+	lastViewportY = screen.Y
 end
 
 local function cacheWorldWeapon()
@@ -330,8 +368,10 @@ RunService.RenderStepped:Connect(function()
 	-- loadout must remain visible, and the viewport has its own scriptable camera.
 	ensureViewmodel()
 	refreshLabels(phase)
-	if phase ~= lastPhase then
-		updateLayout()
+	local camera = Workspace.CurrentCamera
+	local viewportSize = camera and camera.ViewportSize or Vector2.new(1280, 720)
+	if phase ~= lastPhase or viewportSize.X ~= lastViewportX or viewportSize.Y ~= lastViewportY then
+		updateLayout(phase)
 		lastPhase = phase
 	end
 	if viewModel and modelReady then

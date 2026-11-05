@@ -205,6 +205,11 @@ def make_sfx():
                     value += math.sin(TAU * midi(note) * local) * math.exp(-4.2 * local) * 0.42
             return value
         entries.append(write_sfx(name, seconds, chime))
+    entries.append(write_sfx("DeathPulse.wav", 1.15, lambda t, _: (
+        math.sin(TAU * (92 * t - 24 * t * t)) * 0.75
+        + math.sin(TAU * 41 * t) * 0.35
+        + noise() * 0.12
+    ) * math.exp(-3.8 * t) + (math.sin(TAU * 660 * (t - 0.08)) * math.exp(-18 * (t - 0.08)) * 0.25 if t > 0.08 else 0)))
     return entries
 
 

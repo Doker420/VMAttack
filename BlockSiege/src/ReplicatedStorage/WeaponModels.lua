@@ -276,10 +276,15 @@ function WeaponModels.ApplySkin(model, skinId)
 	if not model then
 		return
 	end
-	if skinId ~= "GoldenArsenal" then
+	local celestial = skinId == "CelestialArsenal"
+	if skinId ~= "GoldenArsenal" and not celestial then
 		model:SetAttribute("CosmeticSkin", skinId or "Default")
 		return
 	end
+	local baseFinish = celestial and Color3.fromRGB(79, 65, 145) or GOLD
+	local energyFinish = celestial and Color3.fromRGB(105, 233, 255) or GOLD_LIGHT
+	local bladeFinish = celestial and Color3.fromRGB(206, 239, 255) or Color3.fromRGB(255, 239, 184)
+	local glowColor = celestial and Color3.fromRGB(142, 112, 255) or Color3.fromRGB(255, 196, 65)
 
 	local energyNames = {
 		Sight = true,
@@ -314,7 +319,7 @@ function WeaponModels.ApplySkin(model, skinId)
 				part.Reflectance = 0
 			elseif isEnergy then
 				part.Material = Enum.Material.Neon
-				part.Color = originalColor:Lerp(GOLD_LIGHT, 0.22)
+				part.Color = originalColor:Lerp(energyFinish, celestial and 0.42 or 0.22)
 				part.Reflectance = 0
 			elseif isGrip then
 				part.Material = name == "Handle" and Enum.Material.Fabric or Enum.Material.Metal
@@ -322,29 +327,31 @@ function WeaponModels.ApplySkin(model, skinId)
 				part.Reflectance = 0.04
 			elseif name == "KnifeBlade" or name == "KnifeTip" then
 				part.Material = Enum.Material.Metal
-				part.Color = Color3.fromRGB(255, 239, 184)
+				part.Color = bladeFinish
 				part.Reflectance = 0.16
 			else
 				part.Material = Enum.Material.Metal
-				part.Color = GOLD
-				part.Reflectance = 0.12
+				part.Color = baseFinish
+				part.Reflectance = celestial and 0.2 or 0.12
 			end
 		end
 	end
 	if model.PrimaryPart then
-		local oldLight = model.PrimaryPart:FindFirstChild("GoldenWeaponGlow")
-		if oldLight then
-			oldLight:Destroy()
+		for _, name in ipairs({ "GoldenWeaponGlow", "CelestialWeaponGlow" }) do
+			local oldLight = model.PrimaryPart:FindFirstChild(name)
+			if oldLight then
+				oldLight:Destroy()
+			end
 		end
 		local light = Instance.new("PointLight")
-		light.Name = "GoldenWeaponGlow"
-		light.Color = Color3.fromRGB(255, 196, 65)
-		light.Brightness = 1.1
-		light.Range = 6
+		light.Name = celestial and "CelestialWeaponGlow" or "GoldenWeaponGlow"
+		light.Color = glowColor
+		light.Brightness = celestial and 1.5 or 1.1
+		light.Range = celestial and 8 or 6
 		light.Parent = model.PrimaryPart
 	end
 	model:SetAttribute("CosmeticSkin", skinId)
-	model:SetAttribute("Finish", "GoldGraphiteAccent")
+	model:SetAttribute("Finish", celestial and "CelestialMetalEnergy" or "GoldGraphiteAccent")
 end
 
 function WeaponModels.Equip(character, weaponId, skinId)

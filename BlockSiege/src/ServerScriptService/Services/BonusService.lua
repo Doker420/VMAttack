@@ -21,6 +21,7 @@ local battleClock = 0
 local publishClock = 0
 local nextSupplyAt = 8
 local supplySerial = 0
+local supplyEventBoost = 1
 
 local GOLD = Color3.fromRGB(255, 196, 64)
 local DARK = Color3.fromRGB(55, 46, 40)
@@ -139,6 +140,7 @@ function BonusService.StartMatch(matchId, participants)
 	publishClock = 0
 	nextSupplyAt = 8
 	supplySerial = 0
+	supplyEventBoost = 1
 	for userId in pairs(participants) do
 		local player = Players:GetPlayerByUserId(userId)
 		if player then
@@ -310,6 +312,30 @@ local function spawnPair()
 	publishSupplyState()
 end
 
+function BonusService.SetEventBoost(multiplier)
+	supplyEventBoost = math.clamp(tonumber(multiplier) or 1, 1, 3)
+	if phaseProvider() == "Battle" then
+		nextSupplyAt = math.min(nextSupplyAt, battleClock + 35 / supplyEventBoost)
+	end
+	publishSupplyState()
+end
+
+function BonusService.TriggerSupplyWave(pairCount)
+	if phaseProvider() ~= "Battle" then
+		return 0
+	end
+	local requested = math.clamp(math.floor(tonumber(pairCount) or 1), 1, 3)
+	local spawned = 0
+	for _ = 1, requested do
+		if activeSupplyCount() > 4 then
+			break
+		end
+		spawnPair()
+		spawned = spawned + 1
+	end
+	return spawned
+end
+
 function BonusService.Step(deltaTime)
 	if phaseProvider() ~= "Battle" then
 		return
@@ -320,7 +346,7 @@ function BonusService.Step(deltaTime)
 		if activeSupplyCount() <= 4 then
 			spawnPair()
 		end
-		nextSupplyAt = battleClock + 35
+		nextSupplyAt = battleClock + 35 / supplyEventBoost
 	end
 	local now = os.clock()
 	for index = #supplies, 1, -1 do
@@ -349,6 +375,7 @@ function BonusService.EndMatch()
 	battleClock = 0
 	publishClock = 0
 	nextSupplyAt = 8
+	supplyEventBoost = 1
 	publishSupplyState()
 end
 

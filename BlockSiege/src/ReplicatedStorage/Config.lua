@@ -59,6 +59,16 @@ local Config = {
 	DailyCooldown = 20 * 60 * 60, -- серверный cooldown Daily в секундах
 	EnableStudioTestPurchases = true, -- только Studio: косметика без Robux для теста
 
+	-- Server-authoritative live-event controls. Add explicit Roblox user IDs here;
+	-- the experience owner is accepted automatically. Studio test clients may use
+	-- the admin panel, but a production client can never grant itself this role.
+	Admin = {
+		UserIds = {},
+		StudioAdmin = true,
+		GroupMinimumRank = 200,
+		RequestCooldown = 0.75,
+	},
+
 	-- Оригинальные WAV лежат в assets/audio; ниже IDs загруженных владельцем Audio assets. 0 = отключить звук.
 	Audio = {
 		LobbyMusicId = 107302597029227,
@@ -74,6 +84,9 @@ local Config = {
 		UIClickSfxId = 91669565215428,
 		VictorySfxId = 133823162922154,
 		DefeatSfxId = 126799440489634,
+		-- Original death_pulse.wav is included for owner upload; until then the
+		-- already uploaded Defeat asset is an explicit audible fallback.
+		DeathSfxId = 0,
 		MusicVolume = 0.24,
 		SFXVolume = 0.42,
 		FadeDuration = 1.1,

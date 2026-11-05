@@ -153,8 +153,75 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	end
 end)
 
+local function layout(phase)
+	local camera = Workspace.CurrentCamera
+	local screen = camera and camera.ViewportSize or Vector2.new(1280, 720)
+	local sideWidth = math.clamp((screen.X - 200) / 2, 100, 340)
+	local panelWidth = math.min(310, sideWidth)
+	if phase == "Build" then
+		panel.AnchorPoint = Vector2.new(0, 0)
+		panel.Position = UDim2.new(0, 16, 0, 118)
+		panel.Size = UDim2.fromOffset(panelWidth, 64)
+		classLabel.Size = UDim2.new(1, -16, 0, 25)
+		classLabel.Position = UDim2.new(0, 8, 0, 4)
+		classLabel.TextSize = panelWidth < 240 and 11 or 15
+		roleLabel.Size = UDim2.new(1, -16, 0, 18)
+		roleLabel.Position = UDim2.new(0, 8, 0, 34)
+		roleLabel.TextSize = panelWidth < 240 and 8 or 10
+		description.Visible = false
+		hint.Visible = false
+		reloadButton.Visible = false
+		for _, button in ipairs(buttons) do
+			button.Visible = false
+		end
+		return
+	end
+	panel.AnchorPoint = Vector2.new(0, 1)
+	panel.Position = UDim2.new(0, 16, 1, -18)
+	panel.Size = UDim2.fromOffset(panelWidth, 198)
+	classLabel.Size = UDim2.new(1, -24, 0, 25)
+	classLabel.Position = UDim2.new(0, 12, 0, 8)
+	classLabel.TextSize = panelWidth < 240 and 12 or 18
+	roleLabel.Size = UDim2.new(1, -24, 0, 18)
+	roleLabel.Position = UDim2.new(0, 12, 0, 33)
+	roleLabel.TextSize = panelWidth < 240 and 9 or 11
+	description.Visible = panelWidth >= 240
+	description.Size = UDim2.new(1, -24, 0, 29)
+	description.Position = UDim2.new(0, 12, 0, 51)
+	description.TextSize = 11
+	hint.Visible = true
+	reloadButton.Visible = phase == "Battle"
+	if panelWidth < 240 then
+		for slot, button in ipairs(buttons) do
+			button.Visible = true
+			button.Size = UDim2.fromOffset(panelWidth - 24, 42)
+			button.Position = UDim2.new(0, 12, 0, 56 + (slot - 1) * 46)
+			button.TextSize = 10
+		end
+		hint.Size = UDim2.new(1, -24, 0, 14)
+		hint.Position = UDim2.new(0, 12, 0, 146)
+		hint.TextSize = 8
+		reloadButton.Size = UDim2.fromOffset(math.max(60, panelWidth - 24), 24)
+		reloadButton.TextSize = 8
+	else
+		local buttonWidth = (panelWidth - 36) / 2
+		for slot, button in ipairs(buttons) do
+			button.Visible = true
+			button.Size = UDim2.fromOffset(buttonWidth, 66)
+			button.Position = UDim2.new(0, 12 + (slot - 1) * (buttonWidth + 12), 0, 86)
+			button.TextSize = panelWidth < 280 and 11 or 13
+		end
+		hint.Size = UDim2.new(1, -24, 0, 17)
+		hint.Position = UDim2.new(0, 12, 1, -39)
+		hint.TextSize = 10
+		reloadButton.Size = UDim2.fromOffset(100, 24)
+		reloadButton.TextSize = 10
+	end
+end
+
 local function refresh()
 	local phase = state:GetAttribute("Phase") or "Lobby"
+	layout(phase)
 	local classId = player:GetAttribute("ClassId") or ""
 	local definition = AbilityCatalog.GetClass(classId)
 	panel.Visible = (phase == "Build" or phase == "Battle") and definition ~= nil

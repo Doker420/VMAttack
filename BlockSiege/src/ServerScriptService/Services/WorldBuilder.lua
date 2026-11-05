@@ -21,13 +21,13 @@ local VisualModels = require(Shared:WaitForChild("VisualModels"))
 local WorldBuilder = {}
 local buildSerial = 0
 local C = {
-	Grass = Color3.fromRGB(91, 158, 91),
-	Dirt = Color3.fromRGB(116, 88, 65),
+	Grass = Color3.fromRGB(70, 126, 82),
+	Dirt = Color3.fromRGB(96, 76, 65),
 	Stone = Color3.fromRGB(151, 158, 159),
 	StoneDark = Color3.fromRGB(66, 76, 84),
 	Wood = Color3.fromRGB(137, 91, 56),
 	Leaf = Color3.fromRGB(52, 126, 69),
-	Sand = Color3.fromRGB(195, 172, 127),
+	Sand = Color3.fromRGB(128, 118, 96),
 	White = Color3.fromRGB(245, 244, 232),
 	Gold = Color3.fromRGB(244, 188, 72),
 }
@@ -163,6 +163,24 @@ local function holidayGlow(part, color, range, brightness)
 	light.Brightness = brightness or 1
 	light.Parent = part
 	return light
+end
+
+local function buildRouteLight(parent, position, color, height)
+	height = height or 9
+	decorPart(parent, "RouteLightBase", Vector3.new(1.8, 0.45, 1.8), CFrame.new(position + Vector3.new(0, 0.23, 0)), STYLE.Navy, Enum.Material.Metal)
+	decorPart(parent, "RouteLightPole", Vector3.new(0.38, height, 0.38), CFrame.new(position + Vector3.new(0, height / 2, 0)), STYLE.Navy, Enum.Material.Metal)
+	decorPart(parent, "RouteLightHead", Vector3.new(2.4, 0.35, 1.1), CFrame.new(position + Vector3.new(0, height, 0)), STYLE.IvoryDark, Enum.Material.Metal)
+	local bulb = decorPart(parent, "RouteLightBulb", Vector3.new(1.5, 0.22, 0.75), CFrame.new(position + Vector3.new(0, height - 0.25, 0)), color, Enum.Material.Neon)
+	holidayGlow(bulb, color, 27, 1.35)
+	local spot = Instance.new("SpotLight")
+	spot.Name = "RouteDownlight"
+	spot.Color = color
+	spot.Face = Enum.NormalId.Bottom
+	spot.Angle = 72
+	spot.Range = 40
+	spot.Brightness = 1.7
+	spot.Shadows = false
+	spot.Parent = bulb
 end
 
 -- Curated free Creator Store models: Roblox-owned holiday decor plus credited
@@ -352,11 +370,12 @@ local function placeCreatorStoreModel(template, definition, placement, parent)
 	return true
 end
 
-local function loadCreatorStoreDecorations(root, lobby, arena, serial)
+local function loadCreatorStoreDecorations(root, lobby, arena, winterDecor, serial)
 	if not AssetService then
 		return
 	end
 	local parents = { Lobby = lobby, Arena = arena }
+	local winterKeys = { ChristmasTree = true, Snowman = true, Wreath = true, Present = true, Ornaments = true }
 	local totalParts = 0
 	local loadedModels = 0
 	local function isCurrent()
@@ -380,7 +399,7 @@ local function loadCreatorStoreDecorations(root, lobby, arena, serial)
 					end
 					local partCount = template:GetAttribute("StorePartCount") or 0
 					if totalParts + partCount <= CREATOR_STORE_MAX_TOTAL_PARTS then
-						local placeOk, placed, placeErr = pcall(placeCreatorStoreModel, template, definition, placement, parents[placement.Parent])
+						local placeOk, placed, placeErr = pcall(placeCreatorStoreModel, template, definition, placement, winterKeys[definition.Key] and winterDecor or parents[placement.Parent])
 						if placeOk and placed then
 							totalParts = totalParts + partCount
 							loadedModels = loadedModels + 1
@@ -578,8 +597,8 @@ local function decorateArena(arena)
 end
 
 local function buildSculptedTerrain()
-	-- Terrain is deliberately outside the 640x360 combat rectangle. It gives
-	-- the camera a natural horizon without introducing new navigation obstacles.
+	-- Overlapping smooth-terrain lobes form an irregular ridge silhouette rather
+	-- than a row of identical spheres. Every ridge remains outside combat bounds.
 	local ok, terrain = pcall(function()
 		return Workspace.Terrain
 	end)
@@ -587,16 +606,23 @@ local function buildSculptedTerrain()
 		return
 	end
 	pcall(function()
-		for _, hill in ipairs({
-			{ Position = Vector3.new(-352, -20, -142), Radius = 38 },
-			{ Position = Vector3.new(352, -20, 142), Radius = 38 },
-			{ Position = Vector3.new(-352, -18, 142), Radius = 34 },
-			{ Position = Vector3.new(352, -18, -142), Radius = 34 },
-			{ Position = Vector3.new(-160, -22, -202), Radius = 42 },
-			{ Position = Vector3.new(160, -22, 202), Radius = 42 },
-		}) do
-			terrain:FillBall(hill.Position, hill.Radius, Enum.Material.Rock)
-			terrain:FillBall(hill.Position + Vector3.new(0, hill.Radius * 0.28, 0), hill.Radius * 0.84, Enum.Material.Snow)
+		local ridges = {
+			{ Vector3.new(-390, -24, -142), 42 }, { Vector3.new(390, -24, 142), 42 },
+			{ Vector3.new(-390, -22, 142), 38 }, { Vector3.new(390, -22, -142), 38 },
+			{ Vector3.new(-180, -24, -245), 40 }, { Vector3.new(180, -24, 245), 40 },
+			{ Vector3.new(0, -28, -255), 46 }, { Vector3.new(0, -28, 255), 46 },
+			{ Vector3.new(-395, -25, 0), 44 }, { Vector3.new(395, -25, 0), 44 },
+		}
+		for ridgeIndex, ridge in ipairs(ridges) do
+			local center, radius = ridge[1], ridge[2]
+			for lobe = 1, 3 do
+				local angle = ridgeIndex * 1.37 + lobe * 2.1
+				local offset = Vector3.new(math.cos(angle) * radius * 0.32, (lobe - 1) * 4, math.sin(angle) * radius * 0.32)
+				terrain:FillBall(center + offset, radius * (1 - (lobe - 1) * 0.13), Enum.Material.Rock)
+			end
+			if ridgeIndex % 3 ~= 0 then
+				terrain:FillBall(center + Vector3.new(0, radius * 0.36, 0), radius * 0.64, Enum.Material.Snow)
+			end
 		end
 		local clouds = terrain:FindFirstChild("BlockSiegeClouds")
 		if not clouds then
@@ -604,9 +630,9 @@ local function buildSculptedTerrain()
 			clouds.Name = "BlockSiegeClouds"
 			clouds.Parent = terrain
 		end
-		clouds.Cover = 0.38
-		clouds.Density = 0.32
-		clouds.Color = Color3.fromRGB(224, 238, 249)
+		clouds.Cover = 0.46
+		clouds.Density = 0.38
+		clouds.Color = Color3.fromRGB(91, 111, 143)
 	end)
 end
 
@@ -710,11 +736,18 @@ local function buildLobbyArchitecture(lobby)
 	for _, z in ipairs({ 280, 320, 360, 400 }) do
 		local lamp = decorPart(lobby, "HallLight", Vector3.new(2, 2, 2), CFrame.new(0, 62, z), STYLE.Warm, Enum.Material.Neon)
 		lamp.Shape = Enum.PartType.Ball
-		holidayGlow(lamp, STYLE.Warm, 14, 0.8)
+		holidayGlow(lamp, STYLE.Warm, 24, 1.35)
 	end
 end
 
 local function buildArenaArchitecture(arena)
+	local routeWarmth = Color3.fromRGB(255, 205, 139)
+	for _, lane in ipairs(Config.Objectives.Lanes) do
+		local inward = lane == 0 and 15 or (lane > 0 and -11 or 11)
+		for _, x in ipairs({ -170, -85, 85, 170 }) do
+			buildRouteLight(arena, Vector3.new(x, 0, lane + inward), routeWarmth, 8.5)
+		end
+	end
 	for _, side in ipairs({ -1, 1 }) do
 		local canal = decorPart(arena, "FrozenCanal", Vector3.new(420, 0.12, 7), CFrame.new(0, 0.08, side * 84), STYLE.Ice, Enum.Material.Ice)
 		canal.Transparency = 0.18
@@ -839,7 +872,7 @@ local function buildNpc(parent, name, position, color, title, action, descriptio
 	return prompt(root, action, description)
 end
 
-local function buildLobby(lobby)
+local function buildLobby(lobby, winterDecor)
 	local presentation = Config.Presentation
 	local lobbyWidth = presentation.LobbyWidth
 	local lobbyDepth = presentation.LobbyDepth
@@ -893,7 +926,8 @@ local function buildLobby(lobby)
 		local column = (index - 1) % displayColumns
 		local x = (column - (displayColumns - 1) / 2) * 24
 		local z = 292 - row * 16
-		makePart(lobby, "WeaponPedestal", Vector3.new(10, 3, 10), CFrame.new(x, 46, z), C.Stone, Enum.Material.Cobblestone, true)
+		local pedestal = makePart(lobby, "WeaponPedestal", Vector3.new(10, 3, 10), CFrame.new(x, 46, z), C.Stone, Enum.Material.Cobblestone, true)
+		holidayGlow(pedestal, Color3.fromRGB(255, 224, 177), 10, 0.65)
 		local weapon = WeaponModels.Build(weaponId)
 		weapon.Name = "Display_" .. weaponId
 		weapon.Parent = lobby
@@ -914,6 +948,7 @@ local function buildLobby(lobby)
 	local dailyPrompt = buildNpc(lobby, "DailyBonus", Vector3.new(48, 44.5, 344), Color3.fromRGB(255, 211, 78), "DAILY // БОНУС", "ПОЛУЧИТЬ", "Монеты · XP · жетон кейса")
 	local shopPrompt = buildNpc(lobby, "CosmeticShop", Vector3.new(48, 44.5, 300), Color3.fromRGB(195, 117, 255), "ROBUX // КОСМЕТИКА", "МАГАЗИН", "Только внешний вид · без pay-to-win")
 	local defensePrompt = buildNpc(lobby, "DefenseWorkshop", Vector3.new(-48, 44.5, 300), Color3.fromRGB(255, 133, 71), "DEFENSE // ЛОВУШКИ", "КУПИТЬ ЧЕРТЁЖ", "Шипы · мины · огнемёт за монеты")
+	local expeditionPrompt = buildNpc(lobby, "ExpeditionHub", Vector3.new(0, 44.5, 370), Color3.fromRGB(103, 229, 183), "PVE // ЭКСПЕДИЦИИ", "ВЫБРАТЬ РЕЙД", "Уровни · волны · боссы · рейтинг")
 	local upgradePad = makePart(lobby, "UpgradePad", Vector3.new(16, 0.35, 12), CFrame.new(-48, 44.8, 344), Color3.fromRGB(40, 120, 145), Enum.Material.Metal, false)
 	upgradePad.CanQuery = false
 	local dailyPad = makePart(lobby, "DailyPad", Vector3.new(16, 0.35, 12), CFrame.new(48, 44.8, 344), Color3.fromRGB(150, 110, 35), Enum.Material.Metal, false)
@@ -922,13 +957,15 @@ local function buildLobby(lobby)
 	shopPad.CanQuery = false
 	local defensePad = makePart(lobby, "DefensePad", Vector3.new(16, 0.35, 12), CFrame.new(-48, 44.8, 300), Color3.fromRGB(150, 65, 35), Enum.Material.Metal, false)
 	defensePad.CanQuery = false
+	local expeditionPad = makePart(lobby, "ExpeditionPad", Vector3.new(18, 0.35, 12), CFrame.new(0, 44.8, 370), Color3.fromRGB(40, 135, 105), Enum.Material.Metal, false)
+	expeditionPad.CanQuery = false
 
 	for _, position in ipairs({ Vector3.new(-70, 44.5, 370), Vector3.new(70, 44.5, 370), Vector3.new(-70, 44.5, 280), Vector3.new(70, 44.5, 280) }) do
-		buildChristmasTree(lobby, position, 0.55)
+		buildChristmasTree(winterDecor, position, 0.55)
 	end
-	decorateLobby(lobby)
+	decorateLobby(winterDecor)
 	buildLobbyArchitecture(lobby)
-	return spawnCFrame, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt, defensePrompt
+	return spawnCFrame, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt, defensePrompt, expeditionPrompt
 end
 
 local function buildDotaFrontier(arena)
@@ -1066,6 +1103,9 @@ function WorldBuilder.Build()
 	local lobby = Instance.new("Folder")
 	lobby.Name = "Lobby"
 	lobby.Parent = root
+	local winterDecor = Instance.new("Folder")
+	winterDecor.Name = "WinterDecor"
+	winterDecor.Parent = root
 
 	local presentation = Config.Presentation
 	makePart(arena, "ArenaDirt", Vector3.new(presentation.ArenaWidth, 8, presentation.ArenaDepth), CFrame.new(0, -6, 0), C.Dirt, Enum.Material.Ground, true)
@@ -1074,6 +1114,9 @@ function WorldBuilder.Build()
 	for _, z in ipairs(Config.Objectives.Lanes) do
 		if z ~= 0 then
 			makePart(arena, "SideLane", Vector3.new(540, 0.3, 16), CFrame.new(0, 0.12, z), C.Sand, Enum.Material.Ground, true)
+		end
+		for x = -240, 240, 24 do
+			decorPart(arena, "LaneInlay", Vector3.new(8, 0.07, 0.32), CFrame.new(x, 0.38, z), Color3.fromRGB(202, 188, 153), Enum.Material.Metal)
 		end
 	end
 	for index = 0, 31 do
@@ -1115,23 +1158,24 @@ function WorldBuilder.Build()
 		cover.Transparency = 1
 		cover.CanQuery = true
 	end
-	decorateArena(arena)
+	decorateArena(winterDecor)
 	buildArenaArchitecture(arena)
 	local neutralCamps = buildDotaFrontier(arena)
 
 	local capturePoint = buildCapturePoint(arena)
-	local lobbySpawn, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt, defensePrompt = buildLobby(lobby)
+	local lobbySpawn, lootPrompt, startPrompt, upgradePrompt, dailyPrompt, shopPrompt, defensePrompt, expeditionPrompt = buildLobby(lobby, winterDecor)
 	buildSculptedTerrain()
 	pcall(function()
 		Lighting.Technology = Enum.Technology.Future
 	end)
-	Lighting.Brightness = 2.5
-	Lighting.ClockTime = 15.4
-	Lighting.EnvironmentDiffuseScale = 0.58
-	Lighting.EnvironmentSpecularScale = 0.45
+	Lighting.Brightness = 2.2
+	Lighting.ClockTime = 21.45
+	Lighting.EnvironmentDiffuseScale = 0.34
+	Lighting.EnvironmentSpecularScale = 0.68
 	Lighting.GlobalShadows = true
-	Lighting.OutdoorAmbient = Color3.fromRGB(184, 191, 177)
-	Lighting.ColorShift_Top = Color3.fromRGB(255, 238, 211)
+	Lighting.OutdoorAmbient = Color3.fromRGB(48, 62, 88)
+	Lighting.ColorShift_Top = Color3.fromRGB(121, 155, 205)
+	Lighting.ExposureCompensation = 0.3
 	local function ensureEffect(className, name)
 		local effect = Lighting:FindFirstChild(name)
 		if not effect then
@@ -1142,24 +1186,24 @@ function WorldBuilder.Build()
 		return effect
 	end
 	local atmosphere = ensureEffect("Atmosphere", "BlockSiegeAtmosphere")
-	atmosphere.Density = 0.09
-	atmosphere.Haze = 0.08
-	atmosphere.Color = Color3.fromRGB(218, 226, 213)
-	atmosphere.Decay = Color3.fromRGB(145, 151, 135)
-	atmosphere.Glare = 0.04
+	atmosphere.Density = 0.16
+	atmosphere.Haze = 0.12
+	atmosphere.Color = Color3.fromRGB(105, 130, 165)
+	atmosphere.Decay = Color3.fromRGB(37, 49, 72)
+	atmosphere.Glare = 0.12
 	local colorCorrection = ensureEffect("ColorCorrectionEffect", "BlockSiegeColor")
-	colorCorrection.Saturation = 0.16
-	colorCorrection.Contrast = 0.07
+	colorCorrection.Saturation = 0.06
+	colorCorrection.Contrast = 0.12
 	local bloom = ensureEffect("BloomEffect", "BlockSiegeBloom")
-	bloom.Intensity = 0.24
-	bloom.Size = 22
-	bloom.Threshold = 1
+	bloom.Intensity = 0.42
+	bloom.Size = 24
+	bloom.Threshold = 0.85
 	local rays = ensureEffect("SunRaysEffect", "BlockSiegeSun")
-	rays.Intensity = 0.025
+	rays.Intensity = 0
 
 	if AssetService and task and task.spawn then
 		task.spawn(function()
-			loadCreatorStoreDecorations(root, lobby, arena, serial)
+			loadCreatorStoreDecorations(root, lobby, arena, winterDecor, serial)
 		end)
 	end
 
@@ -1171,6 +1215,7 @@ function WorldBuilder.Build()
 		Neutrals = neutrals,
 		NeutralCamps = neutralCamps,
 		Lobby = lobby,
+		WinterDecor = winterDecor,
 		LobbySpawn = lobbySpawn,
 		TeamSpawns = teamSpawns,
 		LootPrompt = lootPrompt,
@@ -1179,6 +1224,7 @@ function WorldBuilder.Build()
 		DailyPrompt = dailyPrompt,
 		ShopPrompt = shopPrompt,
 		DefensePrompt = defensePrompt,
+		ExpeditionPrompt = expeditionPrompt,
 		CapturePoint = capturePoint,
 	}
 end

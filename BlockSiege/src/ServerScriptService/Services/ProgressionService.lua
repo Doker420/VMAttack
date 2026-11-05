@@ -85,21 +85,22 @@ local function applyCosmetics(player, character)
 	end
 	local selected = data.SelectedCosmetics or {}
 	if selected.Aura and selected.Aura ~= "Default" and data.OwnedCosmetics[selected.Aura] then
+		local phoenix = selected.Aura == "PhoenixAura"
 		local aura = Instance.new("ParticleEmitter")
 		aura.Name = "BLOCKSIEGE_Aura"
-		aura.Rate = 12
+		aura.Rate = phoenix and 18 or 12
 		aura.Lifetime = NumberRange.new(0.45, 0.9)
 		aura.Speed = NumberRange.new(0.4, 1.2)
 		aura.Size = NumberSequence.new(0.22, 0)
-		aura.Color = ColorSequence.new(Color3.fromRGB(102, 220, 255), Color3.fromRGB(177, 82, 255))
+		aura.Color = phoenix and ColorSequence.new(Color3.fromRGB(255, 139, 67), Color3.fromRGB(255, 100, 180)) or ColorSequence.new(Color3.fromRGB(102, 220, 255), Color3.fromRGB(177, 82, 255))
 		aura.LightEmission = 0.8
 		aura.Texture = "rbxasset://textures/particles/sparkles_main.dds"
 		aura.Parent = root
 		local light = Instance.new("PointLight")
 		light.Name = "BLOCKSIEGE_AuraLight"
-		light.Color = Color3.fromRGB(133, 104, 255)
-		light.Range = 8
-		light.Brightness = 1.5
+		light.Color = phoenix and Color3.fromRGB(255, 128, 93) or Color3.fromRGB(133, 104, 255)
+		light.Range = phoenix and 10 or 8
+		light.Brightness = phoenix and 1.8 or 1.5
 		light.Parent = root
 	end
 	if selected.Trail and selected.Trail ~= "Default" and data.OwnedCosmetics[selected.Trail] then

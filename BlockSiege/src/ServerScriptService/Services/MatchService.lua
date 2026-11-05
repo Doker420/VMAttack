@@ -16,6 +16,7 @@ local captureService
 local abilityService
 local neutralService
 local bonusService
+local expeditionService
 local remotes
 local state
 local phase = "Lobby"
@@ -28,6 +29,7 @@ local matchId = 0
 local lastSecond = -1
 local matchStats = {}
 local regenClock = 0
+local rewardMultiplierProvider = function() return 1 end
 
 local function notify(player, text)
 	if player and player.Parent then
@@ -80,12 +82,34 @@ local function updateClock(force)
 	end
 end
 
+local function updateTacticalLights()
+	local enabled = phase ~= "Build"
+	for _, player in ipairs(Players:GetPlayers()) do
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		local light = root and root:FindFirstChild("BlockSiegeTacticalLight")
+		if light then
+			light.Enabled = enabled
+		end
+	end
+	if world and world.Bots then
+		for _, model in ipairs(world.Bots:GetChildren()) do
+			local root = model:FindFirstChild("HumanoidRootPart")
+			local light = root and root:FindFirstChild("BlockSiegeTacticalLight")
+			if light then
+				light.Enabled = enabled
+			end
+		end
+	end
+end
+
 local function setPhase(nextPhase, duration)
 	phase = nextPhase
 	timer = duration or 0
 	state:SetAttribute("Phase", phase)
 	updateClock(true)
 	updateCounts()
+	updateTacticalLights()
 end
 
 local function spawnPlayer(player, cframe)
@@ -128,11 +152,21 @@ local function recordProgress(player, progress)
 	end
 end
 
+local function currentRewardMultiplier()
+	return math.clamp(tonumber(rewardMultiplierProvider()) or 1, 1, 2)
+end
+
 local function actionReward(player, coins, xp, reason)
+	local multiplier = currentRewardMultiplier()
+	local awardedCoins = math.floor((tonumber(coins) or 0) * multiplier + 0.5)
+	local awardedXP = math.floor((tonumber(xp) or 0) * multiplier + 0.5)
+	if multiplier > 1 then
+		reason = tostring(reason or "Полезное действие") .. " · ×2 ИВЕНТ"
+	end
 	local stats = statsFor(player)
-	stats.Coins = stats.Coins + coins
-	stats.XP = stats.XP + xp
-	local progress = dataService.Award(player, coins, xp, reason)
+	stats.Coins = stats.Coins + awardedCoins
+	stats.XP = stats.XP + awardedXP
+	local progress = dataService.Award(player, awardedCoins, awardedXP, reason)
 	recordProgress(player, progress)
 	return progress
 end
@@ -192,12 +226,16 @@ end
 
 function MatchService.OnKill(player, victim)
 	if phase == "Battle" and MatchService.IsParticipant(player) then
-		local progress = dataService.AddKill(player)
+		local multiplier = currentRewardMultiplier()
+		local coins = math.floor(2 * multiplier + 0.5)
+		local xp = math.floor(8 * multiplier + 0.5)
+		local reason = multiplier > 1 and "Противник выведен из боя · ×2 ИВЕНТ" or "Противник выведен из боя"
+		local progress = dataService.AddKill(player, coins, xp, reason)
 		recordProgress(player, progress)
 		local stats = statsFor(player)
 		stats.Kills = stats.Kills + 1
-		stats.Coins = stats.Coins + 2
-		stats.XP = stats.XP + 8
+		stats.Coins = stats.Coins + coins
+		stats.XP = stats.XP + xp
 		publishStat(player, "Kills", stats.Kills)
 		if bonusService then
 			bonusService.OnAction(player, "Kill")
@@ -246,6 +284,9 @@ function MatchService.EndMatch(winner, reason)
 	end
 	if neutralService then
 		neutralService.Reset()
+	end
+	if expeditionService then
+		expeditionService.Reset()
 	end
 	if bonusService then
 		bonusService.EndMatch()
@@ -469,6 +510,21 @@ local function onCharacter(player, character)
 	end
 	local team = participants[player.UserId]
 	character:SetAttribute("Team", team or "")
+	local root = character:WaitForChild("HumanoidRootPart")
+	local oldLight = root:FindFirstChild("BlockSiegeTacticalLight")
+	if oldLight then
+		oldLight:Destroy()
+	end
+	local tacticalLight = Instance.new("SpotLight")
+	tacticalLight.Name = "BlockSiegeTacticalLight"
+	tacticalLight.Color = Color3.fromRGB(185, 220, 255)
+	tacticalLight.Face = Enum.NormalId.Front
+	tacticalLight.Angle = 68
+	tacticalLight.Range = 34
+	tacticalLight.Brightness = 1.15
+	tacticalLight.Shadows = false
+	tacticalLight.Enabled = phase ~= "Build"
+	tacticalLight.Parent = root
 	if abilityService then
 		abilityService.ApplyCharacter(player, character)
 	end
@@ -486,6 +542,21 @@ local function onCharacter(player, character)
 	end)
 	local deathMatch = matchId
 	humanoid.Died:Connect(function()
+		local lastDamage = tonumber(character:GetAttribute("LastDamageClock")) or -math.huge
+		local recentDamage = os.clock() - lastDamage <= 10
+		local killerId = recentDamage and character:GetAttribute("LastAttackerUserId") or nil
+		local killer = killerId and Players:GetPlayerByUserId(killerId) or nil
+		if remotes.DeathFX then
+			remotes.DeathFX:FireAllClients({
+				VictimUserId = player.UserId,
+				VictimName = player.DisplayName,
+				KillerUserId = killerId,
+				KillerName = recentDamage and (killer and killer.DisplayName or character:GetAttribute("LastAttackerName") or "") or "",
+				Source = recentDamage and (character:GetAttribute("LastDamageSource") or "Unknown") or "Unknown",
+				RespawnDuration = Config.RespawnDuration,
+				InExpedition = player:GetAttribute("InExpedition") == true,
+			})
+		end
 		if participants[player.UserId] and (phase == "Build" or phase == "Battle") then
 			task.delay(Config.RespawnDuration, function()
 				local currentTeam = participants[player.UserId]
@@ -531,6 +602,9 @@ local function resetToLobby()
 	end
 	if neutralService then
 		neutralService.Reset()
+	end
+	if expeditionService then
+		expeditionService.Reset()
 	end
 	if bonusService then
 		bonusService.Reset()
@@ -601,6 +675,10 @@ function MatchService.Init(dependencies)
 	abilityService = dependencies.AbilityService
 	neutralService = dependencies.NeutralService
 	bonusService = dependencies.BonusService
+	expeditionService = dependencies.ExpeditionService
+	if dependencies.EventService then
+		rewardMultiplierProvider = dependencies.EventService.GetRewardMultiplier
+	end
 	remotes = dependencies.Remotes
 	state = dependencies.State
 	fortressService.SetPhaseProvider(MatchService.GetPhase)
