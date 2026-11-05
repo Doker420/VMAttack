@@ -1,0 +1,1636 @@
+<roblox version="4">
+  <Item class="Lighting" referent="0">
+    <Properties>
+      <string name="Name">Lighting</string>
+    </Properties>
+  </Item>
+  <Item class="Players" referent="1">
+    <Properties>
+      <string name="Name">Players</string>
+      <bool name="CharacterAutoLoads">true</bool>
+    </Properties>
+  </Item>
+  <Item class="ReplicatedStorage" referent="2">
+    <Properties>
+      <string name="Name">ReplicatedStorage</string>
+    </Properties>
+    <Item class="Folder" referent="3">
+      <Properties>
+        <string name="Name">SwapPlaces</string>
+      </Properties>
+      <Item class="ModuleScript" referent="4">
+        <Properties>
+          <string name="Name">Config</string>
+          <string name="Source"><![CDATA[-- «Поменяйся местами»: общие server/client настройки.
+local Config = {
+	GameName = "ПОМЕНЯЙСЯ МЕСТАМИ",
+	DataStoreName = "SwapPlaces_PlayerData_v1",
+	PersistInStudio = false,
+	AutosaveInterval = 60,
+
+	-- Создайте Developer Product и вставьте настоящий ID перед live-тестом.
+	-- Нулевой ID никогда не выдаёт бесплатный live-обмен.
+	SwapProductId = 0,
+	SwapRobuxPrice = 25,
+	EnableStudioTestPurchases = true,
+
+	SwapDuration = 180,
+	OfferDuration = 45,
+	TradeDuration = 120,
+	MaxProcessedReceipts = 24,
+
+	Spawn = Vector3.new(0, 7, 34),
+	World = {
+		Width = 220,
+		Depth = 180,
+		SwapPadRadius = 24,
+	},
+}
+
+return Config
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="5">
+        <Properties>
+          <string name="Name">SkinCatalog</string>
+          <string name="Source"><![CDATA[-- Собственные внутриигровые скины. Это не передаваемые Roblox avatar items.
+local SkinCatalog = {}
+
+SkinCatalog.Order = { "Default", "Citrus", "Ocean", "Berry", "Lime", "Midnight", "Sunset", "Crystal" }
+SkinCatalog.StarterPool = { "Citrus", "Ocean", "Berry", "Lime", "Midnight", "Sunset", "Crystal" }
+
+SkinCatalog.Skins = {
+	Default = {
+		Id = "Default", Name = "СВОЙ СТИЛЬ", Description = "Исходные цвета аватара без дополнительной сборки.",
+		Primary = Color3.fromRGB(210, 215, 220), Secondary = Color3.fromRGB(130, 140, 150), Accent = Color3.fromRGB(255, 255, 255),
+		Accessory = "None", Tradable = false,
+	},
+	Citrus = {
+		Id = "Citrus", Name = "ЦИТРУС", Description = "Тёплая палитра и объёмный рюкзак.",
+		Primary = Color3.fromRGB(255, 190, 62), Secondary = Color3.fromRGB(245, 116, 65), Accent = Color3.fromRGB(255, 236, 145),
+		Accessory = "Pack", Tradable = true,
+	},
+	Ocean = {
+		Id = "Ocean", Name = "ОКЕАН", Description = "Синие тона и сегментированная накидка.",
+		Primary = Color3.fromRGB(70, 165, 232), Secondary = Color3.fromRGB(42, 91, 160), Accent = Color3.fromRGB(117, 239, 244),
+		Accessory = "Cape", Tradable = true,
+	},
+	Berry = {
+		Id = "Berry", Name = "ЯГОДА", Description = "Яркая палитра и парные крылья.",
+		Primary = Color3.fromRGB(221, 84, 161), Secondary = Color3.fromRGB(116, 65, 157), Accent = Color3.fromRGB(255, 167, 219),
+		Accessory = "Wings", Tradable = true,
+	},
+	Lime = {
+		Id = "Lime", Name = "ЛАЙМ", Description = "Свежие цвета и светящийся визор.",
+		Primary = Color3.fromRGB(137, 218, 82), Secondary = Color3.fromRGB(43, 133, 96), Accent = Color3.fromRGB(213, 255, 130),
+		Accessory = "Visor", Tradable = true,
+	},
+	Midnight = {
+		Id = "Midnight", Name = "ПОЛНОЧЬ", Description = "Графит, индиго и orbital-сферы.",
+		Primary = Color3.fromRGB(54, 60, 91), Secondary = Color3.fromRGB(29, 34, 55), Accent = Color3.fromRGB(139, 117, 255),
+		Accessory = "Orbit", Tradable = true,
+	},
+	Sunset = {
+		Id = "Sunset", Name = "ЗАКАТ", Description = "Коралловые тона и сегментированное halo.",
+		Primary = Color3.fromRGB(246, 123, 99), Secondary = Color3.fromRGB(156, 66, 104), Accent = Color3.fromRGB(255, 208, 112),
+		Accessory = "Halo", Tradable = true,
+	},
+	Crystal = {
+		Id = "Crystal", Name = "КРИСТАЛЛ", Description = "Холодная палитра и собственная crown-сборка.",
+		Primary = Color3.fromRGB(159, 226, 237), Secondary = Color3.fromRGB(92, 125, 176), Accent = Color3.fromRGB(224, 252, 255),
+		Accessory = "Crown", Tradable = true,
+	},
+}
+
+function SkinCatalog.Get(id)
+	return type(id) == "string" and SkinCatalog.Skins[id] or nil
+end
+
+function SkinCatalog.IsTradable(id)
+	local skin = SkinCatalog.Get(id)
+	return skin ~= nil and skin.Tradable == true
+end
+
+function SkinCatalog.StarterForUser(userId)
+	local index = (math.abs(tonumber(userId) or 0) % #SkinCatalog.StarterPool) + 1
+	return SkinCatalog.StarterPool[index]
+end
+
+return SkinCatalog
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="ServerScriptService" referent="6">
+    <Properties>
+      <string name="Name">ServerScriptService</string>
+    </Properties>
+    <Item class="Folder" referent="7">
+      <Properties>
+        <string name="Name">SwapPlacesServer</string>
+      </Properties>
+      <Item class="Script" referent="8">
+        <Properties>
+          <string name="Name">Main</string>
+          <token name="RunContext">0</token>
+          <string name="Source"><![CDATA[-- «Поменяйся местами» server entry point.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local Shared = ReplicatedStorage:WaitForChild("SwapPlaces")
+local services = script.Parent:WaitForChild("Services")
+local WorldBuilder = require(services:WaitForChild("WorldBuilder"))
+local DataService = require(services:WaitForChild("DataService"))
+local AppearanceService = require(services:WaitForChild("AppearanceService"))
+local TradeService = require(services:WaitForChild("TradeService"))
+local SwapService = require(services:WaitForChild("SwapService"))
+
+local remotes = Instance.new("Folder")
+remotes.Name = "Remotes"
+for _, name in ipairs({ "Notify", "ProfileUpdate", "SwapAction", "SwapFX", "TradeAction", "TradeFX", "InventoryAction", "UIFX" }) do
+	local remote = Instance.new("RemoteEvent")
+	remote.Name = name
+	remote.Parent = remotes
+end
+remotes.Parent = Shared
+
+local world = WorldBuilder.Build()
+DataService.Init({ Remotes = remotes })
+AppearanceService.Init({ DataService = DataService })
+TradeService.Init({ DataService = DataService, AppearanceService = AppearanceService, Remotes = remotes })
+SwapService.Init({ DataService = DataService, Remotes = remotes })
+TradeService.SetSwapAvailability(SwapService.IsAvailable)
+SwapService.SetTradeAvailability(function(player) return not TradeService.IsBusy(player) end)
+
+local function notify(player, text)
+	if player and player.Parent then remotes.Notify:FireClient(player, text) end
+end
+
+local function onPlayerAdded(player)
+	player:SetAttribute("ProfileLoaded", false)
+	player:SetAttribute("SwapActive", false)
+	player.CharacterAdded:Connect(function(character)
+		task.defer(function()
+			if player.Parent and player.Character == character and player:GetAttribute("SwapActive") ~= true then
+				AppearanceService.Apply(player, character)
+			end
+		end)
+	end)
+	task.spawn(function()
+		DataService.Load(player)
+		if player.Parent then AppearanceService.Apply(player, player.Character) end
+	end)
+end
+
+Players.PlayerAdded:Connect(onPlayerAdded)
+Players.PlayerRemoving:Connect(function(player)
+	SwapService.OnPlayerRemoving(player)
+	TradeService.OnPlayerRemoving(player)
+	DataService.SaveAndClear(player)
+end)
+
+remotes.SwapAction.OnServerEvent:Connect(function(player, action, value)
+	SwapService.HandleAction(player, action, value)
+end)
+remotes.TradeAction.OnServerEvent:Connect(function(player, action, value)
+	TradeService.HandleAction(player, action, value)
+end)
+remotes.InventoryAction.OnServerEvent:Connect(function(player, action, value)
+	if action == "Equip" then
+		local ok, reason = AppearanceService.Equip(player, value)
+		if not ok and reason then notify(player, reason) end
+	else
+		notify(player, "Неизвестное действие гардероба")
+	end
+end)
+
+world.SwapPrompt.Triggered:Connect(function(player) remotes.UIFX:FireClient(player, { Kind = "OpenSwap" }) end)
+world.TradePrompt.Triggered:Connect(function(player) remotes.UIFX:FireClient(player, { Kind = "OpenTrade" }) end)
+for id, proximity in pairs(world.SkinPrompts) do
+	proximity.Triggered:Connect(function(player) remotes.UIFX:FireClient(player, { Kind = "OpenInventory", SkinId = id }) end)
+end
+
+local accumulator = 0
+RunService.Heartbeat:Connect(function(deltaTime)
+	accumulator = accumulator + math.min(deltaTime, 0.15)
+	while accumulator >= 1 / 20 do
+		SwapService.Step(1 / 20)
+		TradeService.Step(1 / 20)
+		DataService.Step(1 / 20)
+		accumulator = accumulator - 1 / 20
+	end
+end)
+
+for _, player in ipairs(Players:GetPlayers()) do onPlayerAdded(player) end
+print("[SwapPlaces] ПОМЕНЯЙСЯ МЕСТАМИ · consensual avatar swaps + one-for-one skin trades")
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="Folder" referent="9">
+        <Properties>
+          <string name="Name">Services</string>
+        </Properties>
+        <Item class="ModuleScript" referent="10">
+          <Properties>
+            <string name="Name">AppearanceService</string>
+            <string name="Source"><![CDATA[-- Applies owned in-game cosmetics to the player's own respawned avatar.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("SwapPlaces")
+local SkinCatalog = require(Shared:WaitForChild("SkinCatalog"))
+
+local AppearanceService = {}
+local dataService
+
+local function addPart(model, anchor, name, size, offset, color, shape, material)
+	local part = Instance.new(shape == "Wedge" and "WedgePart" or "Part")
+	part.Name = name
+	part.Size = size
+	part.Color = color
+	part.Material = material or Enum.Material.SmoothPlastic
+	if shape == "Ball" or shape == "Cylinder" then part.Shape = Enum.PartType[shape] end
+	part.CanCollide = false
+	part.CanTouch = false
+	part.CanQuery = false
+	part.Massless = true
+	part.Anchored = false
+	part.CFrame = anchor.CFrame * offset
+	part.Parent = model
+	local weld = Instance.new("Weld")
+	weld.Name = "SkinWeld"
+	weld.Part0 = anchor
+	weld.Part1 = part
+	weld.C0 = offset
+	weld.C1 = CFrame.new()
+	weld.Parent = part
+	return part
+end
+
+local function buildAccessory(character, skin)
+	local old = character:FindFirstChild("SwapPlacesSkin")
+	if old then old:Destroy() end
+	if skin.Accessory == "None" then return end
+	local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
+	local head = character:FindFirstChild("Head")
+	if not torso or not head then return end
+	local model = Instance.new("Model")
+	model.Name = "SwapPlacesSkin"
+	model:SetAttribute("SkinId", skin.Id)
+	model.Parent = character
+	if skin.Accessory == "Pack" then
+		addPart(model, torso, "PackBody", Vector3.new(1.65, 1.8, 0.75), CFrame.new(0, 0, 0.9), skin.Secondary)
+		addPart(model, torso, "PackFlap", Vector3.new(1.45, 0.45, 0.82), CFrame.new(0, 0.65, 0.95), skin.Primary)
+		for side = -1, 1, 2 do addPart(model, torso, "PackStrap", Vector3.new(0.18, 1.9, 0.18), CFrame.new(side * 0.62, 0, -0.48), skin.Accent) end
+	elseif skin.Accessory == "Cape" then
+		for index = -1, 1 do
+			addPart(model, torso, "CapeStrip", Vector3.new(0.72, 2.8, 0.18), CFrame.new(index * 0.7, -0.75, 0.68) * CFrame.Angles(math.rad(-8), 0, 0), index == 0 and skin.Primary or skin.Secondary, "Wedge")
+		end
+	elseif skin.Accessory == "Wings" then
+		for side = -1, 1, 2 do
+			addPart(model, torso, "WingMain", Vector3.new(1.8, 2.5, 0.32), CFrame.new(side * 1.25, 0.35, 0.7) * CFrame.Angles(0, math.rad(side * 24), math.rad(side * -18)), skin.Primary, "Wedge")
+			addPart(model, torso, "WingTip", Vector3.new(1.15, 1.55, 0.24), CFrame.new(side * 2.15, -0.2, 0.82) * CFrame.Angles(0, math.rad(side * 32), math.rad(side * -28)), skin.Accent, "Wedge")
+		end
+	elseif skin.Accessory == "Visor" then
+		addPart(model, head, "Visor", Vector3.new(1.35, 0.36, 0.14), CFrame.new(0, 0.15, -0.63), skin.Accent, nil, Enum.Material.Neon)
+		for side = -1, 1, 2 do addPart(model, head, "VisorArm", Vector3.new(0.16, 0.22, 0.8), CFrame.new(side * 0.68, 0.15, -0.25), skin.Secondary) end
+	elseif skin.Accessory == "Orbit" then
+		for index = 0, 5 do
+			local angle = index * math.pi / 3
+			addPart(model, torso, "OrbitSphere", Vector3.one * 0.42, CFrame.new(math.cos(angle) * 1.8, math.sin(angle * 2) * 0.5, math.sin(angle) * 1.8), skin.Accent, "Ball", Enum.Material.Neon)
+		end
+	elseif skin.Accessory == "Halo" then
+		for index = 0, 9 do
+			local angle = index * math.pi / 5
+			addPart(model, head, "HaloSegment", Vector3.one * 0.34, CFrame.new(math.cos(angle) * 1.1, 1.35, math.sin(angle) * 1.1), skin.Accent, "Ball", Enum.Material.Neon)
+		end
+	elseif skin.Accessory == "Crown" then
+		addPart(model, head, "CrownBand", Vector3.new(1.55, 0.28, 1.25), CFrame.new(0, 0.9, 0), skin.Secondary, nil, Enum.Material.Metal)
+		for index = -2, 2 do
+			addPart(model, head, "CrownPoint", Vector3.new(0.28, 0.85 + (2 - math.abs(index)) * 0.18, 0.3), CFrame.new(index * 0.32, 1.35, 0) * CFrame.Angles(0, 0, math.rad(index * -7)), skin.Accent, "Wedge", Enum.Material.Neon)
+		end
+	end
+end
+
+function AppearanceService.Apply(player, character)
+	if not player or not character or player:GetAttribute("SwapActive") == true then return false end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return false end
+	local data = dataService.Get(player)
+	local skin = data and SkinCatalog.Get(data.EquippedSkin) or SkinCatalog.Skins.Default
+	local ok, description = pcall(function() return Players:GetHumanoidDescriptionFromUserId(player.UserId) end)
+	if not ok or not description then
+		local fallbackOk, fallback = pcall(function() return humanoid:GetAppliedDescription() end)
+		description = fallbackOk and fallback or nil
+	end
+	if description then
+		if skin.Id ~= "Default" then
+			description.HeadColor = skin.Primary
+			description.TorsoColor = skin.Secondary
+			description.LeftArmColor = skin.Primary
+			description.RightArmColor = skin.Primary
+			description.LeftLegColor = skin.Secondary
+			description.RightLegColor = skin.Secondary
+		end
+		pcall(function() humanoid:ApplyDescription(description) end)
+	end
+	character:SetAttribute("SkinId", skin.Id)
+	buildAccessory(character, skin)
+	return true
+end
+
+function AppearanceService.Equip(player, skinId)
+	local data = dataService.Get(player)
+	if not data or not SkinCatalog.Get(skinId) or not data.OwnedSkins[skinId] then return false, "Скин не найден в инвентаре" end
+	if player:GetAttribute("SwapActive") then return false, "Сначала вернитесь в своё тело" end
+	data.EquippedSkin = skinId
+	dataService.Commit(player, false)
+	AppearanceService.Apply(player, player.Character)
+	return true
+end
+
+function AppearanceService.Init(dependencies)
+	dataService = dependencies.DataService
+end
+
+return AppearanceService
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="11">
+          <Properties>
+            <string name="Name">DataService</string>
+            <string name="Source"><![CDATA[-- Server-owned profiles, skin ownership, counters and receipt deduplication.
+local DataStoreService = game:GetService("DataStoreService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local Shared = ReplicatedStorage:WaitForChild("SwapPlaces")
+local Config = require(Shared:WaitForChild("Config"))
+local SkinCatalog = require(Shared:WaitForChild("SkinCatalog"))
+
+local DataService = {}
+local remotes
+local store = DataStoreService:GetDataStore(Config.DataStoreName)
+local cache = {}
+local dirty = {}
+local saveClock = 0
+local closing = false
+
+local function persistent()
+	return not RunService:IsStudio() or Config.PersistInStudio
+end
+
+local function defaultProfile(userId)
+	local starter = SkinCatalog.StarterForUser(userId)
+	return {
+		Version = 1,
+		OwnedSkins = { Default = true, [starter] = true },
+		EquippedSkin = starter,
+		Swaps = 0,
+		Trades = 0,
+		ProcessedReceipts = {},
+	}
+end
+
+local function sanitize(raw, userId)
+	local fallback = defaultProfile(userId)
+	if type(raw) ~= "table" then return fallback end
+	local result = {
+		Version = 1,
+		OwnedSkins = { Default = true },
+		EquippedSkin = "Default",
+		Swaps = math.max(0, math.floor(tonumber(raw.Swaps) or 0)),
+		Trades = math.max(0, math.floor(tonumber(raw.Trades) or 0)),
+		ProcessedReceipts = {},
+	}
+	local hasTradable = false
+	for id in pairs(result.OwnedSkins) do hasTradable = hasTradable or SkinCatalog.IsTradable(id) end
+	if type(raw.OwnedSkins) == "table" then
+		for id, owned in pairs(raw.OwnedSkins) do
+			if owned == true and SkinCatalog.Get(id) then
+				result.OwnedSkins[id] = true
+				hasTradable = hasTradable or SkinCatalog.IsTradable(id)
+			end
+		end
+	end
+	if not hasTradable then result.OwnedSkins[SkinCatalog.StarterForUser(userId)] = true end
+	if type(raw.EquippedSkin) == "string" and result.OwnedSkins[raw.EquippedSkin] then result.EquippedSkin = raw.EquippedSkin end
+	if type(raw.ProcessedReceipts) == "table" then
+		local receipts = {}
+		for id, timestamp in pairs(raw.ProcessedReceipts) do
+			if type(id) == "string" and #id > 0 and #id <= 100 then
+				receipts[id] = tonumber(timestamp) or 0
+			end
+		end
+		local ordered = {}
+		for id, timestamp in pairs(receipts) do table.insert(ordered, { Id = id, Time = timestamp }) end
+		table.sort(ordered, function(a, b) return a.Time > b.Time end)
+		for index = 1, math.min(Config.MaxProcessedReceipts, #ordered) do
+			result.ProcessedReceipts[ordered[index].Id] = ordered[index].Time
+		end
+	end
+	return result
+end
+
+local function publicProfile(data)
+	local owned = {}
+	for id in pairs(data.OwnedSkins) do owned[id] = true end
+	return {
+		OwnedSkins = owned,
+		EquippedSkin = data.EquippedSkin,
+		Swaps = data.Swaps,
+		Trades = data.Trades,
+	}
+end
+
+function DataService.Get(player)
+	return player and cache[player.UserId] or nil
+end
+
+function DataService.Commit(player, saveNow)
+	local data = DataService.Get(player)
+	if not data then return end
+	local count = 0
+	for _ in pairs(data.OwnedSkins) do count = count + 1 end
+	player:SetAttribute("ProfileLoaded", true)
+	player:SetAttribute("EquippedSkin", data.EquippedSkin)
+	player:SetAttribute("OwnedSkinCount", count)
+	player:SetAttribute("AvatarSwaps", data.Swaps)
+	player:SetAttribute("SkinTrades", data.Trades)
+	if remotes and player.Parent then remotes.ProfileUpdate:FireClient(player, publicProfile(data)) end
+	dirty[player.UserId] = true
+	if saveNow then DataService.Save(player) end
+end
+
+function DataService.Load(player)
+	if cache[player.UserId] then return cache[player.UserId] end
+	local raw
+	if persistent() then
+		local ok, result = pcall(function() return store:GetAsync("player_" .. player.UserId) end)
+		if ok then raw = result else warn("[SwapPlaces] DataStore load unavailable:", tostring(result)) end
+	end
+	local data = sanitize(raw, player.UserId)
+	cache[player.UserId] = data
+	DataService.Commit(player, false)
+	dirty[player.UserId] = false
+	return data
+end
+
+function DataService.Save(player)
+	local data = DataService.Get(player)
+	if not data then return false end
+	if not persistent() then dirty[player.UserId] = false; return true end
+	if not dirty[player.UserId] then return true end
+	local snapshot = sanitize(data, player.UserId)
+	local ok, err = pcall(function() store:SetAsync("player_" .. player.UserId, snapshot) end)
+	if ok then dirty[player.UserId] = false else warn("[SwapPlaces] DataStore save unavailable:", tostring(err)) end
+	return ok
+end
+
+function DataService.SaveAndClear(player)
+	DataService.Save(player)
+	cache[player.UserId] = nil
+	dirty[player.UserId] = nil
+end
+
+function DataService.SaveAll()
+	for _, player in ipairs(Players:GetPlayers()) do DataService.Save(player) end
+end
+
+function DataService.RecordSwap(player)
+	local data = DataService.Get(player)
+	if data then data.Swaps = data.Swaps + 1; DataService.Commit(player, false) end
+end
+
+function DataService.RecordTrade(player)
+	local data = DataService.Get(player)
+	if data then data.Trades = data.Trades + 1; DataService.Commit(player, false) end
+end
+
+function DataService.WasReceiptProcessed(player, receiptId)
+	local data = DataService.Get(player)
+	return not not (data and type(receiptId) == "string" and data.ProcessedReceipts[receiptId] ~= nil)
+end
+
+function DataService.MarkReceiptProcessed(player, receiptId)
+	local data = DataService.Get(player)
+	if not data or type(receiptId) ~= "string" or #receiptId == 0 or #receiptId > 100 then return false end
+	data.ProcessedReceipts[receiptId] = os.time()
+	local ordered = {}
+	for id, timestamp in pairs(data.ProcessedReceipts) do table.insert(ordered, { Id = id, Time = timestamp }) end
+	table.sort(ordered, function(a, b) return a.Time > b.Time end)
+	for index = Config.MaxProcessedReceipts + 1, #ordered do data.ProcessedReceipts[ordered[index].Id] = nil end
+	DataService.Commit(player, true)
+	return true
+end
+
+function DataService.Step(deltaTime)
+	saveClock = saveClock + deltaTime
+	if saveClock < Config.AutosaveInterval then return end
+	saveClock = 0
+	for _, player in ipairs(Players:GetPlayers()) do DataService.Save(player) end
+end
+
+function DataService.Init(dependencies)
+	remotes = dependencies.Remotes
+	for _, player in ipairs(Players:GetPlayers()) do
+		player:SetAttribute("ProfileLoaded", false)
+	end
+end
+
+game:BindToClose(function()
+	if closing then return end
+	DataService.SaveAll()
+	closing = true
+end)
+
+return DataService
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="12">
+          <Properties>
+            <string name="Name">SwapService</string>
+            <string name="Source"><![CDATA[-- Consensual Robux avatar/body swaps. ProcessReceipt is the only live grant path.
+local MarketplaceService = game:GetService("MarketplaceService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Shared = ReplicatedStorage:WaitForChild("SwapPlaces")
+local Config = require(Shared:WaitForChild("Config"))
+
+local SwapService = {}
+local dataService, remotes
+local tradeAvailable = function() return true end
+local offers, active, byUser = {}, {}, {}
+local nextId = 0
+local lastAction = {}
+
+local function getTarget(player, targetUserId)
+	if type(targetUserId) ~= "number" or targetUserId < 1 or targetUserId > 9007199254740991 or targetUserId % 1 ~= 0 then return nil end
+	local target = Players:GetPlayerByUserId(targetUserId)
+	if not target or target == player then return nil end
+	return target
+end
+
+local function notify(player, text)
+	if player and player.Parent then remotes.Notify:FireClient(player, text) end
+end
+
+local function aliveCharacter(player)
+	local character = player and player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if character and humanoid and root and humanoid.Health > 0 then return character, humanoid, root end
+	return nil
+end
+
+local function participantReady(player)
+	return player and player.Parent and player:GetAttribute("ProfileLoaded") == true
+		and player:GetAttribute("SwapActive") ~= true and tradeAvailable(player)
+end
+
+local function publicSession(session)
+	local names = {}
+	for key, userId in pairs(session.Users) do
+		local player = Players:GetPlayerByUserId(userId)
+		names[key] = player and player.DisplayName or "Игрок"
+	end
+	return {
+		Id = session.Id, Users = session.Users, Names = names, State = session.State,
+		PayerUserId = session.Payer, Price = Config.SwapRobuxPrice,
+		StudioTest = RunService:IsStudio() and Config.EnableStudioTestPurchases,
+		ExpiresIn = session.State == "Active" and math.max(0, (session.EndsAt or os.clock()) - os.clock()) or math.max(0, (session.ExpiresAt or os.clock()) - os.clock()),
+	}
+end
+
+local function broadcast(session, kind)
+	local payload = publicSession(session)
+	payload.Kind = kind or "Update"
+	for _, userId in pairs(session.Users) do
+		local player = Players:GetPlayerByUserId(userId)
+		if player then remotes.SwapFX:FireClient(player, payload) end
+	end
+end
+
+local function unmap(session)
+	offers[session.Id] = nil
+	active[session.Id] = nil
+	for _, userId in pairs(session.Users) do
+		if byUser[userId] == session then byUser[userId] = nil end
+	end
+end
+
+local function disconnect(session)
+	for _, connection in ipairs(session.Connections or {}) do connection:Disconnect() end
+	session.Connections = {}
+end
+
+local function endActive(session, reason, skipUserId)
+	if not session or active[session.Id] ~= session then return false end
+	disconnect(session)
+	unmap(session)
+	for _, userId in pairs(session.Users) do
+		local player = Players:GetPlayerByUserId(userId)
+		if player then
+			player:SetAttribute("SwapActive", false)
+			player:SetAttribute("SwapPartnerUserId", nil)
+			player:SetAttribute("SwapSessionId", nil)
+		end
+	end
+	broadcast(session, "Ended")
+	for _, userId in pairs(session.Users) do
+		local player = Players:GetPlayerByUserId(userId)
+		if player and userId ~= skipUserId then notify(player, reason or "Вы вернулись в своё тело") end
+	end
+	-- LoadCharacter may yield: session state and notifications are already final.
+	for _, userId in pairs(session.Users) do
+		local player = Players:GetPlayerByUserId(userId)
+		if player and player.Parent and userId ~= skipUserId then
+			local ok, err = pcall(function() player:LoadCharacter() end)
+			if not ok then warn("[SwapPlaces] Character restore failed:", tostring(err)) end
+		end
+	end
+	return true
+end
+
+local function cancel(session, kind)
+	if not session or offers[session.Id] ~= session or session.State == "PaymentPending" then return false end
+	unmap(session)
+	broadcast(session, kind or "Cancelled")
+	return true
+end
+
+local function setController(player, character)
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if root and not root.Anchored then pcall(function() root:SetNetworkOwner(player) end) end
+	character:SetAttribute("SwapControllerUserId", player.UserId)
+end
+
+local function execute(session, payer, receiptId)
+	if not session or offers[session.Id] ~= session then return false end
+	if session.State ~= "Accepted" and session.State ~= "PaymentPending" then return false end
+	local a = Players:GetPlayerByUserId(session.Users.A)
+	local b = Players:GetPlayerByUserId(session.Users.B)
+	if not a or not b or not participantReady(a) or not participantReady(b) then return false end
+	local charA, humanoidA, rootA = aliveCharacter(a)
+	local charB, humanoidB, rootB = aliveCharacter(b)
+	if not charA or not charB or charA == charB or rootA.Anchored or rootB.Anchored or charA:GetAttribute("SwapSessionId") or charB:GetAttribute("SwapSessionId") then return false end
+	session.State = "Active"
+	session.Payer = payer.UserId
+	session.ReceiptId = receiptId
+	session.EndsAt = os.clock() + Config.SwapDuration
+	session.Characters = { [a.UserId] = charB, [b.UserId] = charA }
+	for _, player in ipairs({ a, b }) do
+		local partner = player == a and b or a
+		player:SetAttribute("SwapActive", true)
+		player:SetAttribute("SwapPartnerUserId", partner.UserId)
+		player:SetAttribute("SwapSessionId", session.Id)
+	end
+	local ok = pcall(function()
+		a.Character = charB
+		b.Character = charA
+	end)
+	if not ok then
+		pcall(function() a.Character = charA; b.Character = charB end)
+		for _, player in ipairs({ a, b }) do
+			player:SetAttribute("SwapActive", false)
+			player:SetAttribute("SwapPartnerUserId", nil)
+			player:SetAttribute("SwapSessionId", nil)
+		end
+		session.State = "Accepted"
+		return false
+	end
+	charA:SetAttribute("SwapSessionId", session.Id)
+	charB:SetAttribute("SwapSessionId", session.Id)
+	setController(a, charB)
+	setController(b, charA)
+	session.Connections = {
+		humanoidA.Died:Connect(function() endActive(session, "Тело погибло · оба игрока возвращаются к своим аватарам") end),
+		humanoidB.Died:Connect(function() endActive(session, "Тело погибло · оба игрока возвращаются к своим аватарам") end),
+	}
+	offers[session.Id] = nil
+	active[session.Id] = session
+	dataService.RecordSwap(a)
+	dataService.RecordSwap(b)
+	broadcast(session, "Active")
+	notify(a, "Вы управляете телом " .. b.DisplayName .. " · " .. Config.SwapDuration .. " с")
+	notify(b, "Вы управляете телом " .. a.DisplayName .. " · " .. Config.SwapDuration .. " с")
+	return true
+end
+
+function SwapService.Create(player, targetUserId)
+	local target = getTarget(player, targetUserId)
+	if not target then return false, "Игрок недоступен" end
+	if not participantReady(player) or not participantReady(target) then return false, "Оба игрока должны быть готовы" end
+	if byUser[player.UserId] or byUser[target.UserId] then return false, "Один из игроков уже участвует в предложении" end
+	if not aliveCharacter(player) or not aliveCharacter(target) then return false, "Дождитесь появления обоих персонажей" end
+	nextId = nextId + 1
+	local session = {
+		Id = nextId, Users = { A = player.UserId, B = target.UserId }, State = "Pending",
+		ExpiresAt = os.clock() + Config.OfferDuration, Connections = {},
+	}
+	offers[session.Id] = session
+	byUser[player.UserId], byUser[target.UserId] = session, session
+	broadcast(session, "Offer")
+	return true
+end
+
+function SwapService.Accept(player)
+	local session = byUser[player.UserId]
+	if not session or offers[session.Id] ~= session or session.State ~= "Pending" then return false, "Предложение не найдено" end
+	if session.Users.B ~= player.UserId then return false, "Это предложение адресовано другому игроку" end
+	if not participantReady(player) or not aliveCharacter(player) then return false, "Сейчас нельзя принять обмен" end
+	session.State = "Accepted"
+	broadcast(session, "Accepted")
+	return true
+end
+
+function SwapService.Pay(player)
+	local session = byUser[player.UserId]
+	if not session or offers[session.Id] ~= session or session.State ~= "Accepted" then return false, "Сначала получите согласие второго игрока" end
+	if session.Users.A ~= player.UserId and session.Users.B ~= player.UserId then return false end
+	local other = Players:GetPlayerByUserId(session.Users.A == player.UserId and session.Users.B or session.Users.A)
+	if not participantReady(player) or not other or not participantReady(other) or not aliveCharacter(player) or not aliveCharacter(other) then return false, "Персонажи больше недоступны" end
+	if RunService:IsStudio() and Config.EnableStudioTestPurchases then
+		if execute(session, player, nil) then return true end
+		return false, "Не удалось выполнить TEST-обмен"
+	end
+	if Config.SwapProductId <= 0 then return false, "Developer Product ещё не настроен владельцем" end
+	session.State = "PaymentPending"
+	session.Payer = player.UserId
+	session.ProductId = Config.SwapProductId
+	broadcast(session, "PaymentPending")
+	local ok, err = pcall(function() MarketplaceService:PromptProductPurchase(player, Config.SwapProductId) end)
+	if not ok then
+		session.State = "Accepted"
+		session.Payer = nil
+		broadcast(session, "Accepted")
+		return false, "Не удалось открыть покупку: " .. tostring(err)
+	end
+	return true
+end
+
+function SwapService.ProcessReceipt(receipt)
+	if type(receipt) ~= "table" or Config.SwapProductId <= 0 or receipt.ProductId ~= Config.SwapProductId then return Enum.ProductPurchaseDecision.NotProcessedYet end
+	local player = Players:GetPlayerByUserId(receipt.PlayerId)
+	if not player then return Enum.ProductPurchaseDecision.NotProcessedYet end
+	if dataService.WasReceiptProcessed(player, receipt.PurchaseId) then return Enum.ProductPurchaseDecision.PurchaseGranted end
+	local session = byUser[player.UserId]
+	if session and active[session.Id] == session and session.ReceiptId == receipt.PurchaseId then
+		return dataService.MarkReceiptProcessed(player, receipt.PurchaseId) and Enum.ProductPurchaseDecision.PurchaseGranted or Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	if not session or offers[session.Id] ~= session or session.State ~= "PaymentPending" or session.Payer ~= player.UserId or session.ProductId ~= receipt.ProductId then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	if not execute(session, player, receipt.PurchaseId) then return Enum.ProductPurchaseDecision.NotProcessedYet end
+	if not dataService.MarkReceiptProcessed(player, receipt.PurchaseId) then return Enum.ProductPurchaseDecision.NotProcessedYet end
+	return Enum.ProductPurchaseDecision.PurchaseGranted
+end
+
+function SwapService.OnPromptFinished(player, productId, purchased)
+	local session = byUser[player.UserId]
+	if not session or offers[session.Id] ~= session or session.State ~= "PaymentPending" or session.Payer ~= player.UserId or session.ProductId ~= productId then return end
+	if not purchased then
+		session.State = "Accepted"
+		session.Payer = nil
+		broadcast(session, "Accepted")
+	end
+end
+
+function SwapService.Revert(player)
+	local session = byUser[player.UserId]
+	if not session or active[session.Id] ~= session then return false, "Активный обмен не найден" end
+	return endActive(session, "Обмен завершён · вы вернулись в своё тело")
+end
+
+function SwapService.HandleAction(player, action, value)
+	local now = os.clock()
+	if now - (lastAction[player.UserId] or 0) < 0.2 then return false, "Подождите мгновение" end
+	lastAction[player.UserId] = now
+	local result, reason
+	if action == "Create" then result, reason = SwapService.Create(player, value)
+	elseif action == "Accept" then result, reason = SwapService.Accept(player)
+	elseif action == "Pay" then result, reason = SwapService.Pay(player)
+	elseif action == "Decline" or action == "Cancel" then
+		local session = byUser[player.UserId]
+		result = session and cancel(session, action == "Decline" and "Declined" or "Cancelled") or false
+		if not result then reason = "Предложение нельзя отменить сейчас" end
+	elseif action == "Revert" then result, reason = SwapService.Revert(player)
+	else reason = "Неизвестное действие" end
+	if not result and reason then notify(player, reason) end
+	return result, reason
+end
+
+function SwapService.IsAvailable(player)
+	return player and byUser[player.UserId] == nil and player:GetAttribute("SwapActive") ~= true
+end
+
+function SwapService.GetSession(player)
+	return byUser[player.UserId]
+end
+
+function SwapService.SetTradeAvailability(provider)
+	tradeAvailable = provider or function() return true end
+end
+
+function SwapService.OnPlayerRemoving(player)
+	lastAction[player.UserId] = nil
+	local session = byUser[player.UserId]
+	if session and active[session.Id] == session then endActive(session, "Партнёр вышел · вы вернулись в своё тело", player.UserId)
+	elseif session and offers[session.Id] == session then
+		unmap(session)
+		broadcast(session, "Cancelled")
+	end
+end
+
+function SwapService.Step()
+	local now = os.clock()
+	for _, session in pairs(offers) do
+		if session.State ~= "PaymentPending" and now >= session.ExpiresAt then cancel(session, "Expired") end
+	end
+	for _, session in pairs(active) do
+		local a = Players:GetPlayerByUserId(session.Users.A)
+		local b = Players:GetPlayerByUserId(session.Users.B)
+		if now >= session.EndsAt then endActive(session, "Время обмена истекло · вы вернулись в своё тело")
+		elseif not a or not b then endActive(session, "Партнёр отключился · обмен завершён", not a and session.Users.A or session.Users.B) end
+	end
+end
+
+function SwapService.Init(dependencies)
+	dataService = dependencies.DataService
+	remotes = dependencies.Remotes
+	MarketplaceService.ProcessReceipt = function(receipt) return SwapService.ProcessReceipt(receipt) end
+	MarketplaceService.PromptProductPurchaseFinished:Connect(function(player, productId, purchased)
+		SwapService.OnPromptFinished(player, productId, purchased)
+	end)
+end
+
+return SwapService
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="13">
+          <Properties>
+            <string name="Name">TradeService</string>
+            <string name="Source"><![CDATA[-- Consensual one-for-one trades of owned in-game skins. No copies or client rewards.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("SwapPlaces")
+local Config = require(Shared:WaitForChild("Config"))
+local SkinCatalog = require(Shared:WaitForChild("SkinCatalog"))
+
+local TradeService = {}
+local dataService, appearanceService, remotes
+local swapAvailable = function() return true end
+local sessions = {}
+local byUser = {}
+local nextId = 0
+local lastAction = {}
+
+local function getTarget(player, targetUserId)
+	if type(targetUserId) ~= "number" or targetUserId < 1 or targetUserId > 9007199254740991 or targetUserId % 1 ~= 0 then return nil end
+	local target = Players:GetPlayerByUserId(targetUserId)
+	if not target or target == player then return nil end
+	return target
+end
+
+local function notify(player, text)
+	if player and player.Parent then remotes.Notify:FireClient(player, text) end
+end
+
+local function baseAvailable(player)
+	return player and player.Parent and player:GetAttribute("ProfileLoaded") == true
+		and player:GetAttribute("SwapActive") ~= true and swapAvailable(player)
+end
+
+local function publicSession(session)
+	local selected, confirmed, names = {}, {}, {}
+	for key, userId in pairs(session.Users) do
+		local player = Players:GetPlayerByUserId(userId)
+		names[key] = player and player.DisplayName or "Игрок"
+		if session.Selected[userId] then selected[key] = session.Selected[userId] end
+		if session.Confirmed[userId] then confirmed[key] = true end
+	end
+	return { Id = session.Id, Users = session.Users, Names = names, Selected = selected, Confirmed = confirmed, ExpiresIn = math.max(0, session.ExpiresAt - os.clock()) }
+end
+
+local function broadcast(session, kind)
+	local payload = publicSession(session)
+	payload.Kind = kind or "Update"
+	for _, userId in pairs(session.Users) do
+		local player = Players:GetPlayerByUserId(userId)
+		if player then remotes.TradeFX:FireClient(player, payload) end
+	end
+end
+
+local function remove(session, kind)
+	if not session or sessions[session.Id] ~= session then return end
+	sessions[session.Id] = nil
+	for _, userId in pairs(session.Users) do byUser[userId] = nil end
+	if kind then broadcast(session, kind) end
+end
+
+local function execute(session)
+	if not session or sessions[session.Id] ~= session then return false end
+	local a = Players:GetPlayerByUserId(session.Users.A)
+	local b = Players:GetPlayerByUserId(session.Users.B)
+	local skinA, skinB = session.Selected[session.Users.A], session.Selected[session.Users.B]
+	if not a or not b or not baseAvailable(a) or not baseAvailable(b) or not skinA or not skinB or skinA == skinB then return false end
+	local dataA, dataB = dataService.Get(a), dataService.Get(b)
+	if not dataA or not dataB or not dataA.OwnedSkins[skinA] or not dataB.OwnedSkins[skinB] or not SkinCatalog.IsTradable(skinA) or not SkinCatalog.IsTradable(skinB) then return false end
+	-- Commit both ownership changes as one in-memory transaction after every check.
+	dataA.OwnedSkins[skinA] = nil
+	dataB.OwnedSkins[skinB] = nil
+	dataA.OwnedSkins[skinB] = true
+	dataB.OwnedSkins[skinA] = true
+	if dataA.EquippedSkin == skinA then dataA.EquippedSkin = "Default" end
+	if dataB.EquippedSkin == skinB then dataB.EquippedSkin = "Default" end
+	remove(session, nil)
+	dataService.RecordTrade(a)
+	dataService.RecordTrade(b)
+	for _, player in ipairs({ a, b }) do
+		if player.Parent then
+			remotes.TradeFX:FireClient(player, { Kind = "Completed", SessionId = session.Id, Given = player == a and skinA or skinB, Received = player == a and skinB or skinA })
+		end
+	end
+	-- Cosmetic/DataStore operations come after the atomic ownership commit and notifications.
+	if a.Parent then appearanceService.Apply(a, a.Character) end
+	if b.Parent then appearanceService.Apply(b, b.Character) end
+	return true
+end
+
+function TradeService.Create(player, targetUserId)
+	local target = getTarget(player, targetUserId)
+	if not target then return false, "Игрок недоступен" end
+	if not baseAvailable(player) or not baseAvailable(target) then return false, "Оба игрока должны быть свободны" end
+	if byUser[player.UserId] or byUser[target.UserId] then return false, "Один из игроков уже обменивается" end
+	nextId = nextId + 1
+	local session = {
+		Id = nextId,
+		Users = { A = player.UserId, B = target.UserId },
+		Selected = {}, Confirmed = {},
+		ExpiresAt = os.clock() + Config.TradeDuration,
+	}
+	sessions[session.Id] = session
+	byUser[player.UserId], byUser[target.UserId] = session, session
+	broadcast(session, "Started")
+	return true
+end
+
+function TradeService.Select(player, skinId)
+	local session = byUser[player.UserId]
+	local data = dataService.Get(player)
+	if not session or not data then return false, "Обмен не найден" end
+	if not SkinCatalog.IsTradable(skinId) or not data.OwnedSkins[skinId] then return false, "Этот скин нельзя предложить" end
+	if not baseAvailable(player) then return false, "Сейчас нельзя менять предложение" end
+	session.Selected[player.UserId] = skinId
+	session.Confirmed = {}
+	broadcast(session, "Update")
+	return true
+end
+
+function TradeService.Confirm(player)
+	local session = byUser[player.UserId]
+	if not session then return false, "Обмен не найден" end
+	if not baseAvailable(player) then return false, "Сейчас нельзя подтвердить" end
+	local selectedA = session.Selected[session.Users.A]
+	local selectedB = session.Selected[session.Users.B]
+	if not selectedA or not selectedB then return false, "Оба игрока должны выбрать скин" end
+	if selectedA == selectedB then return false, "Выберите разные скины" end
+	session.Confirmed[player.UserId] = true
+	if not (session.Confirmed[session.Users.A] and session.Confirmed[session.Users.B]) then
+		broadcast(session, "Update")
+		return true
+	end
+	if not execute(session) then
+		session.Confirmed = {}
+		broadcast(session, "Update")
+		return false, "Предложение устарело · выберите скины заново"
+	end
+	return true
+end
+
+function TradeService.Cancel(player)
+	local session = byUser[player.UserId]
+	if not session then return false, "Обмен не найден" end
+	remove(session, "Cancelled")
+	return true
+end
+
+function TradeService.HandleAction(player, action, value)
+	local now = os.clock()
+	if now - (lastAction[player.UserId] or 0) < 0.15 then return false, "Подождите мгновение" end
+	lastAction[player.UserId] = now
+	local result, reason
+	if action == "Create" then result, reason = TradeService.Create(player, value)
+	elseif action == "Select" then result, reason = TradeService.Select(player, value)
+	elseif action == "Confirm" then result, reason = TradeService.Confirm(player)
+	elseif action == "Cancel" then result, reason = TradeService.Cancel(player)
+	else reason = "Неизвестное действие" end
+	if not result and reason then notify(player, reason) end
+	return result, reason
+end
+
+function TradeService.IsBusy(player)
+	return byUser[player.UserId] ~= nil
+end
+
+function TradeService.GetSession(player)
+	return byUser[player.UserId]
+end
+
+function TradeService.SetSwapAvailability(provider)
+	swapAvailable = provider or function() return true end
+end
+
+function TradeService.OnPlayerRemoving(player)
+	lastAction[player.UserId] = nil
+	local session = byUser[player.UserId]
+	if session then remove(session, "Cancelled") end
+end
+
+function TradeService.Step()
+	local now = os.clock()
+	for _, session in pairs(sessions) do
+		if now >= session.ExpiresAt then remove(session, "Expired") end
+	end
+end
+
+function TradeService.Init(dependencies)
+	dataService = dependencies.DataService
+	appearanceService = dependencies.AppearanceService
+	remotes = dependencies.Remotes
+end
+
+return TradeService
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="14">
+          <Properties>
+            <string name="Name">WorldBuilder</string>
+            <string name="Source"><![CDATA[-- Original procedural social plaza for «Поменяйся местами».
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
+local Shared = ReplicatedStorage:WaitForChild("SwapPlaces")
+local Config = require(Shared:WaitForChild("Config"))
+local SkinCatalog = require(Shared:WaitForChild("SkinCatalog"))
+
+local WorldBuilder = {}
+local INK = Color3.fromRGB(30, 36, 64)
+local WHITE = Color3.fromRGB(244, 247, 255)
+local PINK = Color3.fromRGB(245, 105, 173)
+local CYAN = Color3.fromRGB(78, 211, 231)
+
+local function part(parent, name, size, cframe, color, material, collide, className)
+	local object = Instance.new(className or "Part")
+	object.Name = name
+	object.Size = size
+	object.CFrame = cframe
+	object.Color = color
+	object.Material = material or Enum.Material.SmoothPlastic
+	object.Anchored = true
+	object.CanCollide = collide ~= false
+	object.CanTouch = false
+	object.CanQuery = collide == true
+	object.TopSurface = Enum.SurfaceType.Smooth
+	object.BottomSurface = Enum.SurfaceType.Smooth
+	object.Parent = parent
+	return object
+end
+
+local function label(parent, text, color, offset, width)
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "WorldLabel"
+	gui.Size = UDim2.fromOffset(width or 340, 76)
+	gui.StudsOffset = offset or Vector3.new(0, 6, 0)
+	gui.AlwaysOnTop = true
+	gui.MaxDistance = 190
+	gui.Parent = parent
+	local textLabel = Instance.new("TextLabel")
+	textLabel.BackgroundTransparency = 1
+	textLabel.Size = UDim2.fromScale(1, 1)
+	textLabel.Font = Enum.Font.GothamBlack
+	textLabel.Text = text
+	textLabel.TextColor3 = color or WHITE
+	textLabel.TextStrokeColor3 = INK
+	textLabel.TextStrokeTransparency = 0.25
+	textLabel.TextScaled = true
+	textLabel.Parent = gui
+	return gui
+end
+
+local function prompt(parent, action, objectText)
+	local object = Instance.new("ProximityPrompt")
+	object.ActionText = action
+	object.ObjectText = objectText
+	object.HoldDuration = 0.2
+	object.MaxActivationDistance = 12
+	object.RequiresLineOfSight = false
+	object.Parent = parent
+	return object
+end
+
+local function palm(parent, position, scale)
+	local model = Instance.new("Model")
+	model.Name = "PlazaPalm"
+	model.Parent = parent
+	for index = 0, 5 do
+		part(model, "Trunk", Vector3.new(0.8 * scale, 2.4 * scale, 0.8 * scale), CFrame.new(position + Vector3.new(math.sin(index * 0.4) * scale, (index + 0.5) * 2.1 * scale, 0)), Color3.fromRGB(150, 102, 69), Enum.Material.Wood, index < 3)
+	end
+	local top = position + Vector3.new(0, 13.2 * scale, 0)
+	part(model, "Crown", Vector3.one * 1.5 * scale, CFrame.new(top), Color3.fromRGB(69, 165, 91), Enum.Material.Grass, false).Shape = Enum.PartType.Ball
+	for index = 0, 7 do
+		local angle = index * math.pi / 4
+		local offset = Vector3.new(math.cos(angle) * 3.2 * scale, -0.3 * scale, math.sin(angle) * 3.2 * scale)
+		part(model, "Leaf", Vector3.new(5.8 * scale, 0.28 * scale, 1.25 * scale), CFrame.new(top + offset) * CFrame.Angles(0, -angle, math.rad(index % 2 == 0 and 8 or -8)), index % 2 == 0 and Color3.fromRGB(79, 190, 105) or Color3.fromRGB(50, 148, 92), Enum.Material.Grass, false, "WedgePart")
+	end
+	return model
+end
+
+local function mannequin(parent, skin, position)
+	local model = Instance.new("Model")
+	model.Name = "Skin_" .. skin.Id
+	model.Parent = parent
+	local pedestal = part(model, "Pedestal", Vector3.new(8, 1, 8), CFrame.new(position + Vector3.new(0, 0.5, 0)), INK, Enum.Material.Metal, true)
+	part(model, "PedestalGlow", Vector3.new(7.2, 0.18, 7.2), CFrame.new(position + Vector3.new(0, 1.08, 0)), skin.Accent, Enum.Material.Neon, false)
+	local base = position + Vector3.new(0, 1.1, 0)
+	part(model, "Torso", Vector3.new(2, 2, 1), CFrame.new(base + Vector3.new(0, 3.5, 0)), skin.Secondary, Enum.Material.Fabric, false)
+	part(model, "Head", Vector3.new(1.4, 1.4, 1.4), CFrame.new(base + Vector3.new(0, 5.4, 0)), skin.Primary, Enum.Material.SmoothPlastic, false).Shape = Enum.PartType.Ball
+	for side = -1, 1, 2 do
+		part(model, "Arm", Vector3.new(0.65, 2.2, 0.65), CFrame.new(base + Vector3.new(side * 1.4, 3.5, 0)), skin.Primary, Enum.Material.Fabric, false)
+		part(model, "Leg", Vector3.new(0.78, 2.1, 0.78), CFrame.new(base + Vector3.new(side * 0.55, 1.45, 0)), skin.Secondary, Enum.Material.Fabric, false)
+	end
+	if skin.Accessory == "Halo" or skin.Accessory == "Crown" then
+		for index = 0, 5 do
+			local angle = index * math.pi / 3
+			part(model, "HeadAccessory", Vector3.one * 0.35, CFrame.new(base + Vector3.new(math.cos(angle), 6.45 + (skin.Accessory == "Crown" and math.sin(angle) * 0.4 or 0), math.sin(angle))), skin.Accent, Enum.Material.Neon, false).Shape = Enum.PartType.Ball
+		end
+	elseif skin.Accessory == "Wings" then
+		for side = -1, 1, 2 do part(model, "Wing", Vector3.new(1.5, 2.5, 0.25), CFrame.new(base + Vector3.new(side * 1.6, 3.8, 0.75)) * CFrame.Angles(0, math.rad(side * 25), math.rad(side * -20)), skin.Accent, Enum.Material.Fabric, false, "WedgePart") end
+	elseif skin.Accessory == "Pack" or skin.Accessory == "Cape" then
+		part(model, "BackAccessory", Vector3.new(1.8, 2.4, 0.65), CFrame.new(base + Vector3.new(0, 3.3, 0.85)), skin.Accent, Enum.Material.Fabric, false)
+	elseif skin.Accessory == "Visor" then
+		part(model, "Visor", Vector3.new(1.2, 0.3, 0.18), CFrame.new(base + Vector3.new(0, 5.5, -0.72)), skin.Accent, Enum.Material.Neon, false)
+	elseif skin.Accessory == "Orbit" then
+		for index = 0, 5 do
+			local angle = index * math.pi / 3
+			part(model, "Orbit", Vector3.one * 0.35, CFrame.new(base + Vector3.new(math.cos(angle) * 1.8, 3.7 + math.sin(angle * 2) * 0.5, math.sin(angle) * 1.8)), skin.Accent, Enum.Material.Neon, false).Shape = Enum.PartType.Ball
+		end
+	end
+	label(pedestal, skin.Name .. "\n" .. skin.Description, skin.Accent, Vector3.new(0, 8.5, 0), 260)
+	return pedestal
+end
+
+function WorldBuilder.Build()
+	local old = Workspace:FindFirstChild("SwapPlacesWorld")
+	if old then old:Destroy() end
+	local root = Instance.new("Folder")
+	root.Name = "SwapPlacesWorld"
+	root.Parent = Workspace
+	part(root, "Ground", Vector3.new(Config.World.Width, 4, Config.World.Depth), CFrame.new(0, -2, 0), Color3.fromRGB(100, 176, 107), Enum.Material.Grass, true)
+	part(root, "MainPath", Vector3.new(20, 0.35, 158), CFrame.new(0, 0.18, 0), Color3.fromRGB(233, 213, 174), Enum.Material.Sand, false)
+	part(root, "CrossPath", Vector3.new(190, 0.34, 16), CFrame.new(0, 0.19, -18), Color3.fromRGB(233, 213, 174), Enum.Material.Sand, false)
+	local plaza = part(root, "SwapPlaza", Vector3.new(1, 72, 72), CFrame.new(0, 0.35, -4) * CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(238, 232, 222), Enum.Material.Cobblestone, true, "Part")
+	plaza.Shape = Enum.PartType.Cylinder
+	for side = -1, 1, 2 do
+		local pad = part(root, side < 0 and "SwapPadA" or "SwapPadB", Vector3.new(0.35, 22, 22), CFrame.new(side * 15, 0.85, -4) * CFrame.Angles(0, 0, math.rad(90)), side < 0 and PINK or CYAN, Enum.Material.Neon, false)
+		pad.Shape = Enum.PartType.Cylinder
+		label(pad, side < 0 and "ТВОЁ ТЕЛО" or "ТЕЛО ПАРТНЁРА", WHITE, Vector3.new(0, 3, 0), 220)
+	end
+	local sign = part(root, "MainSign", Vector3.new(42, 12, 1.2), CFrame.new(0, 12, -39), INK, Enum.Material.Wood, true)
+	label(sign, "ПОМЕНЯЙСЯ МЕСТАМИ\nТЕЛО ДРУГОГО · ОБМЕН СКИНАМИ", Color3.fromRGB(255, 220, 113), Vector3.new(0, 0, -0.8), 620)
+	for side = -1, 1, 2 do
+		part(root, "SignColumn", Vector3.new(2, 18, 2), CFrame.new(side * 19, 7, -38), Color3.fromRGB(95, 67, 77), Enum.Material.Wood, true)
+		local booth = part(root, side < 0 and "TradeBooth" or "SwapBooth", Vector3.new(22, 8, 16), CFrame.new(side * 55, 4, -17), side < 0 and Color3.fromRGB(83, 71, 131) or Color3.fromRGB(46, 121, 139), Enum.Material.Fabric, true)
+		part(booth, "Counter", Vector3.new(16, 2, 3), booth.CFrame * CFrame.new(0, -2, -8), WHITE, Enum.Material.Wood, true)
+		label(booth, side < 0 and "ОБМЕН СКИНАМИ" or "ОБМЕН ТЕЛАМИ", WHITE, Vector3.new(0, 7, 0), 300)
+	end
+	local swapPrompt = prompt(root:FindFirstChild("SwapBooth"), "ОТКРЫТЬ", "ОБМЕН ТЕЛАМИ")
+	local tradePrompt = prompt(root:FindFirstChild("TradeBooth"), "ОТКРЫТЬ", "ОБМЕН СКИНАМИ")
+	local skinPrompts = {}
+	for index, id in ipairs(SkinCatalog.Order) do
+		local skin = SkinCatalog.Skins[id]
+		local x = (index - 4.5) * 19
+		local pedestal = mannequin(root, skin, Vector3.new(x, 0, -70))
+		skinPrompts[id] = prompt(pedestal, "ГАРДЕРОБ", skin.Name)
+	end
+	for side = -1, 1, 2 do
+		part(root, "SafetyWall", Vector3.new(2, 12, 180), CFrame.new(side * 109, 5, 0), Color3.fromRGB(150, 221, 221), Enum.Material.Glass, true).Transparency = 0.45
+		part(root, "SafetyWall", Vector3.new(220, 12, 2), CFrame.new(0, 5, side * 89), Color3.fromRGB(150, 221, 221), Enum.Material.Glass, true).Transparency = 0.45
+		for index = 0, 5 do palm(root, Vector3.new(side * (88 + (index % 2) * 8), 0, -65 + index * 25), 0.72 + (index % 3) * 0.08) end
+	end
+	local spawn = Instance.new("SpawnLocation")
+	spawn.Name = "PlazaSpawn"
+	spawn.Size = Vector3.new(10, 1, 10)
+	spawn.CFrame = CFrame.new(Config.Spawn)
+	spawn.Color = Color3.fromRGB(255, 220, 113)
+	spawn.Material = Enum.Material.Neon
+	spawn.Anchored = true
+	spawn.Neutral = true
+	spawn.Duration = 0
+	spawn.Parent = root
+	label(spawn, "START · ВЫБЕРИ ИГРОКА", INK, Vector3.new(0, 5, 0), 280)
+	Lighting.ClockTime = 14.4
+	Lighting.Brightness = 2.3
+	Lighting.OutdoorAmbient = Color3.fromRGB(117, 133, 139)
+	Lighting.EnvironmentDiffuseScale = 0.42
+	Lighting.EnvironmentSpecularScale = 0.45
+	Lighting.ExposureCompensation = 0.08
+	return { Root = root, Spawn = spawn, SwapPrompt = swapPrompt, TradePrompt = tradePrompt, SkinPrompts = skinPrompts }
+end
+
+return WorldBuilder
+]]></string>
+          </Properties>
+        </Item>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="StarterPlayer" referent="15">
+    <Properties>
+      <string name="Name">StarterPlayer</string>
+    </Properties>
+    <Item class="StarterPlayerScripts" referent="16">
+      <Properties>
+        <string name="Name">StarterPlayerScripts</string>
+      </Properties>
+      <Item class="LocalScript" referent="17">
+        <Properties>
+          <string name="Name">Client</string>
+          <string name="Source"><![CDATA[-- Responsive social UI and camera binding for avatar/body swaps.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+local Shared = ReplicatedStorage:WaitForChild("SwapPlaces")
+local Config = require(Shared:WaitForChild("Config"))
+local SkinCatalog = require(Shared:WaitForChild("SkinCatalog"))
+local remotes = Shared:WaitForChild("Remotes")
+local INK = Color3.fromRGB(25, 30, 54)
+local PANEL = Color3.fromRGB(43, 51, 82)
+local TEXT = Color3.fromRGB(246, 248, 255)
+local MUTED = Color3.fromRGB(178, 190, 216)
+local PINK = Color3.fromRGB(241, 105, 174)
+local CYAN = Color3.fromRGB(83, 211, 230)
+local GOLD = Color3.fromRGB(255, 211, 105)
+local GREEN = Color3.fromRGB(94, 218, 151)
+
+local function new(className, properties, parent)
+	local object = Instance.new(className)
+	for key, value in pairs(properties or {}) do object[key] = value end
+	object.Parent = parent
+	return object
+end
+local function corner(object, radius)
+	return new("UICorner", { CornerRadius = UDim.new(0, radius or 9) }, object)
+end
+local function label(parent, text, size, position, textSize, color)
+	return new("TextLabel", {
+		BackgroundTransparency = 1, Size = size, Position = position or UDim2.new(),
+		Font = Enum.Font.Gotham, Text = text, TextColor3 = color or TEXT,
+		TextSize = textSize or 16, TextWrapped = true,
+	}, parent)
+end
+local function button(parent, text, size, position, color)
+	local object = new("TextButton", {
+		BackgroundColor3 = color or PANEL, Size = size, Position = position or UDim2.new(),
+		Font = Enum.Font.GothamBold, Text = text, TextColor3 = TEXT, TextSize = 15,
+		TextWrapped = true, AutoButtonColor = true, BorderSizePixel = 0,
+	}, parent)
+	corner(object)
+	new("UIStroke", { Color = Color3.fromRGB(93, 111, 151), Thickness = 1, Transparency = 0.2 }, object)
+	return object
+end
+
+local gui = new("ScreenGui", { Name = "SwapPlacesUI", ResetOnSpawn = false, IgnoreGuiInset = false }, player:WaitForChild("PlayerGui"))
+local top = new("Frame", { Position = UDim2.fromOffset(12, 12), Size = UDim2.new(1, -24, 0, 82), BackgroundColor3 = INK, BackgroundTransparency = 0.08 }, gui)
+corner(top, 12)
+local title = label(top, "ПОМЕНЯЙСЯ МЕСТАМИ", UDim2.new(0.58, -16, 0, 36), UDim2.fromOffset(16, 7), 25, GOLD)
+title.Font = Enum.Font.GothamBlack
+title.TextXAlignment = Enum.TextXAlignment.Left
+local status = label(top, "Загрузка профиля…", UDim2.new(0.58, -16, 0, 26), UDim2.fromOffset(16, 46), 15, MUTED)
+status.TextXAlignment = Enum.TextXAlignment.Left
+local pairStatus = label(top, "СВОЙ АВАТАР", UDim2.new(0.4, -18, 0, 60), UDim2.new(0.6, 0, 0, 11), 18, CYAN)
+pairStatus.TextXAlignment = Enum.TextXAlignment.Right
+
+local playersFrame = new("Frame", { Position = UDim2.fromOffset(12, 108), Size = UDim2.fromOffset(320, 342), BackgroundColor3 = INK, BackgroundTransparency = 0.08 }, gui)
+corner(playersFrame, 12)
+label(playersFrame, "ИГРОКИ · ВЫБЕРИ ДЕЙСТВИЕ", UDim2.new(1, -20, 0, 34), UDim2.fromOffset(10, 7), 16, GOLD)
+local playerList = new("ScrollingFrame", { Position = UDim2.fromOffset(10, 46), Size = UDim2.new(1, -20, 1, -56), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 5, CanvasSize = UDim2.new() }, playersFrame)
+new("UIListLayout", { Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder }, playerList)
+
+local dock = new("Frame", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 108), Size = UDim2.fromOffset(240, 148), BackgroundColor3 = INK, BackgroundTransparency = 0.08 }, gui)
+corner(dock, 12)
+local swapButton = button(dock, "ПОМЕНЯТЬСЯ ТЕЛАМИ [B]", UDim2.new(1, -20, 0, 36), UDim2.fromOffset(10, 10), PINK)
+local tradeButton = button(dock, "ОБМЕН СКИНАМИ [T]", UDim2.new(1, -20, 0, 36), UDim2.fromOffset(10, 54), CYAN)
+local inventoryButton = button(dock, "ГАРДЕРОБ [I]", UDim2.new(1, -20, 0, 36), UDim2.fromOffset(10, 98), PANEL)
+
+local panel = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(0.9, 0, 0.72, 0), BackgroundColor3 = INK, Visible = false }, gui)
+corner(panel, 14)
+new("UISizeConstraint", { MinSize = Vector2.new(320, 470), MaxSize = Vector2.new(700, 570) }, panel)
+new("UIStroke", { Color = CYAN, Thickness = 1.5, Transparency = 0.15 }, panel)
+local modalTitle = label(panel, "", UDim2.new(1, -90, 0, 44), UDim2.fromOffset(18, 8), 24, GOLD)
+modalTitle.Font = Enum.Font.GothamBlack
+local closeButton = button(panel, "×", UDim2.fromOffset(44, 38), UDim2.new(1, -58, 0, 10), PANEL)
+closeButton.Activated:Connect(function() panel.Visible = false end)
+local pages = new("Frame", { Position = UDim2.fromOffset(16, 60), Size = UDim2.new(1, -32, 1, -76), BackgroundTransparency = 1 }, panel)
+local swapPage = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 }, pages)
+local tradePage = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false }, pages)
+local inventoryPage = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false }, pages)
+
+local swapTitle = label(swapPage, "ОБМЕН ПЕРСОНАЖАМИ", UDim2.new(1, 0, 0, 44), UDim2.new(), 23, PINK)
+local swapDescription = label(swapPage, "Выберите ТЕЛО у игрока. Он должен согласиться; затем любой из вас может оплатить обмен.", UDim2.new(1, 0, 0, 110), UDim2.fromOffset(0, 54), 18, TEXT)
+local swapTimer = label(swapPage, "", UDim2.new(1, 0, 0, 38), UDim2.fromOffset(0, 172), 18, GOLD)
+local acceptSwap = button(swapPage, "СОГЛАСИТЬСЯ", UDim2.new(0.47, 0, 0, 48), UDim2.new(0, 0, 1, -158), GREEN)
+local declineSwap = button(swapPage, "ОТКЛОНИТЬ", UDim2.new(0.47, 0, 0, 48), UDim2.new(0.53, 0, 1, -158), Color3.fromRGB(175, 74, 91))
+local paySwap = button(swapPage, "ОПЛАТИТЬ", UDim2.new(1, 0, 0, 52), UDim2.new(0, 0, 1, -100), GOLD)
+local cancelSwap = button(swapPage, "ОТМЕНИТЬ ПРЕДЛОЖЕНИЕ", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 1, -48), PANEL)
+local revertSwap = button(swapPage, "ВЕРНУТЬСЯ В СВОЁ ТЕЛО", UDim2.new(1, 0, 0, 52), UDim2.new(0, 0, 1, -58), PINK)
+acceptSwap.Activated:Connect(function() remotes.SwapAction:FireServer("Accept") end)
+declineSwap.Activated:Connect(function() remotes.SwapAction:FireServer("Decline") end)
+paySwap.Activated:Connect(function() remotes.SwapAction:FireServer("Pay") end)
+cancelSwap.Activated:Connect(function() remotes.SwapAction:FireServer("Cancel") end)
+revertSwap.Activated:Connect(function() remotes.SwapAction:FireServer("Revert") end)
+
+local tradeSummary = label(tradePage, "Выберите игрока кнопкой СКИН. Каждый предлагает один собственный скин.", UDim2.new(1, 0, 0, 98), UDim2.new(), 17, TEXT)
+local ownSkins = new("ScrollingFrame", { Position = UDim2.fromOffset(0, 106), Size = UDim2.new(1, 0, 1, -218), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 5, CanvasSize = UDim2.new() }, tradePage)
+new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, ownSkins)
+local confirmTrade = button(tradePage, "ПОДТВЕРДИТЬ ОБМЕН", UDim2.new(0.58, 0, 0, 46), UDim2.new(0, 0, 1, -52), GREEN)
+local cancelTrade = button(tradePage, "ОТМЕНА", UDim2.new(0.38, 0, 0, 46), UDim2.new(0.62, 0, 1, -52), PANEL)
+confirmTrade.Activated:Connect(function() remotes.TradeAction:FireServer("Confirm") end)
+cancelTrade.Activated:Connect(function() remotes.TradeAction:FireServer("Cancel") end)
+
+local inventoryList = new("ScrollingFrame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 5, CanvasSize = UDim2.new(0, 0, 0, #SkinCatalog.Order * 72) }, inventoryPage)
+new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, inventoryList)
+
+local toast = label(gui, "", UDim2.new(0.8, 0, 0, 58), UDim2.new(0.1, 0, 0, 102), 18, GOLD)
+toast.TextStrokeTransparency = 0.35
+local toastVersion = 0
+local function notify(text)
+	toastVersion = toastVersion + 1
+	local version = toastVersion
+	toast.Text = tostring(text)
+	task.delay(4, function() if version == toastVersion then toast.Text = "" end end)
+end
+
+local profile = { OwnedSkins = { Default = true }, EquippedSkin = "Default", Swaps = 0, Trades = 0 }
+local swapSession, tradeSession
+local swapReceived = os.clock()
+local activePage = "Swap"
+
+local function showPage(name)
+	activePage = name
+	swapPage.Visible = name == "Swap"
+	tradePage.Visible = name == "Trade"
+	inventoryPage.Visible = name == "Inventory"
+	modalTitle.Text = name == "Swap" and "ОБМЕН ТЕЛАМИ" or (name == "Trade" and "ВЗАИМНЫЙ ОБМЕН СКИНАМИ" or "МОЙ ГАРДЕРОБ")
+	panel.Visible = true
+end
+swapButton.Activated:Connect(function() showPage("Swap") end)
+tradeButton.Activated:Connect(function() showPage("Trade") end)
+inventoryButton.Activated:Connect(function() showPage("Inventory") end)
+
+local function refreshPlayers()
+	for _, child in ipairs(playerList:GetChildren()) do if child:IsA("Frame") or child:IsA("TextLabel") then child:Destroy() end end
+	local index = 0
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other ~= player then
+			index = index + 1
+			local row = new("Frame", { Size = UDim2.new(1, -4, 0, 52), BackgroundColor3 = PANEL, LayoutOrder = index }, playerList)
+			corner(row)
+			label(row, other.DisplayName, UDim2.new(0.45, 0, 1, 0), UDim2.fromOffset(8, 0), 14, TEXT).TextXAlignment = Enum.TextXAlignment.Left
+			local body = button(row, "ТЕЛО", UDim2.new(0.25, 0, 0, 36), UDim2.new(0.47, 0, 0, 8), PINK)
+			local skin = button(row, "СКИН", UDim2.new(0.25, 0, 0, 36), UDim2.new(0.74, 0, 0, 8), CYAN)
+			body.Activated:Connect(function() remotes.SwapAction:FireServer("Create", other.UserId) end)
+			skin.Activated:Connect(function() remotes.TradeAction:FireServer("Create", other.UserId) end)
+		end
+	end
+	if index == 0 then label(playerList, "Пока нет второго игрока. Для обмена нужен другой человек.", UDim2.new(1, 0, 0, 80), UDim2.new(), 16, MUTED) end
+	playerList.CanvasSize = UDim2.fromOffset(0, math.max(80, index * 59))
+end
+
+local function refreshTradeInventory()
+	for _, child in ipairs(ownSkins:GetChildren()) do if child:IsA("TextButton") then child:Destroy() end end
+	local index = 0
+	for _, id in ipairs(SkinCatalog.Order) do
+		local skin = SkinCatalog.Skins[id]
+		if profile.OwnedSkins[id] and skin.Tradable then
+			index = index + 1
+			local key = tradeSession and (tradeSession.Users.A == player.UserId and "A" or "B")
+			local selected = tradeSession and tradeSession.Selected and tradeSession.Selected[key] == id
+			local choice = button(ownSkins, (selected and "✓ " or "") .. skin.Name, UDim2.new(1, -8, 0, 40), UDim2.new(), selected and GOLD or PANEL)
+			choice.LayoutOrder = index
+			choice.Activated:Connect(function() remotes.TradeAction:FireServer("Select", id) end)
+		end
+	end
+	ownSkins.CanvasSize = UDim2.fromOffset(0, math.max(44, index * 46))
+end
+
+local function refreshInventory()
+	for _, child in ipairs(inventoryList:GetChildren()) do if child:IsA("Frame") then child:Destroy() end end
+	for index, id in ipairs(SkinCatalog.Order) do
+		local skin = SkinCatalog.Skins[id]
+		local owned = profile.OwnedSkins[id] == true
+		local row = new("Frame", { Size = UDim2.new(1, -8, 0, 62), BackgroundColor3 = owned and PANEL or INK, LayoutOrder = index }, inventoryList)
+		corner(row)
+		label(row, skin.Name .. "\n" .. skin.Description, UDim2.new(0.68, 0, 1, 0), UDim2.fromOffset(10, 3), 14, owned and skin.Accent or MUTED).TextXAlignment = Enum.TextXAlignment.Left
+		local equip = button(row, not owned and "НЕ ОТКРЫТ" or (profile.EquippedSkin == id and "ВЫБРАН" or "НАДЕТЬ"), UDim2.new(0.27, 0, 0, 42), UDim2.new(0.71, 0, 0, 10), owned and skin.Secondary or INK)
+		equip.Active = owned and profile.EquippedSkin ~= id and not player:GetAttribute("SwapActive")
+		equip.AutoButtonColor = equip.Active
+		equip.Activated:Connect(function() if equip.Active then remotes.InventoryAction:FireServer("Equip", id) end end)
+	end
+end
+
+local function roleKey(session)
+	if not session then return nil end
+	if session.Users.A == player.UserId then return "A" elseif session.Users.B == player.UserId then return "B" end
+	return nil
+end
+
+local function updateSwap()
+	local key = roleKey(swapSession)
+	acceptSwap.Visible, declineSwap.Visible, paySwap.Visible, cancelSwap.Visible, revertSwap.Visible = false, false, false, false, false
+	if not swapSession or not key then
+		swapTitle.Text = "ОБМЕН ПЕРСОНАЖАМИ"
+		swapDescription.Text = "Нажмите ТЕЛО у игрока. После его согласия любой из вас сможет оплатить обмен. Вы получите управление телом другого на " .. Config.SwapDuration .. " секунд."
+		swapTimer.Text = ""
+		return
+	end
+	local otherKey = key == "A" and "B" or "A"
+	local otherName = swapSession.Names[otherKey] or "партнёр"
+	swapTitle.Text = "ВЫ ↔ " .. string.upper(otherName)
+	swapDescription.Text = swapSession.State == "Pending" and (key == "B" and (otherName .. " предлагает обмен телами. Нужно ваше согласие.") or "Предложение отправлено. Ждём согласия " .. otherName .. ".")
+		or swapSession.State == "Accepted" and "Согласие получено. Теперь любой из вас может нажать оплату. Платит только нажавший игрок."
+		or swapSession.State == "PaymentPending" and "Ожидаем подтверждение покупки Roblox. Не создавайте вторую покупку."
+		or "Обмен активен: вы управляете телом партнёра. Смерть, выход, возврат или таймер восстановят ваши аватары."
+	local remaining = math.max(0, math.ceil((swapSession.ExpiresIn or 0) - (os.clock() - swapReceived)))
+	swapTimer.Text = (swapSession.State == "Active" and "ДО ВОЗВРАТА: " or "ПРЕДЛОЖЕНИЕ: ") .. remaining .. " С"
+	acceptSwap.Visible = swapSession.State == "Pending" and key == "B"
+	declineSwap.Visible = acceptSwap.Visible
+	paySwap.Visible = swapSession.State == "Accepted"
+	cancelSwap.Visible = swapSession.State == "Pending" or swapSession.State == "Accepted"
+	revertSwap.Visible = swapSession.State == "Active"
+	paySwap.Text = swapSession.StudioTest and "TEST-ОБМЕН · БЕЗ ROBUX" or ("ОПЛАТИТЬ " .. Config.SwapRobuxPrice .. " R$ И ПОМЕНЯТЬСЯ")
+	paySwap.Active = swapSession.StudioTest or Config.SwapProductId > 0
+	paySwap.AutoButtonColor = paySwap.Active
+	if not paySwap.Active then paySwap.Text = "DEVELOPER PRODUCT НЕ НАСТРОЕН" end
+end
+
+local function updateTrade()
+	if not tradeSession or not roleKey(tradeSession) then
+		tradeSummary.Text = "Нажмите СКИН у игрока. Каждый выбирает один собственный скин; повторное подтверждение обеих сторон выполняет одновременный обмен без копий."
+		confirmTrade.Active = false
+		confirmTrade.AutoButtonColor = false
+		return
+	end
+	local key = roleKey(tradeSession)
+	local otherKey = key == "A" and "B" or "A"
+	local own = tradeSession.Selected[key] or "—"
+	local other = tradeSession.Selected[otherKey] or "—"
+	local ownName = own ~= "—" and SkinCatalog.Get(own).Name or "—"
+	local otherName = other ~= "—" and SkinCatalog.Get(other).Name or "—"
+	tradeSummary.Text = "ВЫ: " .. ownName .. (tradeSession.Confirmed[key] and " · ПОДТВЕРЖДЕНО" or "")
+		.. "\n" .. (tradeSession.Names[otherKey] or "ПАРТНЁР") .. ": " .. otherName .. (tradeSession.Confirmed[otherKey] and " · ПОДТВЕРЖДЕНО" or "")
+		.. "\nИзменение выбора сбрасывает оба подтверждения."
+	confirmTrade.Active = own ~= "—" and other ~= "—" and not tradeSession.Confirmed[key]
+	confirmTrade.AutoButtonColor = confirmTrade.Active
+	confirmTrade.Text = tradeSession.Confirmed[key] and "ЖДЁМ ПАРТНЁРА" or "ПОДТВЕРДИТЬ ОБМЕН"
+end
+
+remotes.ProfileUpdate.OnClientEvent:Connect(function(data)
+	profile = data
+	refreshInventory()
+	refreshTradeInventory()
+end)
+remotes.Notify.OnClientEvent:Connect(notify)
+remotes.SwapFX.OnClientEvent:Connect(function(data)
+	if data.Kind == "Ended" or data.Kind == "Cancelled" or data.Kind == "Declined" or data.Kind == "Expired" then
+		swapSession = nil
+	else
+		swapSession = data
+		swapReceived = os.clock()
+		if data.Kind == "Offer" then showPage("Swap") end
+	end
+	updateSwap()
+end)
+remotes.TradeFX.OnClientEvent:Connect(function(data)
+	if data.Kind == "Completed" then
+		tradeSession = nil
+		notify("Обмен завершён: " .. SkinCatalog.Get(data.Received).Name)
+	elseif data.Kind == "Cancelled" or data.Kind == "Expired" then
+		tradeSession = nil
+	else
+		tradeSession = data
+		if data.Kind == "Started" then showPage("Trade") end
+	end
+	refreshTradeInventory()
+	updateTrade()
+end)
+remotes.UIFX.OnClientEvent:Connect(function(data)
+	if data.Kind == "OpenSwap" then showPage("Swap")
+	elseif data.Kind == "OpenTrade" then showPage("Trade")
+	elseif data.Kind == "OpenInventory" then showPage("Inventory") end
+end)
+
+local function bindCamera(character)
+	if not character then return end
+	task.defer(function()
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		local camera = Workspace.CurrentCamera
+		if humanoid and camera and player.Character == character then
+			camera.CameraType = Enum.CameraType.Custom
+			camera.CameraSubject = humanoid
+		end
+	end)
+end
+player:GetPropertyChangedSignal("Character"):Connect(function() bindCamera(player.Character) end)
+player.CharacterAdded:Connect(bindCamera)
+if player.Character then bindCamera(player.Character) end
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.B then showPage("Swap")
+	elseif input.KeyCode == Enum.KeyCode.T then showPage("Trade")
+	elseif input.KeyCode == Enum.KeyCode.I then showPage("Inventory") end
+end)
+
+local layoutClock, playerClock = 0, 0
+RunService.RenderStepped:Connect(function(deltaTime)
+	layoutClock = layoutClock + deltaTime
+	playerClock = playerClock + deltaTime
+	if playerClock >= 2 then playerClock = 0; refreshPlayers() end
+	local camera = Workspace.CurrentCamera
+	local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
+	local compact = viewport.X < 700 or viewport.Y < 600
+	if compact then
+		playersFrame.Position = UDim2.fromOffset(12, 108)
+		playersFrame.Size = UDim2.new(1, -24, 0, 220)
+		dock.AnchorPoint = Vector2.new(0.5, 1)
+		dock.Position = UDim2.new(0.5, 0, 1, -12)
+		dock.Size = UDim2.new(1, -24, 0, 64)
+		for index, object in ipairs({ swapButton, tradeButton, inventoryButton }) do
+			object.Size = UDim2.new(1 / 3, -10, 0, 44)
+			object.Position = UDim2.new((index - 1) / 3, 7, 0, 10)
+		end
+		swapButton.Text, tradeButton.Text, inventoryButton.Text = "ТЕЛА [B]", "СКИНЫ [T]", "ГАРДЕРОБ [I]"
+	else
+		playersFrame.Position = UDim2.fromOffset(12, 108)
+		playersFrame.Size = UDim2.fromOffset(320, 342)
+		dock.AnchorPoint = Vector2.new(1, 0)
+		dock.Position = UDim2.new(1, -12, 0, 108)
+		dock.Size = UDim2.fromOffset(240, 148)
+		for index, object in ipairs({ swapButton, tradeButton, inventoryButton }) do
+			object.Size = UDim2.new(1, -20, 0, 36)
+			object.Position = UDim2.fromOffset(10, 10 + (index - 1) * 44)
+		end
+		swapButton.Text, tradeButton.Text, inventoryButton.Text = "ПОМЕНЯТЬСЯ ТЕЛАМИ [B]", "ОБМЕН СКИНАМИ [T]", "ГАРДЕРОБ [I]"
+	end
+	title.TextSize = compact and 18 or 25
+	status.TextSize = compact and 12 or 15
+	pairStatus.TextSize = compact and 14 or 18
+	if compact then
+		title.Size = UDim2.new(0.66, -16, 0, 36)
+		status.Size = UDim2.new(0.66, -16, 0, 26)
+		pairStatus.Size = UDim2.new(0.32, -18, 0, 60)
+		pairStatus.Position = UDim2.new(0.68, 0, 0, 11)
+	else
+		title.Size = UDim2.new(0.58, -16, 0, 36)
+		status.Size = UDim2.new(0.58, -16, 0, 26)
+		pairStatus.Size = UDim2.new(0.4, -18, 0, 60)
+		pairStatus.Position = UDim2.new(0.6, 0, 0, 11)
+	end
+	pairStatus.Text = player:GetAttribute("SwapActive") and (compact and "ЧУЖОЕ ТЕЛО\nB: ВОЗВРАТ" or "В ТЕЛЕ ПАРТНЁРА · B — ВОЗВРАТ") or "СВОЙ АВАТАР"
+	status.Text = compact and ("Скинов " .. tostring(player:GetAttribute("OwnedSkinCount") or 1) .. " · Тела " .. tostring(player:GetAttribute("AvatarSwaps") or 0) .. " · Скины " .. tostring(player:GetAttribute("SkinTrades") or 0))
+		or ("Скинов: " .. tostring(player:GetAttribute("OwnedSkinCount") or 1) .. " · Обменов телами: " .. tostring(player:GetAttribute("AvatarSwaps") or 0) .. " · Скинами: " .. tostring(player:GetAttribute("SkinTrades") or 0))
+	toast.Position = compact and UDim2.new(0.1, 0, 1, -154) or UDim2.new(0.1, 0, 1, -74)
+	if layoutClock >= 0.25 then layoutClock = 0; updateSwap(); updateTrade() end
+end)
+
+player:GetAttributeChangedSignal("SwapActive"):Connect(refreshInventory)
+refreshPlayers()
+refreshInventory()
+refreshTradeInventory()
+updateSwap()
+updateTrade()
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="Workspace" referent="18">
+    <Properties>
+      <string name="Name">Workspace</string>
+      <bool name="NeedsPivotMigration">false</bool>
+    </Properties>
+  </Item>
+</roblox>
