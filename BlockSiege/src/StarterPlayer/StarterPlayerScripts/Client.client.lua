@@ -116,7 +116,7 @@ for index, team in ipairs({ "Blue", "Orange" }) do
 	coreFills[team] = fill
 end
 
-local seasonLabel = text(top, "NEW YEAR // AURORA OPS", UDim2.new(1, -24, 0, 12), UDim2.new(0, 12, 0, 88), 11, Color3.fromRGB(255, 215, 116))
+local seasonLabel = text(top, "BLOCKSIEGE // NEW YEAR 2026", UDim2.new(1, -24, 0, 12), UDim2.new(0, 12, 0, 88), 11, Color3.fromRGB(255, 215, 116))
 seasonLabel.Font = Enum.Font.GothamBold
 seasonLabel.TextXAlignment = Enum.TextXAlignment.Center
 seasonLabel.TextStrokeTransparency = 0.5
@@ -139,9 +139,10 @@ corner(lobbyDock, 10)
 gradient(lobbyDock, Color3.fromRGB(28, 48, 72), Color3.fromRGB(10, 18, 31))
 text(lobbyDock, "BLOCKSIEGE  /  6V6", UDim2.new(1, -24, 0, 24), UDim2.new(0, 12, 0, 7), 14, C.Gold)
 local queueButton = button(lobbyDock, "В ОЧЕРЕДЬ 6×6", UDim2.new(1, -24, 0, 38), UDim2.new(0, 12, 0, 36), C.Blue)
-local quickButton = button(lobbyDock, "БЫСТРЫЙ СТАРТ + БОТЫ", UDim2.new(1, -24, 0, 38), UDim2.new(0, 12, 0, 80), C.Orange)
+local quickButton = button(lobbyDock, "БЫСТРЫЙ СТАРТ + БОТЫ", UDim2.new(1, -24, 0, 38), UDim2.new(0, 12, 0, 80), C.Green)
+quickButton.TextColor3 = Color3.fromRGB(15, 42, 34)
 local caseButton = button(lobbyDock, "ЛУТБОКС / ОРУЖИЕ  [L]", UDim2.new(1, -24, 0, 38), UDim2.new(0, 12, 0, 124), C.Panel)
-local lobbyHint = text(gui, "6×6 · драфт команд по уровню · боты заполняют пустые слоты", UDim2.new(0, 480, 0, 52), UDim2.new(0, 290, 1, -112), 17, C.Muted)
+local lobbyHint = text(gui, "1 · построй защиту   2 · уничтожь ядро   3 · получи награду и уровень", UDim2.new(0, 560, 0, 52), UDim2.new(0, 310, 1, -112), 17, C.Muted)
 
 local buildDock = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -16), Size = UDim2.new(0.9, 0, 0, 132), BackgroundColor3 = C.Background,
@@ -187,6 +188,90 @@ local captureTrack = new("Frame", { Position = UDim2.new(0, 10, 0, 36), Size = U
 corner(captureTrack, 4)
 local captureFill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = C.Gold, BorderSizePixel = 0 }, captureTrack)
 corner(captureFill, 4)
+
+local objectiveFrame = new("Frame", {
+	AnchorPoint = Vector2.new(1, 0),
+	Position = UDim2.new(1, -16, 0, 190),
+	Size = UDim2.new(0, 318, 0, 150),
+	BackgroundColor3 = C.Background,
+	BackgroundTransparency = 0.04,
+	Visible = false,
+}, gui)
+corner(objectiveFrame, 10)
+new("UIStroke", { Color = C.Green, Thickness = 1 }, objectiveFrame)
+local objectiveTitle = text(objectiveFrame, "ТЕКУЩАЯ ЗАДАЧА", UDim2.new(1, -24, 0, 28), UDim2.new(0, 12, 0, 8), 16, C.Green)
+objectiveTitle.Font = Enum.Font.GothamBold
+objectiveTitle.TextXAlignment = Enum.TextXAlignment.Left
+local objectiveText = text(objectiveFrame, "", UDim2.new(1, -24, 0, 58), UDim2.new(0, 12, 0, 38), 15, C.Text)
+objectiveText.TextXAlignment = Enum.TextXAlignment.Left
+local objectiveTrack = new("Frame", { Position = UDim2.new(0, 12, 0, 103), Size = UDim2.new(1, -24, 0, 11), BackgroundColor3 = C.Panel }, objectiveFrame)
+corner(objectiveTrack, 5)
+local objectiveFill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = C.Green }, objectiveTrack)
+corner(objectiveFill, 5)
+local objectiveBonus = text(objectiveFrame, "", UDim2.new(1, -24, 0, 27), UDim2.new(0, 12, 0, 119), 12, C.Gold)
+objectiveBonus.TextXAlignment = Enum.TextXAlignment.Left
+
+local rewardToast = new("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0),
+	Position = UDim2.new(0.5, 0, 0, 190),
+	Size = UDim2.new(0.9, 0, 0, 78),
+	BackgroundColor3 = Color3.fromRGB(20, 40, 43),
+	Visible = false,
+	ZIndex = 12,
+}, gui)
+new("UISizeConstraint", { MinSize = Vector2.new(280, 78), MaxSize = Vector2.new(420, 78) }, rewardToast)
+corner(rewardToast, 10)
+local rewardStroke = new("UIStroke", { Color = C.Green, Thickness = 2 }, rewardToast)
+local rewardTitle = text(rewardToast, "", UDim2.new(1, -24, 0, 29), UDim2.new(0, 12, 0, 8), 18, C.Green)
+rewardTitle.Font = Enum.Font.GothamBold
+rewardTitle.ZIndex = 13
+local rewardDetail = text(rewardToast, "", UDim2.new(1, -24, 0, 33), UDim2.new(0, 12, 0, 39), 15, C.Text)
+rewardDetail.ZIndex = 13
+local rewardQueue = {}
+local rewardShowing = false
+local function showNextReward()
+	if rewardShowing or #rewardQueue == 0 then
+		return
+	end
+	rewardShowing = true
+	local payload = table.remove(rewardQueue, 1)
+	local isLevel = payload.Type == "LevelUp"
+	rewardToast.BackgroundColor3 = isLevel and Color3.fromRGB(54, 43, 25) or Color3.fromRGB(20, 40, 43)
+	rewardStroke.Color = isLevel and C.Gold or C.Green
+	rewardTitle.TextColor3 = isLevel and C.Gold or C.Green
+	if isLevel then
+		rewardTitle.Text = "★ УРОВЕНЬ " .. tostring(payload.Level) .. "!"
+		local unlockText = {}
+		for _, unlock in ipairs(payload.Unlocks or {}) do
+			table.insert(unlockText, tostring(unlock.Text))
+		end
+		rewardDetail.Text = (#unlockText > 0 and table.concat(unlockText, " · ") or "Новый уровень") .. string.format(" · +%d монет", payload.LevelCoins or 0)
+	else
+		rewardTitle.Text = tostring(payload.Reason or "Награда")
+		rewardDetail.Text = string.format("+%d монет  ·  +%d XP", payload.Coins or 0, payload.XP or 0)
+	end
+	rewardToast.Visible = true
+	task.delay(isLevel and 4.5 or 2.6, function()
+		rewardToast.Visible = false
+		rewardShowing = false
+		showNextReward()
+	end)
+end
+local function queueReward(payload)
+	if type(payload) ~= "table" then
+		return
+	end
+	if #rewardQueue >= 6 then
+		for index, queued in ipairs(rewardQueue) do
+			if queued.Type ~= "LevelUp" then
+				table.remove(rewardQueue, index)
+				break
+			end
+		end
+	end
+	table.insert(rewardQueue, payload)
+	showNextReward()
+end
 
 local crosshair = text(gui, "+", UDim2.new(0, 46, 0, 46), UDim2.new(0.5, -23, 0.5, -23), 34, C.Text)
 crosshair.TextStrokeTransparency = 0.2
@@ -234,14 +319,18 @@ inventoryLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function
 end)
 
 local resultsPanel = new("Frame", {
-	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(0, 520, 0, 220),
+	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(0.9, 0, 0, 326),
 	BackgroundColor3 = C.Background, Visible = false,
 }, gui)
-corner(resultsPanel, 8)
+new("UISizeConstraint", { MinSize = Vector2.new(300, 326), MaxSize = Vector2.new(580, 326) }, resultsPanel)
+corner(resultsPanel, 12)
 gradient(resultsPanel, Color3.fromRGB(35, 53, 76), Color3.fromRGB(12, 20, 34))
-local resultTitle = text(resultsPanel, "МАТЧ ЗАВЕРШЁН", UDim2.new(1, -20, 0, 48), UDim2.new(0, 10, 0, 18), 28, C.Gold)
-local resultReason = text(resultsPanel, "", UDim2.new(1, -30, 0, 60), UDim2.new(0, 15, 0, 76), 20)
-local resultReward = text(resultsPanel, "", UDim2.new(1, -30, 0, 46), UDim2.new(0, 15, 0, 143), 18, C.Green)
+local resultTitle = text(resultsPanel, "МАТЧ ЗАВЕРШЁН", UDim2.new(1, -20, 0, 42), UDim2.new(0, 10, 0, 12), 28, C.Gold)
+local resultReason = text(resultsPanel, "", UDim2.new(1, -30, 0, 44), UDim2.new(0, 15, 0, 56), 18)
+local resultReward = text(resultsPanel, "", UDim2.new(1, -30, 0, 52), UDim2.new(0, 15, 0, 103), 18, C.Green)
+local resultStats = text(resultsPanel, "", UDim2.new(1, -30, 0, 52), UDim2.new(0, 15, 0, 157), 16, C.Text)
+local resultUnlock = text(resultsPanel, "", UDim2.new(1, -30, 0, 50), UDim2.new(0, 15, 0, 211), 17, C.Gold)
+local resultNext = text(resultsPanel, "", UDim2.new(1, -30, 0, 36), UDim2.new(0, 15, 0, 275), 15, C.Muted)
 
 local profile
 local selectedBuild = "Wall"
@@ -409,10 +498,26 @@ local function updateResults()
 	resultReason.Text = state:GetAttribute("Reason") or ""
 	if lastResult and lastResult.Reward then
 		local reward = lastResult.Reward
-		local levelBonus = reward.LeveledUp and string.format(" · LEVEL %d! +%d монет", reward.Level, reward.LevelCoins or 0) or ""
-		resultReward.Text = string.format("Награда: +%d монет · +%d XP%s%s", reward.Coins, reward.XP, reward.Token and " · +1 жетон" or "", levelBonus)
+		local stats = lastResult.Stats or {}
+		local totalLevelCoins = (reward.LevelCoins or 0) + (stats.LevelCoins or 0)
+		local levelBonus = totalLevelCoins > 0 and string.format(" · УРОВЕНЬ %d! +%d монет", reward.Level, totalLevelCoins) or ""
+		resultReward.Text = string.format("За матч: +%d монет · +%d XP%s%s", reward.Coins, reward.XP, reward.Token and " · +1 жетон" or "", levelBonus)
+		resultStats.Text = string.format("За действия: +%d монет · +%d XP\nПостройки %d · Бойцы %d · Сооружения %d · 67: %d", stats.Coins or 0, stats.XP or 0, stats.Builds or 0, stats.Kills or 0, stats.Structures or 0, stats.Captures or 0)
+		local unlocks = {}
+		for _, unlock in ipairs(stats.Unlocks or {}) do
+			table.insert(unlocks, "LV " .. tostring(unlock.Level) .. ": " .. tostring(unlock.Text))
+		end
+		for _, unlock in ipairs(reward.Unlocks or {}) do
+			table.insert(unlocks, "LV " .. tostring(unlock.Level) .. ": " .. tostring(unlock.Text))
+		end
+		resultUnlock.Text = #unlocks > 0 and ("ОТКРЫТО · " .. table.concat(unlocks, " · ")) or "Награды за действия начислены ещё до этого экрана."
+		local nextLevel, nextReward = Catalog.GetNextLevelReward(reward.Level or 1)
+		resultNext.Text = nextReward and string.format("ДАЛЬШЕ · LV %d: %s", nextLevel, nextReward.Description) or "Вся особая шкала открыта. Каждый следующий уровень даёт монеты."
 	else
 		resultReward.Text = "Наблюдение за матчем"
+		resultStats.Text = ""
+		resultUnlock.Text = ""
+		resultNext.Text = ""
 	end
 end
 
@@ -434,6 +539,8 @@ local function refresh()
 	weaponLabel.Visible = phase == "Battle"
 	fireButton.Visible = phase == "Battle" and UserInputService.TouchEnabled
 	resultsPanel.Visible = phase == "Results"
+	objectiveFrame.Visible = (phase == "Build" or phase == "Battle") and (player:GetAttribute("Team") or "") ~= ""
+	rewardToast.Position = UDim2.new(0.5, 0, 0, phase == "Results" and 118 or 190)
 	coreFrame.Visible = phase ~= "Lobby"
 	queueButton.Text = player:GetAttribute("Queued") and "ВЫЙТИ ИЗ ОЧЕРЕДИ" or "В ОЧЕРЕДЬ 6×6"
 	local team = player:GetAttribute("Team") or ""
@@ -462,10 +569,27 @@ local function refresh()
 	local captureProgress = state:GetAttribute("Capture67Progress") or 0
 	local captureContested = state:GetAttribute("Capture67Contested") == true
 	local ownerText = captureOwner == "" and "НЕЙТРАЛЬНАЯ" or (captureOwner == team and "ВАША" or (captureOwner == "Blue" and "СИНИЕ" or "ОРАНЖЕВЫЕ"))
-	captureTitle.Text = phase == "Build" and "67 // ЗАХВАТ ОТКРОЕТСЯ В БОЮ" or ("67 // " .. ownerText .. (captureContested and " · ОСПАРИВАЕТСЯ" or ""))
+	captureTitle.Text = phase == "Build" and "67 // В БОЮ: НАГРАДА + РЕГЕНЕРАЦИЯ" or ("67 // " .. ownerText .. (captureContested and " · ОСПАРИВАЕТСЯ" or (captureOwner ~= "" and " · +1 HP/s" or "")))
 	captureTitle.TextColor3 = captureContested and C.Orange or (C[captureOwner] or C.Gold)
 	captureFill.BackgroundColor3 = C[captureOwner] or C.Gold
 	captureFill.Size = UDim2.fromScale(math.clamp(captureProgress / 100, 0, 1), 1)
+	if phase == "Build" then
+		local builds = player:GetAttribute("MatchBuilds") or 0
+		objectiveTitle.Text = builds < 3 and "ШАГ 1 · ЗАЩИТИ КРЕПОСТЬ" or "ЗАЩИТА ГОТОВА"
+		objectiveText.Text = builds < 3 and string.format("Поставь 3 укрепления: %d/3\nВыбери модель, поверни и подтверди позицию.", builds) or "Базовая защита стоит. Можно улучшить позицию до начала штурма."
+		objectiveFill.Size = UDim2.fromScale(math.clamp(builds / 3, 0, 1), 1)
+		objectiveFill.BackgroundColor3 = builds >= 3 and C.Green or C.Gold
+		objectiveBonus.Text = "Каждая постройка даёт монеты и XP"
+	elseif phase == "Battle" then
+		local enemy = team ~= "" and Config.OtherTeam(team) or nil
+		local enemyHealth = enemy and (state:GetAttribute(enemy .. "Core") or 0) or 0
+		local enemyMaximum = enemy and math.max(1, state:GetAttribute(enemy .. "CoreMax") or 1) or 1
+		objectiveTitle.Text = "ГЛАВНАЯ ЦЕЛЬ · ВРАЖЕСКОЕ ЯДРО"
+		objectiveText.Text = string.format("Ядро противника: %d HP\nЛомай башни и стены, затем уничтожь ядро.", enemyHealth)
+		objectiveFill.Size = UDim2.fromScale(math.clamp(1 - enemyHealth / enemyMaximum, 0, 1), 1)
+		objectiveFill.BackgroundColor3 = C.Orange
+		objectiveBonus.Text = captureOwner == team and "67 удерживается · команда лечится" or "Захвати 67: +10 монет · +25 XP · +1 HP/s"
+	end
 	if phase == "Results" then
 		updateResults()
 	end
@@ -778,7 +902,7 @@ remotes.CaptureFX.OnClientEvent:Connect(function(payload)
 		burst(payload.Position, color, 18, 14)
 	end
 	if payload.Team then
-		notify("67 ЗАХВАЧЕНА · " .. (payload.Team == "Blue" and "СИНИЕ" or "ОРАНЖЕВЫЕ"))
+		notify("67 ЗАХВАЧЕНА · +1 HP/s · " .. (payload.Team == "Blue" and "СИНИЕ" or "ОРАНЖЕВЫЕ"))
 	end
 end)
 remotes.BuildPreview.OnClientEvent:Connect(function(payload)
@@ -829,6 +953,7 @@ remotes.BuildPreview.OnClientEvent:Connect(function(payload)
 end)
 
 remotes.Notify.OnClientEvent:Connect(notify)
+remotes.ProgressionFX.OnClientEvent:Connect(queueReward)
 remotes.CaseOpened.OnClientEvent:Connect(function(result)
 	casePanel.Visible = true
 	caseResult.Text = (result.Duplicate and "ДУБЛИКАТ · " or "ПОЛУЧЕНО · ") .. result.Name .. " · " .. Catalog.RarityNames[result.Rarity] .. (result.Duplicate and " · +" .. result.Compensation .. " монет" or "")

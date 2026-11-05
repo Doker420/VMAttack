@@ -37,7 +37,7 @@ Catalog.Weapons = {
 		Color = Color3.fromRGB(102, 190, 130),
 	},
 	Scatter = {
-		Id = "Scatter", Name = "VOXEL SCATTER", Rarity = "Common", Model = "Scatter",
+		Id = "Scatter", Name = "SCATTERGUN", Rarity = "Common", Model = "Scatter",
 		Damage = 8, Cooldown = 0.82, Range = 72, Spread = 0.075, Pellets = 7, StructureMultiplier = 0.8,
 		Color = Color3.fromRGB(126, 194, 117),
 	},
@@ -134,6 +134,34 @@ Catalog.Defenses = {
 	FlameTrap = { Name = "FLAME TRAP", Price = 120, RequiredLevel = 3, Description = "24 урона огнём каждые 1,5 секунды" },
 }
 
+-- Visible account-level track. Case drops can unlock items earlier; duplicate
+-- track rewards are converted into coins by DataService instead of wasted.
+Catalog.LevelRewardOrder = { 2, 3, 4, 5, 6, 7, 8, 9, 10 }
+Catalog.LevelRewards = {
+	[2] = { Weapon = "SMG", Coins = 50, CaseTokens = 1, Description = "RAPID SMG · 50 монет · жетон" },
+	[3] = { Defense = "SpikeTrap", Coins = 75, Description = "SPIKE TRAP · 75 монет" },
+	[4] = { Weapon = "TacticalKnife", Coins = 100, Description = "TACTICAL KNIFE · 100 монет" },
+	[5] = { Weapon = "Scatter", CaseTokens = 1, Description = "SCATTERGUN · жетон кейса" },
+	[6] = { Weapon = "TeslaCarbine", Coins = 150, Description = "TESLA CARBINE · 150 монет" },
+	[7] = { Weapon = "Marksman", CaseTokens = 1, Description = "LONGSHOT · жетон кейса" },
+	[8] = { Weapon = "ShadowKnives", Coins = 200, Description = "SHADOW DUAL KNIVES · 200 монет" },
+	[9] = { Weapon = "PrismLance", CaseTokens = 2, Description = "PRISM LANCE · 2 жетона" },
+	[10] = { Weapon = "ThanosGauntlet", Coins = 500, Description = "THANOS GAUNTLET · SNIPER · 500 монет" },
+}
+
+function Catalog.GetLevelReward(level)
+	return Catalog.LevelRewards[tonumber(level) or -1]
+end
+
+function Catalog.GetNextLevelReward(level)
+	for _, rewardLevel in ipairs(Catalog.LevelRewardOrder) do
+		if rewardLevel > level then
+			return rewardLevel, Catalog.LevelRewards[rewardLevel]
+		end
+	end
+	return nil
+end
+
 function Catalog.GetDefense(id)
 	return type(id) == "string" and Catalog.Defenses[id] or nil
 end
@@ -163,6 +191,14 @@ end
 
 function Catalog.LevelForXP(xp)
 	return math.max(1, math.floor(math.sqrt(math.max(0, xp) / 80)) + 1)
+end
+
+function Catalog.LevelProgress(xp)
+	local totalXP = math.max(0, math.floor(tonumber(xp) or 0))
+	local level = Catalog.LevelForXP(totalXP)
+	local levelStart = 80 * (level - 1) ^ 2
+	local nextLevelXP = 80 * level ^ 2
+	return level, totalXP - levelStart, nextLevelXP - levelStart, nextLevelXP
 end
 
 return Catalog
@@ -198,7 +234,7 @@ local Config = {
 		BotBoundsZ = 160,
 	},
 
-	-- Aurora Bastion: a bright three-lane valley, not a decorative outer ring.
+	-- Bright three-lane fortress valley, not a decorative outer ring.
 	Presentation = {
 		ArenaWidth = 640,
 		ArenaDepth = 360,
@@ -741,23 +777,22 @@ return WeaponModels
 <Item class="ModuleScript" referent="35">
         <Properties>
           <string name="Name">VisualModels</string>
-          <string name="Source"><![CDATA[-- BLOCKSIEGE // AURORA SCULPTED VISUALS
--- Smooth, authored-looking prop assemblies built from Roblox primitives and
--- SpecialMesh spheres. These are visual models, not a second gameplay collision
--- layer. Creator Store meshes can replace/augment them at runtime.
+          <string name="Source"><![CDATA[-- BLOCKSIEGE // COHESIVE FORTRESS VISUALS
+-- Rounded prop assemblies share one warm stone/timber palette. Gameplay collision
+-- stays in the services; these models are the visible layer and placement ghosts.
 local VisualModels = {}
 
-local INK = Color3.fromRGB(19, 31, 43)
-local STONE = Color3.fromRGB(107, 132, 147)
-local STONE_DARK = Color3.fromRGB(46, 65, 79)
-local STONE_LIGHT = Color3.fromRGB(172, 194, 201)
+local INK = Color3.fromRGB(42, 46, 48)
+local STONE = Color3.fromRGB(139, 145, 139)
+local STONE_DARK = Color3.fromRGB(70, 77, 75)
+local STONE_LIGHT = Color3.fromRGB(190, 187, 166)
 local SNOW = Color3.fromRGB(235, 247, 250)
-local GOLD = Color3.fromRGB(238, 184, 75)
-local WOOD = Color3.fromRGB(104, 68, 45)
-local BARK = Color3.fromRGB(71, 53, 43)
-local LEAF = Color3.fromRGB(30, 93, 76)
-local LEAF_LIGHT = Color3.fromRGB(50, 133, 99)
-local LEAF_DARK = Color3.fromRGB(22, 64, 58)
+local GOLD = Color3.fromRGB(224, 166, 59)
+local WOOD = Color3.fromRGB(119, 75, 43)
+local BARK = Color3.fromRGB(76, 54, 38)
+local LEAF = Color3.fromRGB(43, 111, 60)
+local LEAF_LIGHT = Color3.fromRGB(75, 145, 72)
+local LEAF_DARK = Color3.fromRGB(31, 80, 48)
 local FIRE = Color3.fromRGB(255, 132, 46)
 
 local TEXTURES = {
@@ -877,7 +912,7 @@ function VisualModels.Tree(parent, position, scale, options)
 	local trunk = cylinder(parent, "TreeTrunk", 0.82 * scale, 7.2 * scale, CFrame.new(position + Vector3.new(0, 3.6 * scale, 0)), BARK, Enum.Material.WoodPlanks, {
 		Collide = options.Collide == true, Query = options.Query == true, Holiday = holiday, Texture = TEXTURES.Wood, Tile = 3,
 	})
-	local object = model(options.Name or "AuroraPine", trunk, parent, { Holiday = holiday })
+	local object = model(options.Name or "FortressPine", trunk, parent, { Holiday = holiday })
 	trunk.Parent = object
 	-- Root flare and five visible branches give the silhouette a natural profile.
 	for index = 1, 4 do
@@ -945,7 +980,7 @@ end
 function VisualModels.Cloud(parent, position, scale)
 	scale = scale or 1
 	local first = sphere(parent, "CloudPuff", Vector3.new(14, 5, 8) * scale, CFrame.new(position), SNOW, Enum.Material.SmoothPlastic, { Transparency = 0.12, CastShadow = false })
-	local object = model("AuroraCloud", first, parent)
+	local object = model("FortressCloud", first, parent)
 	first.Parent = object
 	for index, entry in ipairs({
 		{ Vector3.new(-8, -0.8, 1), Vector3.new(9, 4, 7) },
@@ -976,7 +1011,7 @@ function VisualModels.Rock(parent, position, scale, options)
 		})
 		first = first or part
 		if index == 1 then
-			object = model(options.Name or "AuroraRock", first, parent, { Holiday = holiday })
+			object = model(options.Name or "FortressRock", first, parent, { Holiday = holiday })
 			part.Parent = object
 		else
 			part.Parent = object
@@ -1023,7 +1058,7 @@ function VisualModels.Tower(parent, prefix, position, scale, accent, options)
 	sphere(object, "TowerDoorFrame", Vector3.new(3.5, 4.8, 0.65) * scale, CFrame.new(doorPosition), STONE_LIGHT, Enum.Material.Cobblestone, { Holiday = options.Holiday })
 	sphere(object, "TowerDoor", Vector3.new(2.65, 4.05, 0.72) * scale, CFrame.new(doorPosition + Vector3.new(0, 0, -0.18 * scale)), INK, Enum.Material.WoodPlanks, { Holiday = options.Holiday, Texture = TEXTURES.Wood })
 	cylinder(object, "TowerDoorHandle", 0.13 * scale, 0.35 * scale, CFrame.new(doorPosition + Vector3.new(0.65 * scale, 0, -0.6 * scale)), GOLD, Enum.Material.Metal, { Holiday = options.Holiday })
-	local pole = cylinder(object, "TowerPole", 0.16 * scale, 6.5 * scale, CFrame.new(position + Vector3.new(0, 22 * scale, 0)), GOLD, Enum.Material.Metal, { Holiday = options.Holiday })
+	cylinder(object, "TowerPole", 0.16 * scale, 6.5 * scale, CFrame.new(position + Vector3.new(0, 22 * scale, 0)), GOLD, Enum.Material.Metal, { Holiday = options.Holiday })
 	make(object, "TowerFlag", Vector3.new(4.1, 2.2, 0.18) * scale, CFrame.new(position + Vector3.new(2 * scale, 23.2 * scale, 0)), accent, Enum.Material.Fabric, { ClassName = "WedgePart", Holiday = options.Holiday })
 	local gem = sphere(object, "TowerLantern", Vector3.one * 0.8 * scale, CFrame.new(position + Vector3.new(0, 12.9 * scale, -5.1 * scale)), accent, Enum.Material.Neon, { Holiday = options.Holiday })
 	light(gem, "TowerGlow", accent, 14 * scale, 1.1)
@@ -1117,7 +1152,7 @@ function VisualModels.Fireplace(parent, position, scale, options)
 	options = options or {}
 	scale = scale or 1
 	local base = cylinder(parent, "FireplaceBase", 3.8 * scale, 0.8 * scale, CFrame.new(position + Vector3.new(0, 0.4 * scale, 0)), STONE_DARK, Enum.Material.Slate, { Holiday = options.Holiday })
-	local object = model("FrostfireFireplace", base, parent, options)
+	local object = model("FortressFireplace", base, parent, options)
 	base.Parent = object
 	for index = 0, 7 do
 		local angle = math.rad(index * 45)
@@ -1729,7 +1764,7 @@ local MatchService = require(services:WaitForChild("MatchService"))
 local remotes = Instance.new("Folder")
 remotes.Name = "Remotes"
 for _, name in ipairs({
-	"Notify", "ProfileUpdate", "CaseOpened", "Results", "CombatFX", "BuildFX", "TrapFX", "CaptureFX",
+	"Notify", "ProfileUpdate", "CaseOpened", "Results", "CombatFX", "BuildFX", "TrapFX", "CaptureFX", "ProgressionFX",
 	"LobbyAction", "CaseAction", "FireRequest", "BuildRequest", "BuildPreviewRequest", "BuildPreview", "OpenPanel",
 	"ProgressionAction", "ShopAction", "AbilityRequest", "AbilityFX", "AbilityState", "WeaponAction", "ReloadRequest",
 }) do
@@ -2672,6 +2707,7 @@ local progress = 0
 local progressTeam = ""
 local contested = false
 local published
+local captureHandler
 
 local function point()
 	return world and world.CapturePoint
@@ -2719,6 +2755,10 @@ end
 
 function CaptureService.SetPhaseProvider(provider)
 	phaseProvider = provider
+end
+
+function CaptureService.SetCaptureHandler(handler)
+	captureHandler = handler
 end
 
 function CaptureService.Reset()
@@ -2801,8 +2841,10 @@ function CaptureService.Step(deltaTime)
 					owner = presentTeam
 					progressTeam = presentTeam
 					if remotes then
-						remotes.Notify:FireAllClients("Точка 67 захвачена: " .. Config.Teams[presentTeam].Name)
 						remotes.CaptureFX:FireAllClients({ Kind = "Captured", Position = CaptureService.GetPosition(), Team = presentTeam })
+					end
+					if captureHandler then
+						captureHandler(presentTeam)
 					end
 				end
 			end
@@ -2980,6 +3022,7 @@ local function defaults()
 		OwnedDefenses = {},
 		OwnedCosmetics = {},
 		SelectedCosmetics = { WeaponSkin = "Default", Aura = "Default", Trail = "Default" },
+		ClaimedLevelRewards = {},
 		LastDailyClaim = 0,
 	}
 end
@@ -3038,6 +3081,30 @@ local function defenseDictionary(value)
 	return result
 end
 
+local function grantTrackReward(data, level, includeBaseCoins)
+	local key = tostring(level)
+	local reward = Catalog.GetLevelReward(level)
+	if not reward or data.ClaimedLevelRewards[key] then
+		return 0, nil
+	end
+	data.ClaimedLevelRewards[key] = true
+	local coins = includeBaseCoins and (15 + level * 5) or 0
+	coins = coins + (tonumber(reward.Coins) or 0)
+	data.CaseTokens = math.min(99, (data.CaseTokens or 0) + (tonumber(reward.CaseTokens) or 0))
+	if reward.Weapon then
+		if data.OwnedWeapons[reward.Weapon] then
+			coins = coins + 60
+		else
+			data.OwnedWeapons[reward.Weapon] = true
+		end
+	end
+	if reward.Defense and not data.OwnedDefenses[reward.Defense] then
+		data.OwnedDefenses[reward.Defense] = true
+	end
+	data.Coins = data.Coins + coins
+	return coins, reward.Description
+end
+
 local function sanitize(value)
 	local result = defaults()
 	if type(value) ~= "table" then
@@ -3057,6 +3124,13 @@ local function sanitize(value)
 		for slot, selected in pairs(value.SelectedCosmetics) do
 			if (slot == "WeaponSkin" or slot == "Aura" or slot == "Trail") and Catalog.GetCosmetic(selected) and Catalog.GetCosmetic(selected).Slot == slot and result.OwnedCosmetics[selected] then
 				result.SelectedCosmetics[slot] = selected
+			end
+		end
+	end
+	if type(value.ClaimedLevelRewards) == "table" then
+		for level, claimed in pairs(value.ClaimedLevelRewards) do
+			if claimed == true and Catalog.GetLevelReward(tonumber(level)) then
+				result.ClaimedLevelRewards[tostring(level)] = true
 			end
 		end
 	end
@@ -3157,7 +3231,14 @@ function DataService.Load(player)
 	if loadTokens[userId] ~= token or not player.Parent then
 		return nil
 	end
-	cache[userId] = sanitize(stored)
+	local profile = sanitize(stored)
+	local currentLevel = Catalog.LevelForXP(profile.XP)
+	for _, rewardLevel in ipairs(Catalog.LevelRewardOrder) do
+		if rewardLevel <= currentLevel then
+			grantTrackReward(profile, rewardLevel, false)
+		end
+	end
+	cache[userId] = profile
 	apply(player)
 	return cache[userId]
 end
@@ -3232,14 +3313,75 @@ function DataService.AddCoins(player, amount)
 	end
 end
 
+function DataService.AddXP(player, amount)
+	local data = cache[player.UserId]
+	local gained = math.max(0, math.floor(tonumber(amount) or 0))
+	if not data then
+		return { XP = gained, PreviousLevel = 1, Level = 1, LeveledUp = false, Unlocks = {}, LevelCoins = 0 }
+	end
+	local previousLevel = Catalog.LevelForXP(data.XP)
+	data.XP = data.XP + gained
+	local level = Catalog.LevelForXP(data.XP)
+	local levelCoins = 0
+	local unlocks = {}
+	for reachedLevel = previousLevel + 1, level do
+		local baseCoins = 15 + reachedLevel * 5
+		data.Coins = data.Coins + baseCoins
+		levelCoins = levelCoins + baseCoins
+		local trackCoins, description = grantTrackReward(data, reachedLevel, false)
+		levelCoins = levelCoins + trackCoins
+		table.insert(unlocks, {
+			Level = reachedLevel,
+			Text = description or string.format("+%d монет", baseCoins),
+		})
+	end
+	apply(player)
+	local result = {
+		XP = gained,
+		PreviousLevel = previousLevel,
+		Level = level,
+		LeveledUp = level > previousLevel,
+		Unlocks = unlocks,
+		LevelCoins = levelCoins,
+	}
+	if result.LeveledUp and remotes and remotes.ProgressionFX then
+		remotes.ProgressionFX:FireClient(player, {
+			Type = "LevelUp",
+			Level = level,
+			LevelCoins = levelCoins,
+			Unlocks = unlocks,
+		})
+	end
+	return result
+end
+
+function DataService.Award(player, coins, xp, reason)
+	local data = cache[player.UserId]
+	local coinReward = math.max(0, math.floor(tonumber(coins) or 0))
+	local xpReward = math.max(0, math.floor(tonumber(xp) or 0))
+	if data then
+		data.Coins = data.Coins + coinReward
+	end
+	local progress = DataService.AddXP(player, xpReward)
+	if data and remotes and remotes.ProgressionFX then
+		remotes.ProgressionFX:FireClient(player, {
+			Type = "Action",
+			Coins = coinReward,
+			XP = xpReward,
+			Reason = tostring(reason or "Полезное действие"),
+			Level = progress.Level,
+		})
+	end
+	return progress
+end
+
 function DataService.AddKill(player)
 	local data = cache[player.UserId]
 	if data then
 		data.Kills = data.Kills + 1
-		data.Coins = data.Coins + 2
-		data.XP = data.XP + 8
-		apply(player)
+		return DataService.Award(player, 2, 8, "Противник выведен из боя")
 	end
+	return nil
 end
 
 function DataService.AddStructureDamage(player, amount)
@@ -3257,14 +3399,7 @@ function DataService.RecordMatch(player, won, draw)
 	data.Matches = data.Matches + 1
 	local coins = draw and 25 or (won and 40 or 15)
 	local xp = draw and 75 or (won and 120 or 50)
-	local oldLevel = Catalog.LevelForXP(data.XP)
-	local newLevel = Catalog.LevelForXP(data.XP + xp)
-	local levelCoins = 0
-	for level = oldLevel + 1, newLevel do
-		levelCoins = levelCoins + 15 + level * 5
-	end
-	data.Coins = data.Coins + coins + levelCoins
-	data.XP = data.XP + xp
+	data.Coins = data.Coins + coins
 	local token = false
 	if won then
 		data.Wins = data.Wins + 1
@@ -3273,8 +3408,17 @@ function DataService.RecordMatch(player, won, draw)
 			token = true
 		end
 	end
+	local progress = DataService.AddXP(player, xp)
 	DataService.Commit(player, true)
-	return { Coins = coins, XP = xp, Token = token, LevelCoins = levelCoins, Level = newLevel, LeveledUp = newLevel > oldLevel }
+	return {
+		Coins = coins,
+		XP = xp,
+		Token = token,
+		LevelCoins = progress.LevelCoins,
+		Level = progress.Level,
+		LeveledUp = progress.LeveledUp,
+		Unlocks = progress.Unlocks,
+	}
 end
 
 game:BindToClose(function()
@@ -3810,7 +3954,7 @@ function FortressService.DamagePart(part, amount, attackingTeam, player)
 	entry.Health = entry.Health - applied
 	entry.Model:SetAttribute("Health", entry.Health)
 	if player and damageHandler then
-		damageHandler(player, applied, entry.Kind)
+		damageHandler(player, applied, entry.Kind, entry.Health <= 0)
 	end
 	remotes.CombatFX:FireAllClients({ Kind = "StructureHit", Position = part.Position, Team = entry.Team })
 	if entry.Kind == "Core" then
@@ -4193,6 +4337,8 @@ local participants = {}
 local pendingSpawns = {}
 local matchId = 0
 local lastSecond = -1
+local matchStats = {}
+local regenClock = 0
 
 local function notify(player, text)
 	if player and player.Parent then
@@ -4269,6 +4415,39 @@ local function playerLevel(player)
 	return data and Catalog.LevelForXP(data.XP) or tonumber(player:GetAttribute("Level")) or 1
 end
 
+local function statsFor(player)
+	local stats = matchStats[player.UserId]
+	if not stats then
+		stats = { Builds = 0, Kills = 0, Structures = 0, Captures = 0, Coins = 0, XP = 0, LevelCoins = 0, Unlocks = {} }
+		matchStats[player.UserId] = stats
+	end
+	return stats
+end
+
+local function publishStat(player, name, value)
+	player:SetAttribute("Match" .. name, value)
+end
+
+local function recordProgress(player, progress)
+	if not progress then
+		return
+	end
+	local stats = statsFor(player)
+	stats.LevelCoins = stats.LevelCoins + (progress.LevelCoins or 0)
+	for _, unlock in ipairs(progress.Unlocks or {}) do
+		table.insert(stats.Unlocks, unlock)
+	end
+end
+
+local function actionReward(player, coins, xp, reason)
+	local stats = statsFor(player)
+	stats.Coins = stats.Coins + coins
+	stats.XP = stats.XP + xp
+	local progress = dataService.Award(player, coins, xp, reason)
+	recordProgress(player, progress)
+	return progress
+end
+
 function MatchService.GetPhase()
 	return phase
 end
@@ -4297,16 +4476,57 @@ function MatchService.GetTargets(team)
 	return result
 end
 
-function MatchService.OnStructureDamage(player, amount, kind)
-	if phase == "Battle" and MatchService.IsParticipant(player) then
-		dataService.AddStructureDamage(player, amount)
+function MatchService.OnStructureDamage(player, amount, kind, destroyed)
+	if phase ~= "Battle" or not MatchService.IsParticipant(player) then
+		return
+	end
+	dataService.AddStructureDamage(player, amount)
+	if destroyed and kind ~= "Core" then
+		local rewards = {
+			LaneTower = { 12, 30, "Башня линии уничтожена" },
+			Tower = { 8, 20, "Вражеская башня уничтожена" },
+			Wall = { 5, 12, "Проход в стене открыт" },
+			Barricade = { 4, 10, "Баррикада уничтожена" },
+			SpikeTrap = { 3, 8, "Ловушка обезврежена" },
+			FrostMine = { 3, 8, "Мина обезврежена" },
+		}
+		local reward = rewards[kind] or { 3, 8, "Вражеское сооружение уничтожено" }
+		local stats = statsFor(player)
+		stats.Structures = stats.Structures + 1
+		publishStat(player, "Structures", stats.Structures)
+		actionReward(player, reward[1], reward[2], reward[3])
 	end
 end
 
 function MatchService.OnKill(player, victim)
 	if phase == "Battle" and MatchService.IsParticipant(player) then
-		dataService.AddKill(player)
-		notify(player, "Боец выведен из строя · +2 монеты")
+		local progress = dataService.AddKill(player)
+		recordProgress(player, progress)
+		local stats = statsFor(player)
+		stats.Kills = stats.Kills + 1
+		stats.Coins = stats.Coins + 2
+		stats.XP = stats.XP + 8
+		publishStat(player, "Kills", stats.Kills)
+	end
+end
+
+function MatchService.OnActionReward(player, coins, xp, reason)
+	if phase == "Battle" and MatchService.IsParticipant(player) then
+		actionReward(player, coins, xp, reason)
+	end
+end
+
+function MatchService.OnCapture67(team)
+	if phase ~= "Battle" or not Config.Teams[team] then
+		return
+	end
+	for _, player in ipairs(Players:GetPlayers()) do
+		if participants[player.UserId] == team then
+			local stats = statsFor(player)
+			stats.Captures = stats.Captures + 1
+			publishStat(player, "Captures", stats.Captures)
+			actionReward(player, 10, 25, "67 захвачена · команда получает +1 HP/s")
+		end
 	end
 end
 
@@ -4330,11 +4550,22 @@ function MatchService.EndMatch(winner, reason)
 		if team then
 			local draw = not winner or winner == ""
 			local reward = dataService.RecordMatch(player, team == winner, draw)
+			local stats = statsFor(player)
 			remotes.Results:FireClient(player, {
 				Winner = winner or "",
 				Team = team,
 				Reason = reason or "",
 				Reward = reward,
+				Stats = {
+					Builds = stats.Builds,
+					Kills = stats.Kills,
+					Structures = stats.Structures,
+					Captures = stats.Captures,
+					Coins = stats.Coins,
+					XP = stats.XP,
+					LevelCoins = stats.LevelCoins,
+					Unlocks = stats.Unlocks,
+				},
 			})
 		end
 	end
@@ -4369,8 +4600,16 @@ function MatchService.StartMatch()
 		end
 		return levelA > levelB
 	end)
+	for index = #players, Config.TeamSize * 2 + 1, -1 do
+		local overflow = table.remove(players, index)
+		queued[overflow.UserId] = nil
+		overflow:SetAttribute("Queued", false)
+		notify(overflow, "Матч 6×6 уже заполнен · попробуйте следующий")
+	end
 	matchId = matchId + 1
 	participants = {}
+	matchStats = {}
+	regenClock = 0
 	local counts = { Blue = 0, Orange = 0 }
 	local power = { Blue = 0, Orange = 0 }
 	for _, player in ipairs(players) do
@@ -4393,6 +4632,10 @@ function MatchService.StartMatch()
 		player:SetAttribute("Team", team)
 		player:SetAttribute("MatchLevel", level)
 		player:SetAttribute("InMatch", true)
+		statsFor(player)
+		for _, name in ipairs({ "Builds", "Kills", "Structures", "Captures" }) do
+			publishStat(player, name, 0)
+		end
 	end
 	if abilityService then
 		abilityService.StartMatch(matchId, participants)
@@ -4469,8 +4712,19 @@ function MatchService.HandleBuild(player, kind, position, rotation)
 	local success, reason = fortressService.BuildPlayer(player, team, kind, position, rotation)
 	if not success then
 		notify(player, reason)
+		return false, reason
 	end
-	return success, reason
+	local stats = statsFor(player)
+	stats.Builds = stats.Builds + 1
+	publishStat(player, "Builds", stats.Builds)
+	if stats.Builds == 1 then
+		actionReward(player, 5, 15, "Первая постройка · крепость растёт")
+	elseif stats.Builds == 3 then
+		actionReward(player, 6, 14, "3 укрепления · базовая защита готова")
+	else
+		actionReward(player, 1, 4, "Укрепление установлено")
+	end
+	return true, reason
 end
 
 function MatchService.HandleBuildPreview(player, kind, position, rotation, requestId)
@@ -4536,6 +4790,9 @@ function MatchService.OnPlayerAdded(player)
 	player:SetAttribute("InMatch", false)
 	player:SetAttribute("ProfileLoaded", false)
 	player:SetAttribute("BuildRemaining", 0)
+	for _, name in ipairs({ "Builds", "Kills", "Structures", "Captures" }) do
+		publishStat(player, name, 0)
+	end
 	player.CharacterAdded:Connect(function(character)
 		onCharacter(player, character)
 	end)
@@ -4567,13 +4824,18 @@ local function resetToLobby()
 		captureService.Reset()
 	end
 	participants = {}
+	matchStats = {}
 	queued = {}
 	intermission = nil
+	regenClock = 0
 	for _, player in ipairs(Players:GetPlayers()) do
 		player:SetAttribute("Team", "")
 		player:SetAttribute("Queued", false)
 		player:SetAttribute("InMatch", false)
 		player:SetAttribute("BuildRemaining", 0)
+		for _, name in ipairs({ "Builds", "Kills", "Structures", "Captures" }) do
+			publishStat(player, name, 0)
+		end
 		spawnPlayer(player, world.LobbySpawn)
 	end
 	state:SetAttribute("Winner", "")
@@ -4591,6 +4853,7 @@ function MatchService.OnPlayerRemoving(player)
 	end
 	queued[userId] = nil
 	pendingSpawns[userId] = nil
+	matchStats[userId] = nil
 	local team = participants[userId]
 	if abilityService then
 		abilityService.OnPlayerRemoving(player)
@@ -4636,12 +4899,15 @@ function MatchService.Init(dependencies)
 	botService.SetProviders(MatchService.GetPhase, MatchService.GetTargets)
 	if abilityService then
 		abilityService.SetProviders(MatchService.GetPhase, MatchService.GetTeam, MatchService.GetTargets)
+		abilityService.SetRewardHandler(MatchService.OnActionReward)
 	end
 	if neutralService then
 		neutralService.SetPhaseProvider(MatchService.GetPhase)
+		neutralService.SetRewardHandler(MatchService.OnActionReward)
 	end
 	if captureService then
 		captureService.SetPhaseProvider(MatchService.GetPhase)
+		captureService.SetCaptureHandler(MatchService.OnCapture67)
 	end
 	state:SetAttribute("Phase", "Lobby")
 	state:SetAttribute("Time", 0)
@@ -4673,6 +4939,32 @@ function MatchService.Step(deltaTime)
 			end
 		end
 		return
+	end
+	if phase == "Battle" then
+		regenClock = regenClock + deltaTime
+		local ticks = math.floor(regenClock)
+		if ticks > 0 then
+			regenClock = regenClock - ticks
+			local owner = captureService and captureService.GetOwner() or nil
+			if owner then
+				local function heal(model)
+					local humanoid = model and model:FindFirstChildOfClass("Humanoid") or nil
+					if humanoid and humanoid.Health > 0 then
+						humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + ticks)
+					end
+				end
+				for _, player in ipairs(Players:GetPlayers()) do
+					if participants[player.UserId] == owner then
+						heal(player.Character)
+					end
+				end
+				if botService then
+					for _, model in ipairs(botService.GetModels(owner)) do
+						heal(model)
+					end
+				end
+			end
+		end
 	end
 	timer = math.max(0, timer - deltaTime)
 	updateClock()
@@ -4919,8 +5211,8 @@ function ProgressionService.ClaimDaily(player)
 	local level = getLevel(data)
 	local coins = 50 + level * 5
 	data.Coins = data.Coins + coins
-	data.XP = data.XP + 20
 	data.CaseTokens = data.CaseTokens + 1
+	DataService.AddXP(player, 20)
 	data.LastDailyClaim = now
 	DataService.Commit(player, true)
 	notify(player, "Ежедневный бонус: +" .. coins .. " монет, +20 XP и жетон кейса", Color3.fromRGB(120, 255, 190))
@@ -5459,15 +5751,15 @@ local VisualModels = require(Shared:WaitForChild("VisualModels"))
 local WorldBuilder = {}
 local buildSerial = 0
 local C = {
-	Grass = Color3.fromRGB(83, 128, 112),
-	Dirt = Color3.fromRGB(76, 72, 77),
-	Stone = Color3.fromRGB(113, 138, 153),
-	StoneDark = Color3.fromRGB(37, 55, 74),
-	Wood = Color3.fromRGB(128, 91, 68),
-	Leaf = Color3.fromRGB(42, 100, 88),
-	Sand = Color3.fromRGB(155, 174, 184),
-	White = Color3.fromRGB(235, 245, 255),
-	Gold = Color3.fromRGB(255, 204, 102),
+	Grass = Color3.fromRGB(91, 158, 91),
+	Dirt = Color3.fromRGB(116, 88, 65),
+	Stone = Color3.fromRGB(151, 158, 159),
+	StoneDark = Color3.fromRGB(66, 76, 84),
+	Wood = Color3.fromRGB(137, 91, 56),
+	Leaf = Color3.fromRGB(52, 126, 69),
+	Sand = Color3.fromRGB(195, 172, 127),
+	White = Color3.fromRGB(245, 244, 232),
+	Gold = Color3.fromRGB(244, 188, 72),
 }
 
 -- Public Roblox material color maps add real tiled surface detail without a custom
@@ -5558,7 +5850,7 @@ local function buildTree(parent, position, scale)
 	-- The old five-cube VoxelTree is intentionally gone. The trunk remains a
 	-- small gameplay obstacle; the sculpted crown is non-interactive.
 	return VisualModels.Tree(parent, position, scale, {
-		Name = "AuroraPine", Snow = true, Collide = true, Query = true,
+		Name = "FortressPine", Snow = true, Collide = true, Query = true,
 	})
 end
 
@@ -5574,13 +5866,13 @@ local HOLIDAY = {
 }
 
 local STYLE = {
-	Ivory = Color3.fromRGB(205, 226, 237),
-	IvoryDark = Color3.fromRGB(125, 161, 181),
-	Navy = Color3.fromRGB(17, 35, 59),
+	Ivory = Color3.fromRGB(224, 215, 190),
+	IvoryDark = Color3.fromRGB(151, 143, 123),
+	Navy = Color3.fromRGB(51, 66, 79),
 	Blue = Color3.fromRGB(69, 190, 239),
-	Ice = Color3.fromRGB(137, 231, 255),
-	Gold = Color3.fromRGB(255, 204, 102),
-	Warm = Color3.fromRGB(255, 151, 85),
+	Ice = Color3.fromRGB(104, 190, 211),
+	Gold = Color3.fromRGB(235, 177, 62),
+	Warm = Color3.fromRGB(239, 137, 71),
 }
 
 local function decorPart(parent, name, size, cframe, color, material, className)
@@ -6009,15 +6301,8 @@ local function decorateArena(arena)
 	buildGift(arena, Vector3.new(28, 0, 76), 0.8, HOLIDAY.Green)
 	buildGift(arena, Vector3.new(-100, 0, 70), 0.65, HOLIDAY.Green)
 	buildGift(arena, Vector3.new(100, 0, -70), 0.65, HOLIDAY.Red)
-	buildGarland(arena, Vector3.new(-190, 10, -88), Vector3.new(190, 10, -88), 4, 24)
-	buildGarland(arena, Vector3.new(-190, 10, 88), Vector3.new(190, 10, 88), 4, 24)
-	buildSnowflake(arena, Vector3.new(-18, 9, -88), 1.3)
-	buildSnowflake(arena, Vector3.new(18, 9, 88), 1.3)
-	buildSnowEmitter(arena, Vector3.new(0, 28, 0), Vector3.new(390, 1, 170), 10)
-end
-
-local function buildCloud(parent, position, scale)
-	return VisualModels.Cloud(parent, position, scale)
+	-- Seasonal props stay at the edges; combat lanes keep a clean silhouette.
+	buildSnowEmitter(arena, Vector3.new(0, 28, 0), Vector3.new(390, 1, 170), 6)
 end
 
 local function buildSculptedTerrain()
@@ -6147,9 +6432,9 @@ local function buildLobbyArchitecture(lobby)
 	galleryBackdrop.Transparency = 0.12
 	decorPart(lobby, "GalleryCrown", Vector3.new(172, 0.55, 1), CFrame.new(0, 56.2, 250), STYLE.Gold, Enum.Material.Metal)
 	decorPart(lobby, "HallAxis", Vector3.new(2, 0.12, 145), CFrame.new(0, 44.58, 330), STYLE.Navy, Enum.Material.Metal)
-	local signAnchor = decorPart(lobby, "FrostfireSign", Vector3.new(1, 1, 1), CFrame.new(0, 65, 330), C.White, Enum.Material.SmoothPlastic)
+	local signAnchor = decorPart(lobby, "BlockSiegeSign", Vector3.new(1, 1, 1), CFrame.new(0, 65, 330), C.White, Enum.Material.SmoothPlastic)
 	signAnchor.Transparency = 1
-	billboard(signAnchor, "AURORA  //  BASTION", STYLE.Gold, Vector3.zero, UDim2.fromOffset(440, 70))
+	billboard(signAnchor, "BLOCKSIEGE  //  6×6", STYLE.Gold, Vector3.zero, UDim2.fromOffset(440, 70))
 	for _, z in ipairs({ 280, 320, 360, 400 }) do
 		local lamp = decorPart(lobby, "HallLight", Vector3.new(2, 2, 2), CFrame.new(0, 62, z), STYLE.Warm, Enum.Material.Neon)
 		lamp.Shape = Enum.PartType.Ball
@@ -6535,23 +6820,8 @@ function WorldBuilder.Build()
 		xWall.CanQuery = false
 		decorPart(arena, "ArenaBoundarySnow", Vector3.new(2.5, 0.5, presentation.ArenaDepth), CFrame.new(side * presentation.ArenaEdgeX, 18.25, 0), HOLIDAY.Snow, Enum.Material.Snow)
 	end
-	for index = 1, 48 do
-		local x = (index * 47 % 180) - 90
-		local z = (index * 71 % 160) - 80
-		if math.abs(z) > 12 then
-			local tuft = makePart(arena, "GrassTuft", Vector3.new(0.45, 0.7 + (index % 3) * 0.2, 0.45), CFrame.new(x, 0.4, z), C.Leaf, Enum.Material.Grass, false)
-			tuft.CanQuery = false
-		end
-	end
-	for _, entry in ipairs({
-		{ Vector3.new(-190, 62, -105), 1.1 }, { Vector3.new(-80, 76, -120), 0.85 },
-		{ Vector3.new(45, 68, -112), 1.2 }, { Vector3.new(175, 72, -105), 0.9 },
-		{ Vector3.new(-165, 70, 110), 0.9 }, { Vector3.new(-35, 60, 118), 1.1 },
-		{ Vector3.new(95, 78, 112), 0.85 }, { Vector3.new(205, 64, 100), 1.15 },
-	}) do
-		buildCloud(arena, entry[1], entry[2])
-	end
-
+	-- The terrain/cloud system and tiled ground materials carry the horizon and
+	-- surface detail. Avoid scatter made from tiny cubes across the combat view.
 	local teamSpawns = {}
 	for _, team in ipairs(Config.TeamOrder) do
 		teamSpawns[team] = buildBase(arena, structures, team)
@@ -6583,13 +6853,13 @@ function WorldBuilder.Build()
 	pcall(function()
 		Lighting.Technology = Enum.Technology.Future
 	end)
-	Lighting.Brightness = 3
-	Lighting.ClockTime = 16.2
-	Lighting.EnvironmentDiffuseScale = 0.65
-	Lighting.EnvironmentSpecularScale = 0.7
+	Lighting.Brightness = 2.5
+	Lighting.ClockTime = 15.4
+	Lighting.EnvironmentDiffuseScale = 0.58
+	Lighting.EnvironmentSpecularScale = 0.45
 	Lighting.GlobalShadows = true
-	Lighting.OutdoorAmbient = Color3.fromRGB(170, 190, 218)
-	Lighting.ColorShift_Top = Color3.fromRGB(214, 235, 255)
+	Lighting.OutdoorAmbient = Color3.fromRGB(184, 191, 177)
+	Lighting.ColorShift_Top = Color3.fromRGB(255, 238, 211)
 	local function ensureEffect(className, name)
 		local effect = Lighting:FindFirstChild(name)
 		if not effect then
@@ -6600,16 +6870,16 @@ function WorldBuilder.Build()
 		return effect
 	end
 	local atmosphere = ensureEffect("Atmosphere", "BlockSiegeAtmosphere")
-	atmosphere.Density = 0.12
-	atmosphere.Haze = 0.18
-	atmosphere.Color = Color3.fromRGB(202, 224, 242)
-	atmosphere.Decay = Color3.fromRGB(118, 148, 176)
-	atmosphere.Glare = 0.08
+	atmosphere.Density = 0.09
+	atmosphere.Haze = 0.08
+	atmosphere.Color = Color3.fromRGB(218, 226, 213)
+	atmosphere.Decay = Color3.fromRGB(145, 151, 135)
+	atmosphere.Glare = 0.04
 	local colorCorrection = ensureEffect("ColorCorrectionEffect", "BlockSiegeColor")
-	colorCorrection.Saturation = 0.08
-	colorCorrection.Contrast = 0.12
+	colorCorrection.Saturation = 0.16
+	colorCorrection.Contrast = 0.07
 	local bloom = ensureEffect("BloomEffect", "BlockSiegeBloom")
-	bloom.Intensity = 0.45
+	bloom.Intensity = 0.24
 	bloom.Size = 22
 	bloom.Threshold = 1
 	local rays = ensureEffect("SunRaysEffect", "BlockSiegeSun")
@@ -6686,6 +6956,7 @@ local banners = {}
 local cooldownClock = 0
 local stateClock = 0
 local classCleanupClock = 0
+local rewardHandler
 
 local function validPosition(position)
 	return typeof(position) == vector3Type and position.X == position.X and position.Y == position.Y and position.Z == position.Z
@@ -7139,6 +7410,10 @@ function AbilityService.SetProviders(phase, team, targets)
 	targetsProvider = targets or targetsProvider
 end
 
+function AbilityService.SetRewardHandler(handler)
+	rewardHandler = handler
+end
+
 function AbilityService.StartMatch(matchId, participants)
 	AbilityService.Reset()
 	teamDecks = { Blue = shuffledDeck(), Orange = shuffledDeck() }
@@ -7189,6 +7464,10 @@ function AbilityService.UsePlayerAbility(player, slot, targetPosition)
 		applyClassToModel(character, classId)
 	end
 	local success, reason = useAbility(player, character, team, slot, targetPosition, player)
+	if success and rewardHandler then
+		local ability = AbilityCatalog.GetAbilityForSlot(classId, slot)
+		rewardHandler(player, 1, 4, "Способность · " .. tostring(ability and ability.ShortName or "F/G"))
+	end
 	if not success and reason and reason ~= "Способность перезаряжается" then
 		notify(player, reason)
 	end
@@ -7466,6 +7745,7 @@ local NeutralService = {}
 local world
 local remotes
 local dataService
+local rewardHandler
 local botService
 local state
 local phaseProvider = function() return "Lobby" end
@@ -7547,10 +7827,11 @@ end
 local function neutralDeath(record, model)
 	local attackerId = model:GetAttribute("LastAttackerUserId")
 	local player = attackerId and Players:GetPlayerByUserId(attackerId) or nil
-	if player and dataService then
-		dataService.AddCoins(player, 8)
-		if remotes and remotes.Notify then
-			remotes.Notify:FireClient(player, "NEUTRAL CAMP ОЧИЩЕН · +8 монет")
+	if player then
+		if rewardHandler then
+			rewardHandler(player, 8, 18, "Нейтральный лагерь очищен")
+		elseif dataService then
+			dataService.Award(player, 8, 18, "Нейтральный лагерь очищен")
 		end
 	end
 	defeated = defeated + 1
@@ -7629,6 +7910,10 @@ end
 
 function NeutralService.SetPhaseProvider(provider)
 	phaseProvider = provider or phaseProvider
+end
+
+function NeutralService.SetRewardHandler(handler)
+	rewardHandler = handler
 end
 
 function NeutralService.StartMatch()
@@ -8168,7 +8453,7 @@ for index, team in ipairs({ "Blue", "Orange" }) do
 	coreFills[team] = fill
 end
 
-local seasonLabel = text(top, "NEW YEAR // AURORA OPS", UDim2.new(1, -24, 0, 12), UDim2.new(0, 12, 0, 88), 11, Color3.fromRGB(255, 215, 116))
+local seasonLabel = text(top, "BLOCKSIEGE // NEW YEAR 2026", UDim2.new(1, -24, 0, 12), UDim2.new(0, 12, 0, 88), 11, Color3.fromRGB(255, 215, 116))
 seasonLabel.Font = Enum.Font.GothamBold
 seasonLabel.TextXAlignment = Enum.TextXAlignment.Center
 seasonLabel.TextStrokeTransparency = 0.5
@@ -8191,9 +8476,10 @@ corner(lobbyDock, 10)
 gradient(lobbyDock, Color3.fromRGB(28, 48, 72), Color3.fromRGB(10, 18, 31))
 text(lobbyDock, "BLOCKSIEGE  /  6V6", UDim2.new(1, -24, 0, 24), UDim2.new(0, 12, 0, 7), 14, C.Gold)
 local queueButton = button(lobbyDock, "В ОЧЕРЕДЬ 6×6", UDim2.new(1, -24, 0, 38), UDim2.new(0, 12, 0, 36), C.Blue)
-local quickButton = button(lobbyDock, "БЫСТРЫЙ СТАРТ + БОТЫ", UDim2.new(1, -24, 0, 38), UDim2.new(0, 12, 0, 80), C.Orange)
+local quickButton = button(lobbyDock, "БЫСТРЫЙ СТАРТ + БОТЫ", UDim2.new(1, -24, 0, 38), UDim2.new(0, 12, 0, 80), C.Green)
+quickButton.TextColor3 = Color3.fromRGB(15, 42, 34)
 local caseButton = button(lobbyDock, "ЛУТБОКС / ОРУЖИЕ  [L]", UDim2.new(1, -24, 0, 38), UDim2.new(0, 12, 0, 124), C.Panel)
-local lobbyHint = text(gui, "6×6 · драфт команд по уровню · боты заполняют пустые слоты", UDim2.new(0, 480, 0, 52), UDim2.new(0, 290, 1, -112), 17, C.Muted)
+local lobbyHint = text(gui, "1 · построй защиту   2 · уничтожь ядро   3 · получи награду и уровень", UDim2.new(0, 560, 0, 52), UDim2.new(0, 310, 1, -112), 17, C.Muted)
 
 local buildDock = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -16), Size = UDim2.new(0.9, 0, 0, 132), BackgroundColor3 = C.Background,
@@ -8239,6 +8525,90 @@ local captureTrack = new("Frame", { Position = UDim2.new(0, 10, 0, 36), Size = U
 corner(captureTrack, 4)
 local captureFill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = C.Gold, BorderSizePixel = 0 }, captureTrack)
 corner(captureFill, 4)
+
+local objectiveFrame = new("Frame", {
+	AnchorPoint = Vector2.new(1, 0),
+	Position = UDim2.new(1, -16, 0, 190),
+	Size = UDim2.new(0, 318, 0, 150),
+	BackgroundColor3 = C.Background,
+	BackgroundTransparency = 0.04,
+	Visible = false,
+}, gui)
+corner(objectiveFrame, 10)
+new("UIStroke", { Color = C.Green, Thickness = 1 }, objectiveFrame)
+local objectiveTitle = text(objectiveFrame, "ТЕКУЩАЯ ЗАДАЧА", UDim2.new(1, -24, 0, 28), UDim2.new(0, 12, 0, 8), 16, C.Green)
+objectiveTitle.Font = Enum.Font.GothamBold
+objectiveTitle.TextXAlignment = Enum.TextXAlignment.Left
+local objectiveText = text(objectiveFrame, "", UDim2.new(1, -24, 0, 58), UDim2.new(0, 12, 0, 38), 15, C.Text)
+objectiveText.TextXAlignment = Enum.TextXAlignment.Left
+local objectiveTrack = new("Frame", { Position = UDim2.new(0, 12, 0, 103), Size = UDim2.new(1, -24, 0, 11), BackgroundColor3 = C.Panel }, objectiveFrame)
+corner(objectiveTrack, 5)
+local objectiveFill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = C.Green }, objectiveTrack)
+corner(objectiveFill, 5)
+local objectiveBonus = text(objectiveFrame, "", UDim2.new(1, -24, 0, 27), UDim2.new(0, 12, 0, 119), 12, C.Gold)
+objectiveBonus.TextXAlignment = Enum.TextXAlignment.Left
+
+local rewardToast = new("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0),
+	Position = UDim2.new(0.5, 0, 0, 190),
+	Size = UDim2.new(0.9, 0, 0, 78),
+	BackgroundColor3 = Color3.fromRGB(20, 40, 43),
+	Visible = false,
+	ZIndex = 12,
+}, gui)
+new("UISizeConstraint", { MinSize = Vector2.new(280, 78), MaxSize = Vector2.new(420, 78) }, rewardToast)
+corner(rewardToast, 10)
+local rewardStroke = new("UIStroke", { Color = C.Green, Thickness = 2 }, rewardToast)
+local rewardTitle = text(rewardToast, "", UDim2.new(1, -24, 0, 29), UDim2.new(0, 12, 0, 8), 18, C.Green)
+rewardTitle.Font = Enum.Font.GothamBold
+rewardTitle.ZIndex = 13
+local rewardDetail = text(rewardToast, "", UDim2.new(1, -24, 0, 33), UDim2.new(0, 12, 0, 39), 15, C.Text)
+rewardDetail.ZIndex = 13
+local rewardQueue = {}
+local rewardShowing = false
+local function showNextReward()
+	if rewardShowing or #rewardQueue == 0 then
+		return
+	end
+	rewardShowing = true
+	local payload = table.remove(rewardQueue, 1)
+	local isLevel = payload.Type == "LevelUp"
+	rewardToast.BackgroundColor3 = isLevel and Color3.fromRGB(54, 43, 25) or Color3.fromRGB(20, 40, 43)
+	rewardStroke.Color = isLevel and C.Gold or C.Green
+	rewardTitle.TextColor3 = isLevel and C.Gold or C.Green
+	if isLevel then
+		rewardTitle.Text = "★ УРОВЕНЬ " .. tostring(payload.Level) .. "!"
+		local unlockText = {}
+		for _, unlock in ipairs(payload.Unlocks or {}) do
+			table.insert(unlockText, tostring(unlock.Text))
+		end
+		rewardDetail.Text = (#unlockText > 0 and table.concat(unlockText, " · ") or "Новый уровень") .. string.format(" · +%d монет", payload.LevelCoins or 0)
+	else
+		rewardTitle.Text = tostring(payload.Reason or "Награда")
+		rewardDetail.Text = string.format("+%d монет  ·  +%d XP", payload.Coins or 0, payload.XP or 0)
+	end
+	rewardToast.Visible = true
+	task.delay(isLevel and 4.5 or 2.6, function()
+		rewardToast.Visible = false
+		rewardShowing = false
+		showNextReward()
+	end)
+end
+local function queueReward(payload)
+	if type(payload) ~= "table" then
+		return
+	end
+	if #rewardQueue >= 6 then
+		for index, queued in ipairs(rewardQueue) do
+			if queued.Type ~= "LevelUp" then
+				table.remove(rewardQueue, index)
+				break
+			end
+		end
+	end
+	table.insert(rewardQueue, payload)
+	showNextReward()
+end
 
 local crosshair = text(gui, "+", UDim2.new(0, 46, 0, 46), UDim2.new(0.5, -23, 0.5, -23), 34, C.Text)
 crosshair.TextStrokeTransparency = 0.2
@@ -8286,14 +8656,18 @@ inventoryLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function
 end)
 
 local resultsPanel = new("Frame", {
-	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(0, 520, 0, 220),
+	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(0.9, 0, 0, 326),
 	BackgroundColor3 = C.Background, Visible = false,
 }, gui)
-corner(resultsPanel, 8)
+new("UISizeConstraint", { MinSize = Vector2.new(300, 326), MaxSize = Vector2.new(580, 326) }, resultsPanel)
+corner(resultsPanel, 12)
 gradient(resultsPanel, Color3.fromRGB(35, 53, 76), Color3.fromRGB(12, 20, 34))
-local resultTitle = text(resultsPanel, "МАТЧ ЗАВЕРШЁН", UDim2.new(1, -20, 0, 48), UDim2.new(0, 10, 0, 18), 28, C.Gold)
-local resultReason = text(resultsPanel, "", UDim2.new(1, -30, 0, 60), UDim2.new(0, 15, 0, 76), 20)
-local resultReward = text(resultsPanel, "", UDim2.new(1, -30, 0, 46), UDim2.new(0, 15, 0, 143), 18, C.Green)
+local resultTitle = text(resultsPanel, "МАТЧ ЗАВЕРШЁН", UDim2.new(1, -20, 0, 42), UDim2.new(0, 10, 0, 12), 28, C.Gold)
+local resultReason = text(resultsPanel, "", UDim2.new(1, -30, 0, 44), UDim2.new(0, 15, 0, 56), 18)
+local resultReward = text(resultsPanel, "", UDim2.new(1, -30, 0, 52), UDim2.new(0, 15, 0, 103), 18, C.Green)
+local resultStats = text(resultsPanel, "", UDim2.new(1, -30, 0, 52), UDim2.new(0, 15, 0, 157), 16, C.Text)
+local resultUnlock = text(resultsPanel, "", UDim2.new(1, -30, 0, 50), UDim2.new(0, 15, 0, 211), 17, C.Gold)
+local resultNext = text(resultsPanel, "", UDim2.new(1, -30, 0, 36), UDim2.new(0, 15, 0, 275), 15, C.Muted)
 
 local profile
 local selectedBuild = "Wall"
@@ -8461,10 +8835,26 @@ local function updateResults()
 	resultReason.Text = state:GetAttribute("Reason") or ""
 	if lastResult and lastResult.Reward then
 		local reward = lastResult.Reward
-		local levelBonus = reward.LeveledUp and string.format(" · LEVEL %d! +%d монет", reward.Level, reward.LevelCoins or 0) or ""
-		resultReward.Text = string.format("Награда: +%d монет · +%d XP%s%s", reward.Coins, reward.XP, reward.Token and " · +1 жетон" or "", levelBonus)
+		local stats = lastResult.Stats or {}
+		local totalLevelCoins = (reward.LevelCoins or 0) + (stats.LevelCoins or 0)
+		local levelBonus = totalLevelCoins > 0 and string.format(" · УРОВЕНЬ %d! +%d монет", reward.Level, totalLevelCoins) or ""
+		resultReward.Text = string.format("За матч: +%d монет · +%d XP%s%s", reward.Coins, reward.XP, reward.Token and " · +1 жетон" or "", levelBonus)
+		resultStats.Text = string.format("За действия: +%d монет · +%d XP\nПостройки %d · Бойцы %d · Сооружения %d · 67: %d", stats.Coins or 0, stats.XP or 0, stats.Builds or 0, stats.Kills or 0, stats.Structures or 0, stats.Captures or 0)
+		local unlocks = {}
+		for _, unlock in ipairs(stats.Unlocks or {}) do
+			table.insert(unlocks, "LV " .. tostring(unlock.Level) .. ": " .. tostring(unlock.Text))
+		end
+		for _, unlock in ipairs(reward.Unlocks or {}) do
+			table.insert(unlocks, "LV " .. tostring(unlock.Level) .. ": " .. tostring(unlock.Text))
+		end
+		resultUnlock.Text = #unlocks > 0 and ("ОТКРЫТО · " .. table.concat(unlocks, " · ")) or "Награды за действия начислены ещё до этого экрана."
+		local nextLevel, nextReward = Catalog.GetNextLevelReward(reward.Level or 1)
+		resultNext.Text = nextReward and string.format("ДАЛЬШЕ · LV %d: %s", nextLevel, nextReward.Description) or "Вся особая шкала открыта. Каждый следующий уровень даёт монеты."
 	else
 		resultReward.Text = "Наблюдение за матчем"
+		resultStats.Text = ""
+		resultUnlock.Text = ""
+		resultNext.Text = ""
 	end
 end
 
@@ -8486,6 +8876,8 @@ local function refresh()
 	weaponLabel.Visible = phase == "Battle"
 	fireButton.Visible = phase == "Battle" and UserInputService.TouchEnabled
 	resultsPanel.Visible = phase == "Results"
+	objectiveFrame.Visible = (phase == "Build" or phase == "Battle") and (player:GetAttribute("Team") or "") ~= ""
+	rewardToast.Position = UDim2.new(0.5, 0, 0, phase == "Results" and 118 or 190)
 	coreFrame.Visible = phase ~= "Lobby"
 	queueButton.Text = player:GetAttribute("Queued") and "ВЫЙТИ ИЗ ОЧЕРЕДИ" or "В ОЧЕРЕДЬ 6×6"
 	local team = player:GetAttribute("Team") or ""
@@ -8514,10 +8906,27 @@ local function refresh()
 	local captureProgress = state:GetAttribute("Capture67Progress") or 0
 	local captureContested = state:GetAttribute("Capture67Contested") == true
 	local ownerText = captureOwner == "" and "НЕЙТРАЛЬНАЯ" or (captureOwner == team and "ВАША" or (captureOwner == "Blue" and "СИНИЕ" or "ОРАНЖЕВЫЕ"))
-	captureTitle.Text = phase == "Build" and "67 // ЗАХВАТ ОТКРОЕТСЯ В БОЮ" or ("67 // " .. ownerText .. (captureContested and " · ОСПАРИВАЕТСЯ" or ""))
+	captureTitle.Text = phase == "Build" and "67 // В БОЮ: НАГРАДА + РЕГЕНЕРАЦИЯ" or ("67 // " .. ownerText .. (captureContested and " · ОСПАРИВАЕТСЯ" or (captureOwner ~= "" and " · +1 HP/s" or "")))
 	captureTitle.TextColor3 = captureContested and C.Orange or (C[captureOwner] or C.Gold)
 	captureFill.BackgroundColor3 = C[captureOwner] or C.Gold
 	captureFill.Size = UDim2.fromScale(math.clamp(captureProgress / 100, 0, 1), 1)
+	if phase == "Build" then
+		local builds = player:GetAttribute("MatchBuilds") or 0
+		objectiveTitle.Text = builds < 3 and "ШАГ 1 · ЗАЩИТИ КРЕПОСТЬ" or "ЗАЩИТА ГОТОВА"
+		objectiveText.Text = builds < 3 and string.format("Поставь 3 укрепления: %d/3\nВыбери модель, поверни и подтверди позицию.", builds) or "Базовая защита стоит. Можно улучшить позицию до начала штурма."
+		objectiveFill.Size = UDim2.fromScale(math.clamp(builds / 3, 0, 1), 1)
+		objectiveFill.BackgroundColor3 = builds >= 3 and C.Green or C.Gold
+		objectiveBonus.Text = "Каждая постройка даёт монеты и XP"
+	elseif phase == "Battle" then
+		local enemy = team ~= "" and Config.OtherTeam(team) or nil
+		local enemyHealth = enemy and (state:GetAttribute(enemy .. "Core") or 0) or 0
+		local enemyMaximum = enemy and math.max(1, state:GetAttribute(enemy .. "CoreMax") or 1) or 1
+		objectiveTitle.Text = "ГЛАВНАЯ ЦЕЛЬ · ВРАЖЕСКОЕ ЯДРО"
+		objectiveText.Text = string.format("Ядро противника: %d HP\nЛомай башни и стены, затем уничтожь ядро.", enemyHealth)
+		objectiveFill.Size = UDim2.fromScale(math.clamp(1 - enemyHealth / enemyMaximum, 0, 1), 1)
+		objectiveFill.BackgroundColor3 = C.Orange
+		objectiveBonus.Text = captureOwner == team and "67 удерживается · команда лечится" or "Захвати 67: +10 монет · +25 XP · +1 HP/s"
+	end
 	if phase == "Results" then
 		updateResults()
 	end
@@ -8830,7 +9239,7 @@ remotes.CaptureFX.OnClientEvent:Connect(function(payload)
 		burst(payload.Position, color, 18, 14)
 	end
 	if payload.Team then
-		notify("67 ЗАХВАЧЕНА · " .. (payload.Team == "Blue" and "СИНИЕ" or "ОРАНЖЕВЫЕ"))
+		notify("67 ЗАХВАЧЕНА · +1 HP/s · " .. (payload.Team == "Blue" and "СИНИЕ" or "ОРАНЖЕВЫЕ"))
 	end
 end)
 remotes.BuildPreview.OnClientEvent:Connect(function(payload)
@@ -8881,6 +9290,7 @@ remotes.BuildPreview.OnClientEvent:Connect(function(payload)
 end)
 
 remotes.Notify.OnClientEvent:Connect(notify)
+remotes.ProgressionFX.OnClientEvent:Connect(queueReward)
 remotes.CaseOpened.OnClientEvent:Connect(function(result)
 	casePanel.Visible = true
 	caseResult.Text = (result.Duplicate and "ДУБЛИКАТ · " or "ПОЛУЧЕНО · ") .. result.Name .. " · " .. Catalog.RarityNames[result.Rarity] .. (result.Duplicate and " · +" .. result.Compensation .. " монет" or "")
@@ -8933,13 +9343,13 @@ local remotes = Shared:WaitForChild("Remotes")
 local state = Shared:WaitForChild("MatchState")
 
 local C = {
-	Background = Color3.fromRGB(27, 35, 39),
-	Panel = Color3.fromRGB(46, 59, 61),
-	Text = Color3.fromRGB(240, 241, 217),
-	Muted = Color3.fromRGB(174, 187, 178),
-	Gold = Color3.fromRGB(239, 179, 52),
-	Green = Color3.fromRGB(102, 190, 130),
-	Cyan = Color3.fromRGB(88, 220, 255),
+	Background = Color3.fromRGB(20, 28, 48),
+	Panel = Color3.fromRGB(36, 49, 76),
+	Text = Color3.fromRGB(248, 250, 255),
+	Muted = Color3.fromRGB(177, 192, 216),
+	Gold = Color3.fromRGB(255, 197, 68),
+	Green = Color3.fromRGB(75, 211, 137),
+	Cyan = Color3.fromRGB(80, 202, 255),
 	Purple = Color3.fromRGB(195, 117, 255),
 	Red = Color3.fromRGB(255, 110, 100),
 }
@@ -8962,7 +9372,7 @@ local function label(parent, value, size, position, textSize, color)
 		BackgroundTransparency = 1,
 		Size = size,
 		Position = position or UDim2.new(),
-		Font = Enum.Font.Code,
+		Font = Enum.Font.Gotham,
 		Text = value,
 		TextColor3 = color or C.Text,
 		TextSize = textSize or 17,
@@ -8975,7 +9385,7 @@ local function button(parent, value, size, position, color)
 		BackgroundColor3 = color or C.Panel,
 		Size = size,
 		Position = position or UDim2.new(),
-		Font = Enum.Font.Code,
+		Font = Enum.Font.GothamBold,
 		Text = value,
 		TextColor3 = C.Text,
 		TextSize = 16,
@@ -8994,31 +9404,54 @@ local gui = new("ScreenGui", {
 }, player:WaitForChild("PlayerGui"))
 
 local statsPanel = new("Frame", {
-	Position = UDim2.new(0, 16, 0, 122),
-	Size = UDim2.new(0, 318, 0, 112),
+	Position = UDim2.new(0, 16, 0, 112),
+	Size = UDim2.new(0, 330, 0, 148),
 	BackgroundColor3 = C.Background,
-	BackgroundTransparency = 0.08,
+	BackgroundTransparency = 0.04,
 }, gui)
-corner(statsPanel)
-new("UIStroke", { Color = Color3.fromRGB(91, 108, 101), Thickness = 1 }, statsPanel)
-local levelLabel = label(statsPanel, "LEVEL 1", UDim2.new(0.46, 0, 0, 29), UDim2.new(0, 12, 0, 7), 22, C.Gold)
-local xpLabel = label(statsPanel, "XP 0", UDim2.new(0.5, 0, 0, 24), UDim2.new(0.48, 0, 0, 10), 15, C.Muted)
-local statsLabel = label(statsPanel, "HP 120/120 · ARMOR 0%", UDim2.new(1, -24, 0, 25), UDim2.new(0, 12, 0, 42), 16, C.Text)
-local speedLabel = label(statsPanel, "SPEED 20 · BUILDS 14", UDim2.new(1, -24, 0, 24), UDim2.new(0, 12, 0, 68), 15, C.Cyan)
-local coinsLabel = label(statsPanel, "COINS 0 · CASE TOKENS 0", UDim2.new(1, -24, 0, 22), UDim2.new(0, 12, 0, 91), 14, C.Gold)
+corner(statsPanel, 10)
+new("UIStroke", { Color = Color3.fromRGB(79, 104, 148), Thickness = 1 }, statsPanel)
+local levelLabel = label(statsPanel, "УРОВЕНЬ 1", UDim2.new(0.48, 0, 0, 29), UDim2.new(0, 12, 0, 7), 21, C.Gold)
+levelLabel.Font = Enum.Font.GothamBold
+local xpLabel = label(statsPanel, "0 / 80 XP", UDim2.new(0.48, -12, 0, 25), UDim2.new(0.5, 0, 0, 10), 14, C.Muted)
+xpLabel.TextXAlignment = Enum.TextXAlignment.Right
+local xpTrack = new("Frame", { Position = UDim2.new(0, 12, 0, 40), Size = UDim2.new(1, -24, 0, 10), BackgroundColor3 = C.Panel }, statsPanel)
+corner(xpTrack, 5)
+local xpFill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = C.Gold }, xpTrack)
+corner(xpFill, 5)
+local statsLabel = label(statsPanel, "HP 120/120 · ARMOR 0%", UDim2.new(1, -24, 0, 24), UDim2.new(0, 12, 0, 59), 15, C.Text)
+local speedLabel = label(statsPanel, "SPEED 20 · BUILDS 14", UDim2.new(1, -24, 0, 23), UDim2.new(0, 12, 0, 85), 14, C.Cyan)
+local coinsLabel = label(statsPanel, "МОНЕТЫ 0 · ЖЕТОНЫ 0", UDim2.new(1, -24, 0, 25), UDim2.new(0, 12, 0, 113), 14, C.Gold)
+
+local guidePanel = new("Frame", {
+	Position = UDim2.new(0, 16, 0, 270),
+	Size = UDim2.new(0, 330, 0, 148),
+	BackgroundColor3 = C.Background,
+	BackgroundTransparency = 0.04,
+}, gui)
+corner(guidePanel, 10)
+new("UIStroke", { Color = C.Green, Thickness = 1 }, guidePanel)
+local guideTitle = label(guidePanel, "ТВОЙ СЛЕДУЮЩИЙ ШАГ", UDim2.new(1, -24, 0, 26), UDim2.new(0, 12, 0, 8), 15, C.Green)
+guideTitle.Font = Enum.Font.GothamBold
+local guideText = label(guidePanel, "Нажми БЫСТРЫЙ СТАРТ — пустые места займут боты.", UDim2.new(1, -24, 0, 55), UDim2.new(0, 12, 0, 38), 15, C.Text)
+guideText.TextXAlignment = Enum.TextXAlignment.Left
+local nextRewardLabel = label(guidePanel, "LV 2 · RAPID SMG + 50 монет + жетон", UDim2.new(1, -24, 0, 42), UDim2.new(0, 12, 0, 99), 14, C.Gold)
+nextRewardLabel.TextXAlignment = Enum.TextXAlignment.Left
 
 local lobbyDock = new("Frame", {
 	AnchorPoint = Vector2.new(1, 0),
 	Position = UDim2.new(1, -16, 0, 122),
-	Size = UDim2.new(0, 286, 0, 200),
+	Size = UDim2.new(0, 300, 0, 249),
 	BackgroundTransparency = 1,
 }, gui)
-local upgradeButton = button(lobbyDock, "FORGE · УЛУЧШЕНИЯ  [U]", UDim2.new(1, 0, 0, 42), UDim2.new(), C.Cyan)
+local rewardsButton = button(lobbyDock, "★  НАГРАДЫ УРОВНЕЙ  [J]", UDim2.new(1, 0, 0, 42), UDim2.new(), C.Green)
+rewardsButton.TextColor3 = Color3.fromRGB(16, 40, 31)
+local upgradeButton = button(lobbyDock, "КУЗНИЦА · УЛУЧШЕНИЯ  [U]", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 49), C.Cyan)
 upgradeButton.TextColor3 = Color3.fromRGB(22, 37, 40)
-local dailyButton = button(lobbyDock, "DAILY · ЕЖЕДНЕВНЫЙ БОНУС", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 49), C.Gold)
+local dailyButton = button(lobbyDock, "ПОДАРОК · ЕЖЕДНЕВНЫЙ БОНУС", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 98), C.Gold)
 dailyButton.TextColor3 = Color3.fromRGB(35, 32, 22)
-local shopButton = button(lobbyDock, "ROBUX · КОСМЕТИКА  [K]", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 98), C.Purple)
-local defenseButton = button(lobbyDock, "DEFENSE · ЛОВУШКИ / МИНЫ", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 147), Color3.fromRGB(211, 111, 57))
+local shopButton = button(lobbyDock, "КОСМЕТИКА · МАГАЗИН  [K]", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 147), C.Purple)
+local defenseButton = button(lobbyDock, "ОБОРОНА · ЛОВУШКИ / МИНЫ", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 196), Color3.fromRGB(232, 126, 64))
 
 local panel = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5),
@@ -9038,6 +9471,30 @@ local upgradeFrame = new("Frame", { Size = UDim2.new(1, -32, 1, -100), Position 
 local dailyFrame = new("Frame", { Size = UDim2.new(1, -32, 1, -100), Position = UDim2.new(0, 16, 0, 91), BackgroundTransparency = 1, Visible = false }, panel)
 local shopFrame = new("Frame", { Size = UDim2.new(1, -32, 1, -100), Position = UDim2.new(0, 16, 0, 91), BackgroundTransparency = 1, Visible = false }, panel)
 local defenseFrame = new("Frame", { Size = UDim2.new(1, -32, 1, -100), Position = UDim2.new(0, 16, 0, 91), BackgroundTransparency = 1, Visible = false }, panel)
+local rewardsFrame = new("Frame", { Size = UDim2.new(1, -32, 1, -100), Position = UDim2.new(0, 16, 0, 91), BackgroundTransparency = 1, Visible = false }, panel)
+
+local rewardRows = {}
+local rewardList = new("ScrollingFrame", {
+	Size = UDim2.fromScale(1, 1),
+	BackgroundTransparency = 1,
+	BorderSizePixel = 0,
+	CanvasSize = UDim2.new(0, 0, 0, #Catalog.LevelRewardOrder * 68),
+	ScrollBarThickness = 5,
+	ScrollBarImageColor3 = C.Cyan,
+}, rewardsFrame)
+new("UIListLayout", { Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder }, rewardList)
+for index, rewardLevel in ipairs(Catalog.LevelRewardOrder) do
+	local reward = Catalog.LevelRewards[rewardLevel]
+	local row = new("Frame", { Size = UDim2.new(1, -8, 0, 60), BackgroundColor3 = C.Panel, LayoutOrder = index }, rewardList)
+	corner(row, 8)
+	local badge = label(row, "LV " .. rewardLevel, UDim2.new(0, 66, 1, 0), UDim2.new(0, 8, 0, 0), 18, C.Gold)
+	badge.Font = Enum.Font.GothamBold
+	local description = label(row, reward.Description, UDim2.new(1, -176, 1, -8), UDim2.new(0, 79, 0, 4), 14, C.Text)
+	description.TextXAlignment = Enum.TextXAlignment.Left
+	local status = label(row, "ЗАКРЫТО", UDim2.new(0, 92, 1, 0), UDim2.new(1, -98, 0, 0), 12, C.Muted)
+	status.Font = Enum.Font.GothamBold
+	rewardRows[rewardLevel] = { Row = row, Status = status }
+end
 
 local upgradeRows = {}
 for index, id in ipairs(Catalog.UpgradeOrder) do
@@ -9137,6 +9594,27 @@ local function refreshPanels()
 				row.Action.BackgroundColor3 = Color3.fromRGB(211, 111, 57)
 			end
 		end
+		local currentLevel = Catalog.LevelForXP(profile.XP or 0)
+		local nextLevel = Catalog.GetNextLevelReward(currentLevel)
+		for rewardLevel, row in pairs(rewardRows) do
+			local claimed = profile.ClaimedLevelRewards and (profile.ClaimedLevelRewards[tostring(rewardLevel)] or profile.ClaimedLevelRewards[rewardLevel])
+			if claimed then
+				row.Status.Text = "ПОЛУЧЕНО"
+				row.Status.TextColor3 = C.Green
+				row.Row.BackgroundColor3 = C.Panel
+			elseif rewardLevel == nextLevel then
+				row.Status.Text = "СЛЕДУЮЩАЯ"
+				row.Status.TextColor3 = C.Gold
+				row.Row.BackgroundColor3 = Color3.fromRGB(57, 66, 79)
+			elseif rewardLevel <= currentLevel then
+				row.Status.Text = "ОТКРЫТО"
+				row.Status.TextColor3 = C.Green
+			else
+				row.Status.Text = "ЗАКРЫТО"
+				row.Status.TextColor3 = C.Muted
+				row.Row.BackgroundColor3 = C.Panel
+			end
+		end
 		local elapsed = os.time() - (profile.LastDailyClaim or 0)
 		if elapsed >= Config.DailyCooldown then
 			dailyStatus.Text = "БОНУС ГОТОВ · +" .. tostring(50 + (profile.XP and Catalog.LevelForXP(profile.XP) or 1) * 5) .. " монет"
@@ -9158,7 +9636,11 @@ local function showPanel(name)
 	dailyFrame.Visible = name == "Daily"
 	shopFrame.Visible = name == "Shop"
 	defenseFrame.Visible = name == "Defense"
-	if name == "Upgrades" then
+	rewardsFrame.Visible = name == "Rewards"
+	if name == "Rewards" then
+		panelTitle.Text = "ПУТЬ НАГРАД // УРОВНИ 2–10"
+		panelHint.Text = "За каждый уровень — монеты. Золотая строка — ближайшая разблокировка."
+	elseif name == "Upgrades" then
 		panelTitle.Text = "FORGE // УЛУЧШЕНИЯ ПЕРСОНАЖА"
 		panelHint.Text = "Монеты и уровни открывают реальные бонусы. Улучшения доступны в лобби."
 	elseif name == "Daily" then
@@ -9177,13 +9659,14 @@ local function showPanel(name)
 	end
 end
 
+rewardsButton.Activated:Connect(function() showPanel("Rewards") end)
 upgradeButton.Activated:Connect(function() showPanel("Upgrades") end)
 dailyButton.Activated:Connect(function() showPanel("Daily") end)
 shopButton.Activated:Connect(function() showPanel("Shop") end)
 defenseButton.Activated:Connect(function() showPanel("Defense") end)
 closeButton.Activated:Connect(function() showPanel(nil) end)
 remotes.OpenPanel.OnClientEvent:Connect(function(name)
-	if name == "Upgrades" or name == "Daily" or name == "Shop" or name == "Defense" then
+	if name == "Rewards" or name == "Upgrades" or name == "Daily" or name == "Shop" or name == "Defense" then
 		showPanel(name)
 	end
 end)
@@ -9193,8 +9676,8 @@ remotes.ProfileUpdate.OnClientEvent:Connect(function(data)
 end)
 
 local function refreshStats()
-	local level = player:GetAttribute("Level") or (profile and Catalog.LevelForXP(profile.XP)) or 1
 	local xp = player:GetAttribute("XP") or (profile and profile.XP) or 0
+	local level, currentXP, requiredXP = Catalog.LevelProgress(xp)
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local health = humanoid and math.ceil(humanoid.Health) or 0
@@ -9203,11 +9686,29 @@ local function refreshStats()
 	local speed = humanoid and humanoid.WalkSpeed or (20 + (player:GetAttribute("Upgrade_Speed") or 0))
 	local phase = state:GetAttribute("Phase") or "Lobby"
 	local builds = phase == "Lobby" and (player:GetAttribute("BuildCapacity") or Config.Arena.MaxBuildPerPlayer) or (player:GetAttribute("BuildRemaining") or 0)
-	levelLabel.Text = "LEVEL " .. tostring(level)
-	xpLabel.Text = "XP " .. tostring(xp)
-	statsLabel.Text = string.format("HP %d/%d · ARMOR %d%%", health, maximum, math.floor(armor * 100 + 0.5))
-	speedLabel.Text = string.format("SPEED %d · BUILDS %d", math.floor(speed + 0.5), builds)
-	coinsLabel.Text = string.format("COINS %d · CASE TOKENS %d", player:GetAttribute("Coins") or 0, player:GetAttribute("CaseTokens") or 0)
+	levelLabel.Text = "УРОВЕНЬ " .. tostring(level)
+	xpLabel.Text = string.format("%d / %d XP", currentXP, requiredXP)
+	xpFill.Size = UDim2.fromScale(math.clamp(currentXP / math.max(1, requiredXP), 0, 1), 1)
+	statsLabel.Text = string.format("HP %d/%d · БРОНЯ %d%%", health, maximum, math.floor(armor * 100 + 0.5))
+	speedLabel.Text = string.format("СКОРОСТЬ %d · ПОСТРОЙКИ %d", math.floor(speed + 0.5), builds)
+	coinsLabel.Text = string.format("МОНЕТЫ %d · ЖЕТОНЫ %d", player:GetAttribute("Coins") or 0, player:GetAttribute("CaseTokens") or 0)
+	local nextLevel, nextReward = Catalog.GetNextLevelReward(level)
+	if nextReward then
+		nextRewardLabel.Text = string.format("СЛЕДУЮЩАЯ · LV %d: %s", nextLevel, nextReward.Description)
+	else
+		nextRewardLabel.Text = "Особые награды открыты · дальше монеты за каждый уровень"
+	end
+	if player:GetAttribute("Queued") then
+		guideTitle.Text = "МЕСТО ЗАБРОНИРОВАНО"
+		guideText.Text = "Команда собирается. Далее: 75 секунд на 3 укрепления, затем штурм вражеского ядра."
+	elseif (player:GetAttribute("Matches") or 0) > 0 and (player:GetAttribute("CaseTokens") or 0) > 0 then
+		guideTitle.Text = "НАГРАДА ЖДЁТ · ОТКРОЙ КЕЙС [L]"
+		guideText.Text = "Потрать жетон в лутбоксе, экипируй предмет в инвентаре — и возвращайся в бой за следующим уровнем."
+	else
+		guideTitle.Text = "ТВОЙ СЛЕДУЮЩИЙ ШАГ"
+		guideText.Text = "Нажми БЫСТРЫЙ СТАРТ — пустые места в двух командах 6×6 займут боты."
+	end
+	guidePanel.Visible = phase == "Lobby"
 	lobbyDock.Visible = phase == "Lobby"
 	if phase ~= "Lobby" and panel.Visible then
 		showPanel(nil)
@@ -9218,7 +9719,9 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then
 		return
 	end
-	if input.KeyCode == Enum.KeyCode.U then
+	if input.KeyCode == Enum.KeyCode.J then
+		if activePanel == "Rewards" then showPanel(nil) else showPanel("Rewards") end
+	elseif input.KeyCode == Enum.KeyCode.U then
 		if activePanel == "Upgrades" then showPanel(nil) else showPanel("Upgrades") end
 	elseif input.KeyCode == Enum.KeyCode.K then
 		if activePanel == "Shop" then showPanel(nil) else showPanel("Shop") end

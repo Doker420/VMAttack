@@ -1,20 +1,19 @@
--- BLOCKSIEGE // AURORA SCULPTED VISUALS
--- Smooth, authored-looking prop assemblies built from Roblox primitives and
--- SpecialMesh spheres. These are visual models, not a second gameplay collision
--- layer. Creator Store meshes can replace/augment them at runtime.
+-- BLOCKSIEGE // COHESIVE FORTRESS VISUALS
+-- Rounded prop assemblies share one warm stone/timber palette. Gameplay collision
+-- stays in the services; these models are the visible layer and placement ghosts.
 local VisualModels = {}
 
-local INK = Color3.fromRGB(19, 31, 43)
-local STONE = Color3.fromRGB(107, 132, 147)
-local STONE_DARK = Color3.fromRGB(46, 65, 79)
-local STONE_LIGHT = Color3.fromRGB(172, 194, 201)
+local INK = Color3.fromRGB(42, 46, 48)
+local STONE = Color3.fromRGB(139, 145, 139)
+local STONE_DARK = Color3.fromRGB(70, 77, 75)
+local STONE_LIGHT = Color3.fromRGB(190, 187, 166)
 local SNOW = Color3.fromRGB(235, 247, 250)
-local GOLD = Color3.fromRGB(238, 184, 75)
-local WOOD = Color3.fromRGB(104, 68, 45)
-local BARK = Color3.fromRGB(71, 53, 43)
-local LEAF = Color3.fromRGB(30, 93, 76)
-local LEAF_LIGHT = Color3.fromRGB(50, 133, 99)
-local LEAF_DARK = Color3.fromRGB(22, 64, 58)
+local GOLD = Color3.fromRGB(224, 166, 59)
+local WOOD = Color3.fromRGB(119, 75, 43)
+local BARK = Color3.fromRGB(76, 54, 38)
+local LEAF = Color3.fromRGB(43, 111, 60)
+local LEAF_LIGHT = Color3.fromRGB(75, 145, 72)
+local LEAF_DARK = Color3.fromRGB(31, 80, 48)
 local FIRE = Color3.fromRGB(255, 132, 46)
 
 local TEXTURES = {
@@ -134,7 +133,7 @@ function VisualModels.Tree(parent, position, scale, options)
 	local trunk = cylinder(parent, "TreeTrunk", 0.82 * scale, 7.2 * scale, CFrame.new(position + Vector3.new(0, 3.6 * scale, 0)), BARK, Enum.Material.WoodPlanks, {
 		Collide = options.Collide == true, Query = options.Query == true, Holiday = holiday, Texture = TEXTURES.Wood, Tile = 3,
 	})
-	local object = model(options.Name or "AuroraPine", trunk, parent, { Holiday = holiday })
+	local object = model(options.Name or "FortressPine", trunk, parent, { Holiday = holiday })
 	trunk.Parent = object
 	-- Root flare and five visible branches give the silhouette a natural profile.
 	for index = 1, 4 do
@@ -202,7 +201,7 @@ end
 function VisualModels.Cloud(parent, position, scale)
 	scale = scale or 1
 	local first = sphere(parent, "CloudPuff", Vector3.new(14, 5, 8) * scale, CFrame.new(position), SNOW, Enum.Material.SmoothPlastic, { Transparency = 0.12, CastShadow = false })
-	local object = model("AuroraCloud", first, parent)
+	local object = model("FortressCloud", first, parent)
 	first.Parent = object
 	for index, entry in ipairs({
 		{ Vector3.new(-8, -0.8, 1), Vector3.new(9, 4, 7) },
@@ -233,7 +232,7 @@ function VisualModels.Rock(parent, position, scale, options)
 		})
 		first = first or part
 		if index == 1 then
-			object = model(options.Name or "AuroraRock", first, parent, { Holiday = holiday })
+			object = model(options.Name or "FortressRock", first, parent, { Holiday = holiday })
 			part.Parent = object
 		else
 			part.Parent = object
@@ -280,7 +279,7 @@ function VisualModels.Tower(parent, prefix, position, scale, accent, options)
 	sphere(object, "TowerDoorFrame", Vector3.new(3.5, 4.8, 0.65) * scale, CFrame.new(doorPosition), STONE_LIGHT, Enum.Material.Cobblestone, { Holiday = options.Holiday })
 	sphere(object, "TowerDoor", Vector3.new(2.65, 4.05, 0.72) * scale, CFrame.new(doorPosition + Vector3.new(0, 0, -0.18 * scale)), INK, Enum.Material.WoodPlanks, { Holiday = options.Holiday, Texture = TEXTURES.Wood })
 	cylinder(object, "TowerDoorHandle", 0.13 * scale, 0.35 * scale, CFrame.new(doorPosition + Vector3.new(0.65 * scale, 0, -0.6 * scale)), GOLD, Enum.Material.Metal, { Holiday = options.Holiday })
-	local pole = cylinder(object, "TowerPole", 0.16 * scale, 6.5 * scale, CFrame.new(position + Vector3.new(0, 22 * scale, 0)), GOLD, Enum.Material.Metal, { Holiday = options.Holiday })
+	cylinder(object, "TowerPole", 0.16 * scale, 6.5 * scale, CFrame.new(position + Vector3.new(0, 22 * scale, 0)), GOLD, Enum.Material.Metal, { Holiday = options.Holiday })
 	make(object, "TowerFlag", Vector3.new(4.1, 2.2, 0.18) * scale, CFrame.new(position + Vector3.new(2 * scale, 23.2 * scale, 0)), accent, Enum.Material.Fabric, { ClassName = "WedgePart", Holiday = options.Holiday })
 	local gem = sphere(object, "TowerLantern", Vector3.one * 0.8 * scale, CFrame.new(position + Vector3.new(0, 12.9 * scale, -5.1 * scale)), accent, Enum.Material.Neon, { Holiday = options.Holiday })
 	light(gem, "TowerGlow", accent, 14 * scale, 1.1)
@@ -374,7 +373,7 @@ function VisualModels.Fireplace(parent, position, scale, options)
 	options = options or {}
 	scale = scale or 1
 	local base = cylinder(parent, "FireplaceBase", 3.8 * scale, 0.8 * scale, CFrame.new(position + Vector3.new(0, 0.4 * scale, 0)), STONE_DARK, Enum.Material.Slate, { Holiday = options.Holiday })
-	local object = model("FrostfireFireplace", base, parent, options)
+	local object = model("FortressFireplace", base, parent, options)
 	base.Parent = object
 	for index = 0, 7 do
 		local angle = math.rad(index * 45)

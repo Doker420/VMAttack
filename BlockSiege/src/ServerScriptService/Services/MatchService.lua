@@ -25,6 +25,8 @@ local participants = {}
 local pendingSpawns = {}
 local matchId = 0
 local lastSecond = -1
+local matchStats = {}
+local regenClock = 0
 
 local function notify(player, text)
 	if player and player.Parent then
@@ -101,6 +103,39 @@ local function playerLevel(player)
 	return data and Catalog.LevelForXP(data.XP) or tonumber(player:GetAttribute("Level")) or 1
 end
 
+local function statsFor(player)
+	local stats = matchStats[player.UserId]
+	if not stats then
+		stats = { Builds = 0, Kills = 0, Structures = 0, Captures = 0, Coins = 0, XP = 0, LevelCoins = 0, Unlocks = {} }
+		matchStats[player.UserId] = stats
+	end
+	return stats
+end
+
+local function publishStat(player, name, value)
+	player:SetAttribute("Match" .. name, value)
+end
+
+local function recordProgress(player, progress)
+	if not progress then
+		return
+	end
+	local stats = statsFor(player)
+	stats.LevelCoins = stats.LevelCoins + (progress.LevelCoins or 0)
+	for _, unlock in ipairs(progress.Unlocks or {}) do
+		table.insert(stats.Unlocks, unlock)
+	end
+end
+
+local function actionReward(player, coins, xp, reason)
+	local stats = statsFor(player)
+	stats.Coins = stats.Coins + coins
+	stats.XP = stats.XP + xp
+	local progress = dataService.Award(player, coins, xp, reason)
+	recordProgress(player, progress)
+	return progress
+end
+
 function MatchService.GetPhase()
 	return phase
 end
@@ -129,16 +164,57 @@ function MatchService.GetTargets(team)
 	return result
 end
 
-function MatchService.OnStructureDamage(player, amount, kind)
-	if phase == "Battle" and MatchService.IsParticipant(player) then
-		dataService.AddStructureDamage(player, amount)
+function MatchService.OnStructureDamage(player, amount, kind, destroyed)
+	if phase ~= "Battle" or not MatchService.IsParticipant(player) then
+		return
+	end
+	dataService.AddStructureDamage(player, amount)
+	if destroyed and kind ~= "Core" then
+		local rewards = {
+			LaneTower = { 12, 30, "Башня линии уничтожена" },
+			Tower = { 8, 20, "Вражеская башня уничтожена" },
+			Wall = { 5, 12, "Проход в стене открыт" },
+			Barricade = { 4, 10, "Баррикада уничтожена" },
+			SpikeTrap = { 3, 8, "Ловушка обезврежена" },
+			FrostMine = { 3, 8, "Мина обезврежена" },
+		}
+		local reward = rewards[kind] or { 3, 8, "Вражеское сооружение уничтожено" }
+		local stats = statsFor(player)
+		stats.Structures = stats.Structures + 1
+		publishStat(player, "Structures", stats.Structures)
+		actionReward(player, reward[1], reward[2], reward[3])
 	end
 end
 
 function MatchService.OnKill(player, victim)
 	if phase == "Battle" and MatchService.IsParticipant(player) then
-		dataService.AddKill(player)
-		notify(player, "Боец выведен из строя · +2 монеты")
+		local progress = dataService.AddKill(player)
+		recordProgress(player, progress)
+		local stats = statsFor(player)
+		stats.Kills = stats.Kills + 1
+		stats.Coins = stats.Coins + 2
+		stats.XP = stats.XP + 8
+		publishStat(player, "Kills", stats.Kills)
+	end
+end
+
+function MatchService.OnActionReward(player, coins, xp, reason)
+	if phase == "Battle" and MatchService.IsParticipant(player) then
+		actionReward(player, coins, xp, reason)
+	end
+end
+
+function MatchService.OnCapture67(team)
+	if phase ~= "Battle" or not Config.Teams[team] then
+		return
+	end
+	for _, player in ipairs(Players:GetPlayers()) do
+		if participants[player.UserId] == team then
+			local stats = statsFor(player)
+			stats.Captures = stats.Captures + 1
+			publishStat(player, "Captures", stats.Captures)
+			actionReward(player, 10, 25, "67 захвачена · команда получает +1 HP/s")
+		end
 	end
 end
 
@@ -162,11 +238,22 @@ function MatchService.EndMatch(winner, reason)
 		if team then
 			local draw = not winner or winner == ""
 			local reward = dataService.RecordMatch(player, team == winner, draw)
+			local stats = statsFor(player)
 			remotes.Results:FireClient(player, {
 				Winner = winner or "",
 				Team = team,
 				Reason = reason or "",
 				Reward = reward,
+				Stats = {
+					Builds = stats.Builds,
+					Kills = stats.Kills,
+					Structures = stats.Structures,
+					Captures = stats.Captures,
+					Coins = stats.Coins,
+					XP = stats.XP,
+					LevelCoins = stats.LevelCoins,
+					Unlocks = stats.Unlocks,
+				},
 			})
 		end
 	end
@@ -201,8 +288,16 @@ function MatchService.StartMatch()
 		end
 		return levelA > levelB
 	end)
+	for index = #players, Config.TeamSize * 2 + 1, -1 do
+		local overflow = table.remove(players, index)
+		queued[overflow.UserId] = nil
+		overflow:SetAttribute("Queued", false)
+		notify(overflow, "Матч 6×6 уже заполнен · попробуйте следующий")
+	end
 	matchId = matchId + 1
 	participants = {}
+	matchStats = {}
+	regenClock = 0
 	local counts = { Blue = 0, Orange = 0 }
 	local power = { Blue = 0, Orange = 0 }
 	for _, player in ipairs(players) do
@@ -225,6 +320,10 @@ function MatchService.StartMatch()
 		player:SetAttribute("Team", team)
 		player:SetAttribute("MatchLevel", level)
 		player:SetAttribute("InMatch", true)
+		statsFor(player)
+		for _, name in ipairs({ "Builds", "Kills", "Structures", "Captures" }) do
+			publishStat(player, name, 0)
+		end
 	end
 	if abilityService then
 		abilityService.StartMatch(matchId, participants)
@@ -301,8 +400,19 @@ function MatchService.HandleBuild(player, kind, position, rotation)
 	local success, reason = fortressService.BuildPlayer(player, team, kind, position, rotation)
 	if not success then
 		notify(player, reason)
+		return false, reason
 	end
-	return success, reason
+	local stats = statsFor(player)
+	stats.Builds = stats.Builds + 1
+	publishStat(player, "Builds", stats.Builds)
+	if stats.Builds == 1 then
+		actionReward(player, 5, 15, "Первая постройка · крепость растёт")
+	elseif stats.Builds == 3 then
+		actionReward(player, 6, 14, "3 укрепления · базовая защита готова")
+	else
+		actionReward(player, 1, 4, "Укрепление установлено")
+	end
+	return true, reason
 end
 
 function MatchService.HandleBuildPreview(player, kind, position, rotation, requestId)
@@ -368,6 +478,9 @@ function MatchService.OnPlayerAdded(player)
 	player:SetAttribute("InMatch", false)
 	player:SetAttribute("ProfileLoaded", false)
 	player:SetAttribute("BuildRemaining", 0)
+	for _, name in ipairs({ "Builds", "Kills", "Structures", "Captures" }) do
+		publishStat(player, name, 0)
+	end
 	player.CharacterAdded:Connect(function(character)
 		onCharacter(player, character)
 	end)
@@ -399,13 +512,18 @@ local function resetToLobby()
 		captureService.Reset()
 	end
 	participants = {}
+	matchStats = {}
 	queued = {}
 	intermission = nil
+	regenClock = 0
 	for _, player in ipairs(Players:GetPlayers()) do
 		player:SetAttribute("Team", "")
 		player:SetAttribute("Queued", false)
 		player:SetAttribute("InMatch", false)
 		player:SetAttribute("BuildRemaining", 0)
+		for _, name in ipairs({ "Builds", "Kills", "Structures", "Captures" }) do
+			publishStat(player, name, 0)
+		end
 		spawnPlayer(player, world.LobbySpawn)
 	end
 	state:SetAttribute("Winner", "")
@@ -423,6 +541,7 @@ function MatchService.OnPlayerRemoving(player)
 	end
 	queued[userId] = nil
 	pendingSpawns[userId] = nil
+	matchStats[userId] = nil
 	local team = participants[userId]
 	if abilityService then
 		abilityService.OnPlayerRemoving(player)
@@ -468,12 +587,15 @@ function MatchService.Init(dependencies)
 	botService.SetProviders(MatchService.GetPhase, MatchService.GetTargets)
 	if abilityService then
 		abilityService.SetProviders(MatchService.GetPhase, MatchService.GetTeam, MatchService.GetTargets)
+		abilityService.SetRewardHandler(MatchService.OnActionReward)
 	end
 	if neutralService then
 		neutralService.SetPhaseProvider(MatchService.GetPhase)
+		neutralService.SetRewardHandler(MatchService.OnActionReward)
 	end
 	if captureService then
 		captureService.SetPhaseProvider(MatchService.GetPhase)
+		captureService.SetCaptureHandler(MatchService.OnCapture67)
 	end
 	state:SetAttribute("Phase", "Lobby")
 	state:SetAttribute("Time", 0)
@@ -505,6 +627,32 @@ function MatchService.Step(deltaTime)
 			end
 		end
 		return
+	end
+	if phase == "Battle" then
+		regenClock = regenClock + deltaTime
+		local ticks = math.floor(regenClock)
+		if ticks > 0 then
+			regenClock = regenClock - ticks
+			local owner = captureService and captureService.GetOwner() or nil
+			if owner then
+				local function heal(model)
+					local humanoid = model and model:FindFirstChildOfClass("Humanoid") or nil
+					if humanoid and humanoid.Health > 0 then
+						humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + ticks)
+					end
+				end
+				for _, player in ipairs(Players:GetPlayers()) do
+					if participants[player.UserId] == owner then
+						heal(player.Character)
+					end
+				end
+				if botService then
+					for _, model in ipairs(botService.GetModels(owner)) do
+						heal(model)
+					end
+				end
+			end
+		end
 	end
 	timer = math.max(0, timer - deltaTime)
 	updateClock()

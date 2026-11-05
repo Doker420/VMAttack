@@ -12,13 +12,13 @@ local remotes = Shared:WaitForChild("Remotes")
 local state = Shared:WaitForChild("MatchState")
 
 local C = {
-	Background = Color3.fromRGB(27, 35, 39),
-	Panel = Color3.fromRGB(46, 59, 61),
-	Text = Color3.fromRGB(240, 241, 217),
-	Muted = Color3.fromRGB(174, 187, 178),
-	Gold = Color3.fromRGB(239, 179, 52),
-	Green = Color3.fromRGB(102, 190, 130),
-	Cyan = Color3.fromRGB(88, 220, 255),
+	Background = Color3.fromRGB(20, 28, 48),
+	Panel = Color3.fromRGB(36, 49, 76),
+	Text = Color3.fromRGB(248, 250, 255),
+	Muted = Color3.fromRGB(177, 192, 216),
+	Gold = Color3.fromRGB(255, 197, 68),
+	Green = Color3.fromRGB(75, 211, 137),
+	Cyan = Color3.fromRGB(80, 202, 255),
 	Purple = Color3.fromRGB(195, 117, 255),
 	Red = Color3.fromRGB(255, 110, 100),
 }
@@ -41,7 +41,7 @@ local function label(parent, value, size, position, textSize, color)
 		BackgroundTransparency = 1,
 		Size = size,
 		Position = position or UDim2.new(),
-		Font = Enum.Font.Code,
+		Font = Enum.Font.Gotham,
 		Text = value,
 		TextColor3 = color or C.Text,
 		TextSize = textSize or 17,
@@ -54,7 +54,7 @@ local function button(parent, value, size, position, color)
 		BackgroundColor3 = color or C.Panel,
 		Size = size,
 		Position = position or UDim2.new(),
-		Font = Enum.Font.Code,
+		Font = Enum.Font.GothamBold,
 		Text = value,
 		TextColor3 = C.Text,
 		TextSize = 16,
@@ -73,31 +73,54 @@ local gui = new("ScreenGui", {
 }, player:WaitForChild("PlayerGui"))
 
 local statsPanel = new("Frame", {
-	Position = UDim2.new(0, 16, 0, 122),
-	Size = UDim2.new(0, 318, 0, 112),
+	Position = UDim2.new(0, 16, 0, 112),
+	Size = UDim2.new(0, 330, 0, 148),
 	BackgroundColor3 = C.Background,
-	BackgroundTransparency = 0.08,
+	BackgroundTransparency = 0.04,
 }, gui)
-corner(statsPanel)
-new("UIStroke", { Color = Color3.fromRGB(91, 108, 101), Thickness = 1 }, statsPanel)
-local levelLabel = label(statsPanel, "LEVEL 1", UDim2.new(0.46, 0, 0, 29), UDim2.new(0, 12, 0, 7), 22, C.Gold)
-local xpLabel = label(statsPanel, "XP 0", UDim2.new(0.5, 0, 0, 24), UDim2.new(0.48, 0, 0, 10), 15, C.Muted)
-local statsLabel = label(statsPanel, "HP 120/120 · ARMOR 0%", UDim2.new(1, -24, 0, 25), UDim2.new(0, 12, 0, 42), 16, C.Text)
-local speedLabel = label(statsPanel, "SPEED 20 · BUILDS 14", UDim2.new(1, -24, 0, 24), UDim2.new(0, 12, 0, 68), 15, C.Cyan)
-local coinsLabel = label(statsPanel, "COINS 0 · CASE TOKENS 0", UDim2.new(1, -24, 0, 22), UDim2.new(0, 12, 0, 91), 14, C.Gold)
+corner(statsPanel, 10)
+new("UIStroke", { Color = Color3.fromRGB(79, 104, 148), Thickness = 1 }, statsPanel)
+local levelLabel = label(statsPanel, "УРОВЕНЬ 1", UDim2.new(0.48, 0, 0, 29), UDim2.new(0, 12, 0, 7), 21, C.Gold)
+levelLabel.Font = Enum.Font.GothamBold
+local xpLabel = label(statsPanel, "0 / 80 XP", UDim2.new(0.48, -12, 0, 25), UDim2.new(0.5, 0, 0, 10), 14, C.Muted)
+xpLabel.TextXAlignment = Enum.TextXAlignment.Right
+local xpTrack = new("Frame", { Position = UDim2.new(0, 12, 0, 40), Size = UDim2.new(1, -24, 0, 10), BackgroundColor3 = C.Panel }, statsPanel)
+corner(xpTrack, 5)
+local xpFill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = C.Gold }, xpTrack)
+corner(xpFill, 5)
+local statsLabel = label(statsPanel, "HP 120/120 · ARMOR 0%", UDim2.new(1, -24, 0, 24), UDim2.new(0, 12, 0, 59), 15, C.Text)
+local speedLabel = label(statsPanel, "SPEED 20 · BUILDS 14", UDim2.new(1, -24, 0, 23), UDim2.new(0, 12, 0, 85), 14, C.Cyan)
+local coinsLabel = label(statsPanel, "МОНЕТЫ 0 · ЖЕТОНЫ 0", UDim2.new(1, -24, 0, 25), UDim2.new(0, 12, 0, 113), 14, C.Gold)
+
+local guidePanel = new("Frame", {
+	Position = UDim2.new(0, 16, 0, 270),
+	Size = UDim2.new(0, 330, 0, 148),
+	BackgroundColor3 = C.Background,
+	BackgroundTransparency = 0.04,
+}, gui)
+corner(guidePanel, 10)
+new("UIStroke", { Color = C.Green, Thickness = 1 }, guidePanel)
+local guideTitle = label(guidePanel, "ТВОЙ СЛЕДУЮЩИЙ ШАГ", UDim2.new(1, -24, 0, 26), UDim2.new(0, 12, 0, 8), 15, C.Green)
+guideTitle.Font = Enum.Font.GothamBold
+local guideText = label(guidePanel, "Нажми БЫСТРЫЙ СТАРТ — пустые места займут боты.", UDim2.new(1, -24, 0, 55), UDim2.new(0, 12, 0, 38), 15, C.Text)
+guideText.TextXAlignment = Enum.TextXAlignment.Left
+local nextRewardLabel = label(guidePanel, "LV 2 · RAPID SMG + 50 монет + жетон", UDim2.new(1, -24, 0, 42), UDim2.new(0, 12, 0, 99), 14, C.Gold)
+nextRewardLabel.TextXAlignment = Enum.TextXAlignment.Left
 
 local lobbyDock = new("Frame", {
 	AnchorPoint = Vector2.new(1, 0),
 	Position = UDim2.new(1, -16, 0, 122),
-	Size = UDim2.new(0, 286, 0, 200),
+	Size = UDim2.new(0, 300, 0, 249),
 	BackgroundTransparency = 1,
 }, gui)
-local upgradeButton = button(lobbyDock, "FORGE · УЛУЧШЕНИЯ  [U]", UDim2.new(1, 0, 0, 42), UDim2.new(), C.Cyan)
+local rewardsButton = button(lobbyDock, "★  НАГРАДЫ УРОВНЕЙ  [J]", UDim2.new(1, 0, 0, 42), UDim2.new(), C.Green)
+rewardsButton.TextColor3 = Color3.fromRGB(16, 40, 31)
+local upgradeButton = button(lobbyDock, "КУЗНИЦА · УЛУЧШЕНИЯ  [U]", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 49), C.Cyan)
 upgradeButton.TextColor3 = Color3.fromRGB(22, 37, 40)
-local dailyButton = button(lobbyDock, "DAILY · ЕЖЕДНЕВНЫЙ БОНУС", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 49), C.Gold)
+local dailyButton = button(lobbyDock, "ПОДАРОК · ЕЖЕДНЕВНЫЙ БОНУС", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 98), C.Gold)
 dailyButton.TextColor3 = Color3.fromRGB(35, 32, 22)
-local shopButton = button(lobbyDock, "ROBUX · КОСМЕТИКА  [K]", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 98), C.Purple)
-local defenseButton = button(lobbyDock, "DEFENSE · ЛОВУШКИ / МИНЫ", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 147), Color3.fromRGB(211, 111, 57))
+local shopButton = button(lobbyDock, "КОСМЕТИКА · МАГАЗИН  [K]", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 147), C.Purple)
+local defenseButton = button(lobbyDock, "ОБОРОНА · ЛОВУШКИ / МИНЫ", UDim2.new(1, 0, 0, 42), UDim2.new(0, 0, 0, 196), Color3.fromRGB(232, 126, 64))
 
 local panel = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5),
@@ -117,6 +140,30 @@ local upgradeFrame = new("Frame", { Size = UDim2.new(1, -32, 1, -100), Position 
 local dailyFrame = new("Frame", { Size = UDim2.new(1, -32, 1, -100), Position = UDim2.new(0, 16, 0, 91), BackgroundTransparency = 1, Visible = false }, panel)
 local shopFrame = new("Frame", { Size = UDim2.new(1, -32, 1, -100), Position = UDim2.new(0, 16, 0, 91), BackgroundTransparency = 1, Visible = false }, panel)
 local defenseFrame = new("Frame", { Size = UDim2.new(1, -32, 1, -100), Position = UDim2.new(0, 16, 0, 91), BackgroundTransparency = 1, Visible = false }, panel)
+local rewardsFrame = new("Frame", { Size = UDim2.new(1, -32, 1, -100), Position = UDim2.new(0, 16, 0, 91), BackgroundTransparency = 1, Visible = false }, panel)
+
+local rewardRows = {}
+local rewardList = new("ScrollingFrame", {
+	Size = UDim2.fromScale(1, 1),
+	BackgroundTransparency = 1,
+	BorderSizePixel = 0,
+	CanvasSize = UDim2.new(0, 0, 0, #Catalog.LevelRewardOrder * 68),
+	ScrollBarThickness = 5,
+	ScrollBarImageColor3 = C.Cyan,
+}, rewardsFrame)
+new("UIListLayout", { Padding = UDim.new(0, 7), SortOrder = Enum.SortOrder.LayoutOrder }, rewardList)
+for index, rewardLevel in ipairs(Catalog.LevelRewardOrder) do
+	local reward = Catalog.LevelRewards[rewardLevel]
+	local row = new("Frame", { Size = UDim2.new(1, -8, 0, 60), BackgroundColor3 = C.Panel, LayoutOrder = index }, rewardList)
+	corner(row, 8)
+	local badge = label(row, "LV " .. rewardLevel, UDim2.new(0, 66, 1, 0), UDim2.new(0, 8, 0, 0), 18, C.Gold)
+	badge.Font = Enum.Font.GothamBold
+	local description = label(row, reward.Description, UDim2.new(1, -176, 1, -8), UDim2.new(0, 79, 0, 4), 14, C.Text)
+	description.TextXAlignment = Enum.TextXAlignment.Left
+	local status = label(row, "ЗАКРЫТО", UDim2.new(0, 92, 1, 0), UDim2.new(1, -98, 0, 0), 12, C.Muted)
+	status.Font = Enum.Font.GothamBold
+	rewardRows[rewardLevel] = { Row = row, Status = status }
+end
 
 local upgradeRows = {}
 for index, id in ipairs(Catalog.UpgradeOrder) do
@@ -216,6 +263,27 @@ local function refreshPanels()
 				row.Action.BackgroundColor3 = Color3.fromRGB(211, 111, 57)
 			end
 		end
+		local currentLevel = Catalog.LevelForXP(profile.XP or 0)
+		local nextLevel = Catalog.GetNextLevelReward(currentLevel)
+		for rewardLevel, row in pairs(rewardRows) do
+			local claimed = profile.ClaimedLevelRewards and (profile.ClaimedLevelRewards[tostring(rewardLevel)] or profile.ClaimedLevelRewards[rewardLevel])
+			if claimed then
+				row.Status.Text = "ПОЛУЧЕНО"
+				row.Status.TextColor3 = C.Green
+				row.Row.BackgroundColor3 = C.Panel
+			elseif rewardLevel == nextLevel then
+				row.Status.Text = "СЛЕДУЮЩАЯ"
+				row.Status.TextColor3 = C.Gold
+				row.Row.BackgroundColor3 = Color3.fromRGB(57, 66, 79)
+			elseif rewardLevel <= currentLevel then
+				row.Status.Text = "ОТКРЫТО"
+				row.Status.TextColor3 = C.Green
+			else
+				row.Status.Text = "ЗАКРЫТО"
+				row.Status.TextColor3 = C.Muted
+				row.Row.BackgroundColor3 = C.Panel
+			end
+		end
 		local elapsed = os.time() - (profile.LastDailyClaim or 0)
 		if elapsed >= Config.DailyCooldown then
 			dailyStatus.Text = "БОНУС ГОТОВ · +" .. tostring(50 + (profile.XP and Catalog.LevelForXP(profile.XP) or 1) * 5) .. " монет"
@@ -237,7 +305,11 @@ local function showPanel(name)
 	dailyFrame.Visible = name == "Daily"
 	shopFrame.Visible = name == "Shop"
 	defenseFrame.Visible = name == "Defense"
-	if name == "Upgrades" then
+	rewardsFrame.Visible = name == "Rewards"
+	if name == "Rewards" then
+		panelTitle.Text = "ПУТЬ НАГРАД // УРОВНИ 2–10"
+		panelHint.Text = "За каждый уровень — монеты. Золотая строка — ближайшая разблокировка."
+	elseif name == "Upgrades" then
 		panelTitle.Text = "FORGE // УЛУЧШЕНИЯ ПЕРСОНАЖА"
 		panelHint.Text = "Монеты и уровни открывают реальные бонусы. Улучшения доступны в лобби."
 	elseif name == "Daily" then
@@ -256,13 +328,14 @@ local function showPanel(name)
 	end
 end
 
+rewardsButton.Activated:Connect(function() showPanel("Rewards") end)
 upgradeButton.Activated:Connect(function() showPanel("Upgrades") end)
 dailyButton.Activated:Connect(function() showPanel("Daily") end)
 shopButton.Activated:Connect(function() showPanel("Shop") end)
 defenseButton.Activated:Connect(function() showPanel("Defense") end)
 closeButton.Activated:Connect(function() showPanel(nil) end)
 remotes.OpenPanel.OnClientEvent:Connect(function(name)
-	if name == "Upgrades" or name == "Daily" or name == "Shop" or name == "Defense" then
+	if name == "Rewards" or name == "Upgrades" or name == "Daily" or name == "Shop" or name == "Defense" then
 		showPanel(name)
 	end
 end)
@@ -272,8 +345,8 @@ remotes.ProfileUpdate.OnClientEvent:Connect(function(data)
 end)
 
 local function refreshStats()
-	local level = player:GetAttribute("Level") or (profile and Catalog.LevelForXP(profile.XP)) or 1
 	local xp = player:GetAttribute("XP") or (profile and profile.XP) or 0
+	local level, currentXP, requiredXP = Catalog.LevelProgress(xp)
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local health = humanoid and math.ceil(humanoid.Health) or 0
@@ -282,11 +355,29 @@ local function refreshStats()
 	local speed = humanoid and humanoid.WalkSpeed or (20 + (player:GetAttribute("Upgrade_Speed") or 0))
 	local phase = state:GetAttribute("Phase") or "Lobby"
 	local builds = phase == "Lobby" and (player:GetAttribute("BuildCapacity") or Config.Arena.MaxBuildPerPlayer) or (player:GetAttribute("BuildRemaining") or 0)
-	levelLabel.Text = "LEVEL " .. tostring(level)
-	xpLabel.Text = "XP " .. tostring(xp)
-	statsLabel.Text = string.format("HP %d/%d · ARMOR %d%%", health, maximum, math.floor(armor * 100 + 0.5))
-	speedLabel.Text = string.format("SPEED %d · BUILDS %d", math.floor(speed + 0.5), builds)
-	coinsLabel.Text = string.format("COINS %d · CASE TOKENS %d", player:GetAttribute("Coins") or 0, player:GetAttribute("CaseTokens") or 0)
+	levelLabel.Text = "УРОВЕНЬ " .. tostring(level)
+	xpLabel.Text = string.format("%d / %d XP", currentXP, requiredXP)
+	xpFill.Size = UDim2.fromScale(math.clamp(currentXP / math.max(1, requiredXP), 0, 1), 1)
+	statsLabel.Text = string.format("HP %d/%d · БРОНЯ %d%%", health, maximum, math.floor(armor * 100 + 0.5))
+	speedLabel.Text = string.format("СКОРОСТЬ %d · ПОСТРОЙКИ %d", math.floor(speed + 0.5), builds)
+	coinsLabel.Text = string.format("МОНЕТЫ %d · ЖЕТОНЫ %d", player:GetAttribute("Coins") or 0, player:GetAttribute("CaseTokens") or 0)
+	local nextLevel, nextReward = Catalog.GetNextLevelReward(level)
+	if nextReward then
+		nextRewardLabel.Text = string.format("СЛЕДУЮЩАЯ · LV %d: %s", nextLevel, nextReward.Description)
+	else
+		nextRewardLabel.Text = "Особые награды открыты · дальше монеты за каждый уровень"
+	end
+	if player:GetAttribute("Queued") then
+		guideTitle.Text = "МЕСТО ЗАБРОНИРОВАНО"
+		guideText.Text = "Команда собирается. Далее: 75 секунд на 3 укрепления, затем штурм вражеского ядра."
+	elseif (player:GetAttribute("Matches") or 0) > 0 and (player:GetAttribute("CaseTokens") or 0) > 0 then
+		guideTitle.Text = "НАГРАДА ЖДЁТ · ОТКРОЙ КЕЙС [L]"
+		guideText.Text = "Потрать жетон в лутбоксе, экипируй предмет в инвентаре — и возвращайся в бой за следующим уровнем."
+	else
+		guideTitle.Text = "ТВОЙ СЛЕДУЮЩИЙ ШАГ"
+		guideText.Text = "Нажми БЫСТРЫЙ СТАРТ — пустые места в двух командах 6×6 займут боты."
+	end
+	guidePanel.Visible = phase == "Lobby"
 	lobbyDock.Visible = phase == "Lobby"
 	if phase ~= "Lobby" and panel.Visible then
 		showPanel(nil)
@@ -297,7 +388,9 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then
 		return
 	end
-	if input.KeyCode == Enum.KeyCode.U then
+	if input.KeyCode == Enum.KeyCode.J then
+		if activePanel == "Rewards" then showPanel(nil) else showPanel("Rewards") end
+	elseif input.KeyCode == Enum.KeyCode.U then
 		if activePanel == "Upgrades" then showPanel(nil) else showPanel("Upgrades") end
 	elseif input.KeyCode == Enum.KeyCode.K then
 		if activePanel == "Shop" then showPanel(nil) else showPanel("Shop") end

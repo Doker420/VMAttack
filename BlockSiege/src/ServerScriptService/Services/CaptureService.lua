@@ -17,6 +17,7 @@ local progress = 0
 local progressTeam = ""
 local contested = false
 local published
+local captureHandler
 
 local function point()
 	return world and world.CapturePoint
@@ -64,6 +65,10 @@ end
 
 function CaptureService.SetPhaseProvider(provider)
 	phaseProvider = provider
+end
+
+function CaptureService.SetCaptureHandler(handler)
+	captureHandler = handler
 end
 
 function CaptureService.Reset()
@@ -146,8 +151,10 @@ function CaptureService.Step(deltaTime)
 					owner = presentTeam
 					progressTeam = presentTeam
 					if remotes then
-						remotes.Notify:FireAllClients("Точка 67 захвачена: " .. Config.Teams[presentTeam].Name)
 						remotes.CaptureFX:FireAllClients({ Kind = "Captured", Position = CaptureService.GetPosition(), Team = presentTeam })
+					end
+					if captureHandler then
+						captureHandler(presentTeam)
 					end
 				end
 			end

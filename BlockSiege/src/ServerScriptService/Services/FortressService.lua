@@ -516,7 +516,7 @@ function FortressService.DamagePart(part, amount, attackingTeam, player)
 	entry.Health = entry.Health - applied
 	entry.Model:SetAttribute("Health", entry.Health)
 	if player and damageHandler then
-		damageHandler(player, applied, entry.Kind)
+		damageHandler(player, applied, entry.Kind, entry.Health <= 0)
 	end
 	remotes.CombatFX:FireAllClients({ Kind = "StructureHit", Position = part.Position, Team = entry.Team })
 	if entry.Kind == "Core" then

@@ -14,7 +14,7 @@ Catalog.Weapons = {
 		Color = Color3.fromRGB(102, 190, 130),
 	},
 	Scatter = {
-		Id = "Scatter", Name = "VOXEL SCATTER", Rarity = "Common", Model = "Scatter",
+		Id = "Scatter", Name = "SCATTERGUN", Rarity = "Common", Model = "Scatter",
 		Damage = 8, Cooldown = 0.82, Range = 72, Spread = 0.075, Pellets = 7, StructureMultiplier = 0.8,
 		Color = Color3.fromRGB(126, 194, 117),
 	},
@@ -111,6 +111,34 @@ Catalog.Defenses = {
 	FlameTrap = { Name = "FLAME TRAP", Price = 120, RequiredLevel = 3, Description = "24 урона огнём каждые 1,5 секунды" },
 }
 
+-- Visible account-level track. Case drops can unlock items earlier; duplicate
+-- track rewards are converted into coins by DataService instead of wasted.
+Catalog.LevelRewardOrder = { 2, 3, 4, 5, 6, 7, 8, 9, 10 }
+Catalog.LevelRewards = {
+	[2] = { Weapon = "SMG", Coins = 50, CaseTokens = 1, Description = "RAPID SMG · 50 монет · жетон" },
+	[3] = { Defense = "SpikeTrap", Coins = 75, Description = "SPIKE TRAP · 75 монет" },
+	[4] = { Weapon = "TacticalKnife", Coins = 100, Description = "TACTICAL KNIFE · 100 монет" },
+	[5] = { Weapon = "Scatter", CaseTokens = 1, Description = "SCATTERGUN · жетон кейса" },
+	[6] = { Weapon = "TeslaCarbine", Coins = 150, Description = "TESLA CARBINE · 150 монет" },
+	[7] = { Weapon = "Marksman", CaseTokens = 1, Description = "LONGSHOT · жетон кейса" },
+	[8] = { Weapon = "ShadowKnives", Coins = 200, Description = "SHADOW DUAL KNIVES · 200 монет" },
+	[9] = { Weapon = "PrismLance", CaseTokens = 2, Description = "PRISM LANCE · 2 жетона" },
+	[10] = { Weapon = "ThanosGauntlet", Coins = 500, Description = "THANOS GAUNTLET · SNIPER · 500 монет" },
+}
+
+function Catalog.GetLevelReward(level)
+	return Catalog.LevelRewards[tonumber(level) or -1]
+end
+
+function Catalog.GetNextLevelReward(level)
+	for _, rewardLevel in ipairs(Catalog.LevelRewardOrder) do
+		if rewardLevel > level then
+			return rewardLevel, Catalog.LevelRewards[rewardLevel]
+		end
+	end
+	return nil
+end
+
 function Catalog.GetDefense(id)
 	return type(id) == "string" and Catalog.Defenses[id] or nil
 end
@@ -140,6 +168,14 @@ end
 
 function Catalog.LevelForXP(xp)
 	return math.max(1, math.floor(math.sqrt(math.max(0, xp) / 80)) + 1)
+end
+
+function Catalog.LevelProgress(xp)
+	local totalXP = math.max(0, math.floor(tonumber(xp) or 0))
+	local level = Catalog.LevelForXP(totalXP)
+	local levelStart = 80 * (level - 1) ^ 2
+	local nextLevelXP = 80 * level ^ 2
+	return level, totalXP - levelStart, nextLevelXP - levelStart, nextLevelXP
 end
 
 return Catalog

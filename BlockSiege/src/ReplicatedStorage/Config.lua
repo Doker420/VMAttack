@@ -24,7 +24,7 @@ local Config = {
 		BotBoundsZ = 160,
 	},
 
-	-- Aurora Bastion: a bright three-lane valley, not a decorative outer ring.
+	-- Bright three-lane fortress valley, not a decorative outer ring.
 	Presentation = {
 		ArenaWidth = 640,
 		ArenaDepth = 360,

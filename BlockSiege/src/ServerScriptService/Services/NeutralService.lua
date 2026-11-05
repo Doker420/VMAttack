@@ -10,6 +10,7 @@ local NeutralService = {}
 local world
 local remotes
 local dataService
+local rewardHandler
 local botService
 local state
 local phaseProvider = function() return "Lobby" end
@@ -91,10 +92,11 @@ end
 local function neutralDeath(record, model)
 	local attackerId = model:GetAttribute("LastAttackerUserId")
 	local player = attackerId and Players:GetPlayerByUserId(attackerId) or nil
-	if player and dataService then
-		dataService.AddCoins(player, 8)
-		if remotes and remotes.Notify then
-			remotes.Notify:FireClient(player, "NEUTRAL CAMP ОЧИЩЕН · +8 монет")
+	if player then
+		if rewardHandler then
+			rewardHandler(player, 8, 18, "Нейтральный лагерь очищен")
+		elseif dataService then
+			dataService.Award(player, 8, 18, "Нейтральный лагерь очищен")
 		end
 	end
 	defeated = defeated + 1
@@ -173,6 +175,10 @@ end
 
 function NeutralService.SetPhaseProvider(provider)
 	phaseProvider = provider or phaseProvider
+end
+
+function NeutralService.SetRewardHandler(handler)
+	rewardHandler = handler
 end
 
 function NeutralService.StartMatch()

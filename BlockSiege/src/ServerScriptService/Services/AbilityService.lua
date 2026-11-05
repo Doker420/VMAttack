@@ -36,6 +36,7 @@ local banners = {}
 local cooldownClock = 0
 local stateClock = 0
 local classCleanupClock = 0
+local rewardHandler
 
 local function validPosition(position)
 	return typeof(position) == vector3Type and position.X == position.X and position.Y == position.Y and position.Z == position.Z
@@ -489,6 +490,10 @@ function AbilityService.SetProviders(phase, team, targets)
 	targetsProvider = targets or targetsProvider
 end
 
+function AbilityService.SetRewardHandler(handler)
+	rewardHandler = handler
+end
+
 function AbilityService.StartMatch(matchId, participants)
 	AbilityService.Reset()
 	teamDecks = { Blue = shuffledDeck(), Orange = shuffledDeck() }
@@ -539,6 +544,10 @@ function AbilityService.UsePlayerAbility(player, slot, targetPosition)
 		applyClassToModel(character, classId)
 	end
 	local success, reason = useAbility(player, character, team, slot, targetPosition, player)
+	if success and rewardHandler then
+		local ability = AbilityCatalog.GetAbilityForSlot(classId, slot)
+		rewardHandler(player, 1, 4, "Способность · " .. tostring(ability and ability.ShortName or "F/G"))
+	end
 	if not success and reason and reason ~= "Способность перезаряжается" then
 		notify(player, reason)
 	end

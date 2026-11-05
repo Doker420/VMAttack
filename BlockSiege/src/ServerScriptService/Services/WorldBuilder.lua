@@ -21,15 +21,15 @@ local VisualModels = require(Shared:WaitForChild("VisualModels"))
 local WorldBuilder = {}
 local buildSerial = 0
 local C = {
-	Grass = Color3.fromRGB(83, 128, 112),
-	Dirt = Color3.fromRGB(76, 72, 77),
-	Stone = Color3.fromRGB(113, 138, 153),
-	StoneDark = Color3.fromRGB(37, 55, 74),
-	Wood = Color3.fromRGB(128, 91, 68),
-	Leaf = Color3.fromRGB(42, 100, 88),
-	Sand = Color3.fromRGB(155, 174, 184),
-	White = Color3.fromRGB(235, 245, 255),
-	Gold = Color3.fromRGB(255, 204, 102),
+	Grass = Color3.fromRGB(91, 158, 91),
+	Dirt = Color3.fromRGB(116, 88, 65),
+	Stone = Color3.fromRGB(151, 158, 159),
+	StoneDark = Color3.fromRGB(66, 76, 84),
+	Wood = Color3.fromRGB(137, 91, 56),
+	Leaf = Color3.fromRGB(52, 126, 69),
+	Sand = Color3.fromRGB(195, 172, 127),
+	White = Color3.fromRGB(245, 244, 232),
+	Gold = Color3.fromRGB(244, 188, 72),
 }
 
 -- Public Roblox material color maps add real tiled surface detail without a custom
@@ -120,7 +120,7 @@ local function buildTree(parent, position, scale)
 	-- The old five-cube VoxelTree is intentionally gone. The trunk remains a
 	-- small gameplay obstacle; the sculpted crown is non-interactive.
 	return VisualModels.Tree(parent, position, scale, {
-		Name = "AuroraPine", Snow = true, Collide = true, Query = true,
+		Name = "FortressPine", Snow = true, Collide = true, Query = true,
 	})
 end
 
@@ -136,13 +136,13 @@ local HOLIDAY = {
 }
 
 local STYLE = {
-	Ivory = Color3.fromRGB(205, 226, 237),
-	IvoryDark = Color3.fromRGB(125, 161, 181),
-	Navy = Color3.fromRGB(17, 35, 59),
+	Ivory = Color3.fromRGB(224, 215, 190),
+	IvoryDark = Color3.fromRGB(151, 143, 123),
+	Navy = Color3.fromRGB(51, 66, 79),
 	Blue = Color3.fromRGB(69, 190, 239),
-	Ice = Color3.fromRGB(137, 231, 255),
-	Gold = Color3.fromRGB(255, 204, 102),
-	Warm = Color3.fromRGB(255, 151, 85),
+	Ice = Color3.fromRGB(104, 190, 211),
+	Gold = Color3.fromRGB(235, 177, 62),
+	Warm = Color3.fromRGB(239, 137, 71),
 }
 
 local function decorPart(parent, name, size, cframe, color, material, className)
@@ -571,15 +571,8 @@ local function decorateArena(arena)
 	buildGift(arena, Vector3.new(28, 0, 76), 0.8, HOLIDAY.Green)
 	buildGift(arena, Vector3.new(-100, 0, 70), 0.65, HOLIDAY.Green)
 	buildGift(arena, Vector3.new(100, 0, -70), 0.65, HOLIDAY.Red)
-	buildGarland(arena, Vector3.new(-190, 10, -88), Vector3.new(190, 10, -88), 4, 24)
-	buildGarland(arena, Vector3.new(-190, 10, 88), Vector3.new(190, 10, 88), 4, 24)
-	buildSnowflake(arena, Vector3.new(-18, 9, -88), 1.3)
-	buildSnowflake(arena, Vector3.new(18, 9, 88), 1.3)
-	buildSnowEmitter(arena, Vector3.new(0, 28, 0), Vector3.new(390, 1, 170), 10)
-end
-
-local function buildCloud(parent, position, scale)
-	return VisualModels.Cloud(parent, position, scale)
+	-- Seasonal props stay at the edges; combat lanes keep a clean silhouette.
+	buildSnowEmitter(arena, Vector3.new(0, 28, 0), Vector3.new(390, 1, 170), 6)
 end
 
 local function buildSculptedTerrain()
@@ -709,9 +702,9 @@ local function buildLobbyArchitecture(lobby)
 	galleryBackdrop.Transparency = 0.12
 	decorPart(lobby, "GalleryCrown", Vector3.new(172, 0.55, 1), CFrame.new(0, 56.2, 250), STYLE.Gold, Enum.Material.Metal)
 	decorPart(lobby, "HallAxis", Vector3.new(2, 0.12, 145), CFrame.new(0, 44.58, 330), STYLE.Navy, Enum.Material.Metal)
-	local signAnchor = decorPart(lobby, "FrostfireSign", Vector3.new(1, 1, 1), CFrame.new(0, 65, 330), C.White, Enum.Material.SmoothPlastic)
+	local signAnchor = decorPart(lobby, "BlockSiegeSign", Vector3.new(1, 1, 1), CFrame.new(0, 65, 330), C.White, Enum.Material.SmoothPlastic)
 	signAnchor.Transparency = 1
-	billboard(signAnchor, "AURORA  //  BASTION", STYLE.Gold, Vector3.zero, UDim2.fromOffset(440, 70))
+	billboard(signAnchor, "BLOCKSIEGE  //  6×6", STYLE.Gold, Vector3.zero, UDim2.fromOffset(440, 70))
 	for _, z in ipairs({ 280, 320, 360, 400 }) do
 		local lamp = decorPart(lobby, "HallLight", Vector3.new(2, 2, 2), CFrame.new(0, 62, z), STYLE.Warm, Enum.Material.Neon)
 		lamp.Shape = Enum.PartType.Ball
@@ -1097,23 +1090,8 @@ function WorldBuilder.Build()
 		xWall.CanQuery = false
 		decorPart(arena, "ArenaBoundarySnow", Vector3.new(2.5, 0.5, presentation.ArenaDepth), CFrame.new(side * presentation.ArenaEdgeX, 18.25, 0), HOLIDAY.Snow, Enum.Material.Snow)
 	end
-	for index = 1, 48 do
-		local x = (index * 47 % 180) - 90
-		local z = (index * 71 % 160) - 80
-		if math.abs(z) > 12 then
-			local tuft = makePart(arena, "GrassTuft", Vector3.new(0.45, 0.7 + (index % 3) * 0.2, 0.45), CFrame.new(x, 0.4, z), C.Leaf, Enum.Material.Grass, false)
-			tuft.CanQuery = false
-		end
-	end
-	for _, entry in ipairs({
-		{ Vector3.new(-190, 62, -105), 1.1 }, { Vector3.new(-80, 76, -120), 0.85 },
-		{ Vector3.new(45, 68, -112), 1.2 }, { Vector3.new(175, 72, -105), 0.9 },
-		{ Vector3.new(-165, 70, 110), 0.9 }, { Vector3.new(-35, 60, 118), 1.1 },
-		{ Vector3.new(95, 78, 112), 0.85 }, { Vector3.new(205, 64, 100), 1.15 },
-	}) do
-		buildCloud(arena, entry[1], entry[2])
-	end
-
+	-- The terrain/cloud system and tiled ground materials carry the horizon and
+	-- surface detail. Avoid scatter made from tiny cubes across the combat view.
 	local teamSpawns = {}
 	for _, team in ipairs(Config.TeamOrder) do
 		teamSpawns[team] = buildBase(arena, structures, team)
@@ -1145,13 +1123,13 @@ function WorldBuilder.Build()
 	pcall(function()
 		Lighting.Technology = Enum.Technology.Future
 	end)
-	Lighting.Brightness = 3
-	Lighting.ClockTime = 16.2
-	Lighting.EnvironmentDiffuseScale = 0.65
-	Lighting.EnvironmentSpecularScale = 0.7
+	Lighting.Brightness = 2.5
+	Lighting.ClockTime = 15.4
+	Lighting.EnvironmentDiffuseScale = 0.58
+	Lighting.EnvironmentSpecularScale = 0.45
 	Lighting.GlobalShadows = true
-	Lighting.OutdoorAmbient = Color3.fromRGB(170, 190, 218)
-	Lighting.ColorShift_Top = Color3.fromRGB(214, 235, 255)
+	Lighting.OutdoorAmbient = Color3.fromRGB(184, 191, 177)
+	Lighting.ColorShift_Top = Color3.fromRGB(255, 238, 211)
 	local function ensureEffect(className, name)
 		local effect = Lighting:FindFirstChild(name)
 		if not effect then
@@ -1162,16 +1140,16 @@ function WorldBuilder.Build()
 		return effect
 	end
 	local atmosphere = ensureEffect("Atmosphere", "BlockSiegeAtmosphere")
-	atmosphere.Density = 0.12
-	atmosphere.Haze = 0.18
-	atmosphere.Color = Color3.fromRGB(202, 224, 242)
-	atmosphere.Decay = Color3.fromRGB(118, 148, 176)
-	atmosphere.Glare = 0.08
+	atmosphere.Density = 0.09
+	atmosphere.Haze = 0.08
+	atmosphere.Color = Color3.fromRGB(218, 226, 213)
+	atmosphere.Decay = Color3.fromRGB(145, 151, 135)
+	atmosphere.Glare = 0.04
 	local colorCorrection = ensureEffect("ColorCorrectionEffect", "BlockSiegeColor")
-	colorCorrection.Saturation = 0.08
-	colorCorrection.Contrast = 0.12
+	colorCorrection.Saturation = 0.16
+	colorCorrection.Contrast = 0.07
 	local bloom = ensureEffect("BloomEffect", "BlockSiegeBloom")
-	bloom.Intensity = 0.45
+	bloom.Intensity = 0.24
 	bloom.Size = 22
 	bloom.Threshold = 1
 	local rays = ensureEffect("SunRaysEffect", "BlockSiegeSun")

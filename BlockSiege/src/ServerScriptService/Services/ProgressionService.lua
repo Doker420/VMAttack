@@ -208,8 +208,8 @@ function ProgressionService.ClaimDaily(player)
 	local level = getLevel(data)
 	local coins = 50 + level * 5
 	data.Coins = data.Coins + coins
-	data.XP = data.XP + 20
 	data.CaseTokens = data.CaseTokens + 1
+	DataService.AddXP(player, 20)
 	data.LastDailyClaim = now
 	DataService.Commit(player, true)
 	notify(player, "Ежедневный бонус: +" .. coins .. " монет, +20 XP и жетон кейса", Color3.fromRGB(120, 255, 190))
