@@ -14,6 +14,7 @@ local NeutralService = require(services:WaitForChild("NeutralService"))
 local WeaponService = require(services:WaitForChild("WeaponService"))
 local BotService = require(services:WaitForChild("BotService"))
 local AbilityService = require(services:WaitForChild("AbilityService"))
+local BonusService = require(services:WaitForChild("BonusService"))
 local CaseService = require(services:WaitForChild("CaseService"))
 local ProgressionService = require(services:WaitForChild("ProgressionService"))
 local ShopService = require(services:WaitForChild("ShopService"))
@@ -24,7 +25,7 @@ remotes.Name = "Remotes"
 for _, name in ipairs({
 	"Notify", "ProfileUpdate", "CaseOpened", "Results", "CombatFX", "BuildFX", "TrapFX", "CaptureFX", "ProgressionFX",
 	"LobbyAction", "CaseAction", "FireRequest", "BuildRequest", "BuildPreviewRequest", "BuildPreview", "OpenPanel",
-	"ProgressionAction", "ShopAction", "AbilityRequest", "AbilityFX", "AbilityState", "WeaponAction", "ReloadRequest",
+	"ProgressionAction", "ShopAction", "AbilityRequest", "AbilityFX", "AbilityState", "WeaponAction", "ReloadRequest", "BonusFX",
 }) do
 	local remote = Instance.new("RemoteEvent")
 	remote.Name = name
@@ -47,7 +48,8 @@ AbilityService.Init({ World = world, Remotes = remotes, State = state, FortressS
 CaseService.Init({ DataService = DataService, Remotes = remotes })
 ShopService.Init({ DataService = DataService, ProgressionService = ProgressionService, Remotes = remotes })
 CaptureService.Init({ World = world, State = state, BotService = BotService, Remotes = remotes })
-NeutralService.Init({ World = world, State = state, BotService = BotService, DataService = DataService, Remotes = remotes })
+NeutralService.Init({ World = world, State = state, BotService = BotService, DataService = DataService, BonusService = BonusService, Remotes = remotes })
+BonusService.Init({ World = world, Remotes = remotes, State = state })
 MatchService.Init({
 	World = world,
 	DataService = DataService,
@@ -58,9 +60,11 @@ MatchService.Init({
 	CaptureService = CaptureService,
 	NeutralService = NeutralService,
 	AbilityService = AbilityService,
+	BonusService = BonusService,
 	Remotes = remotes,
 	State = state,
 })
+BonusService.SetProviders(MatchService.GetPhase, MatchService.GetTeam, MatchService.IsParticipant, MatchService.OnBonusReward)
 CaseService.SetEquipHandler(WeaponService.EquipPlayer)
 
 local function onPlayerAdded(player)
@@ -92,7 +96,10 @@ remotes.ReloadRequest.OnServerEvent:Connect(function(player)
 	WeaponService.RequestReload(player)
 end)
 remotes.AbilityRequest.OnServerEvent:Connect(function(player, slot, targetPosition)
-	AbilityService.UsePlayerAbility(player, slot, targetPosition)
+	local success = AbilityService.UsePlayerAbility(player, slot, targetPosition)
+	if success and MatchService.GetPhase() == "Battle" and MatchService.IsParticipant(player) then
+		BonusService.OnAction(player, "Ability")
+	end
 end)
 remotes.BuildRequest.OnServerEvent:Connect(function(player, kind, position, rotation)
 	MatchService.HandleBuild(player, kind, position, rotation)

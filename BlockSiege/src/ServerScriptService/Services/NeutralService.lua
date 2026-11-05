@@ -11,6 +11,7 @@ local world
 local remotes
 local dataService
 local rewardHandler
+local bonusService
 local botService
 local state
 local phaseProvider = function() return "Lobby" end
@@ -98,6 +99,9 @@ local function neutralDeath(record, model)
 		elseif dataService then
 			dataService.Award(player, 8, 18, "Нейтральный лагерь очищен")
 		end
+		if bonusService then
+			bonusService.OnAction(player, "Camp")
+		end
 	end
 	defeated = defeated + 1
 	record.RespawnAt = os.clock() + (Config.Objectives.NeutralRespawn or 45)
@@ -163,6 +167,7 @@ function NeutralService.Init(dependencies)
 	world = dependencies.World
 	remotes = dependencies.Remotes
 	dataService = dependencies.DataService
+	bonusService = dependencies.BonusService
 	botService = dependencies.BotService
 	state = dependencies.State
 	if not world.Neutrals then

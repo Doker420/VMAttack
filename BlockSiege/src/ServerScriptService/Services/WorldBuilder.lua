@@ -228,6 +228,8 @@ local CREATOR_STORE_ASSETS = {
 		Placements = {
 			{ Parent = "Arena", Position = Vector3.new(-140, 0, 130), Size = 18, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(-25), 0) },
 			{ Parent = "Arena", Position = Vector3.new(140, 0, -130), Size = 18, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(155), 0) },
+			{ Parent = "Lobby", Position = Vector3.new(-91, 44.5, 330), Size = 12, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(90), 0) },
+			{ Parent = "Lobby", Position = Vector3.new(91, 44.5, 330), Size = 12, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(-90), 0) },
 		},
 	},
 }
@@ -245,7 +247,7 @@ local CREATOR_STORE_GAMEPLAY_ATTRIBUTES = {
 	"BaseGeometry", "CaptureGeometry", "Team", "StructureId", "Kind", "IsTrap", "DefenseId", "Rig", "CaptureRadius",
 }
 local CREATOR_STORE_MAX_SOURCE_PARTS = 120
-local CREATOR_STORE_MAX_TOTAL_PARTS = 900
+local CREATOR_STORE_MAX_TOTAL_PARTS = 1100
 
 local function clearCreatorStoreGameplayAttributes(instance)
 	local ok, attributes = pcall(function()
@@ -609,11 +611,11 @@ local function buildSculptedTerrain()
 end
 
 local function buildGate(parent, prefix, baseCFrame, width, height, accent)
-	return VisualModels.Gate(parent, prefix, baseCFrame, width, height, accent, { Holiday = true })
+	return VisualModels.Gate(parent, prefix, baseCFrame, width, height, accent, { Holiday = true, CastShadow = true })
 end
 
 local function buildCitadelTower(parent, prefix, position, accent)
-	return VisualModels.Tower(parent, prefix, position, 0.72, accent, { Holiday = true })
+	return VisualModels.Tower(parent, prefix, position, 0.72, accent, { Holiday = true, CastShadow = true })
 end
 
 local function buildBaseArchitecture(arena, team, baseCFrame, accent)
@@ -644,14 +646,14 @@ local function buildBaseArchitecture(arena, team, baseCFrame, accent)
 	end
 	for _, side in ipairs({ -1, 1 }) do
 		local towerPosition = (facade * CFrame.new(side * 22, 0, 0)).Position
-		local tower = VisualModels.Tower(arena, "BasePillar" .. team .. tostring(side), towerPosition, 0.78, accent, { Holiday = true })
+		local tower = VisualModels.Tower(arena, "BasePillar" .. team .. tostring(side), towerPosition, 0.78, accent, { Holiday = true, CastShadow = true })
 		tagBase(tower)
 		local banner = decorPart(arena, "BaseBanner" .. team, Vector3.new(5.5, 2.8, 0.25), facade * CFrame.new(side * 10, 10, -2), accent, Enum.Material.Fabric)
 		banner:SetAttribute("BaseGeometry", true)
 		banner:SetAttribute("Team", team)
 	end
 	for _, side in ipairs({ -1, 1 }) do
-		local column = VisualModels.Column(arena, (baseCFrame * CFrame.new(side * 30, 0, -15)).Position, 9, accent, { Holiday = true })
+		local column = VisualModels.Column(arena, (baseCFrame * CFrame.new(side * 30, 0, -15)).Position, 9, accent, { Holiday = true, CastShadow = true })
 		column.Name = "BasePillar" .. team .. "Courtyard" .. tostring(side)
 		tagBase(column)
 	end
@@ -674,14 +676,14 @@ local function buildLobbyArchitecture(lobby)
 	buildGate(lobby, "LobbyEntry", CFrame.new(0, 44.5, 252), 46, 14, STYLE.Navy)
 	for _, x in ipairs({ -82, 82 }) do
 		for _, z in ipairs({ 270, 305, 350, 395 }) do
-			VisualModels.Column(lobby, Vector3.new(x, 44.5, z), 17, STYLE.Gold, { Holiday = true })
+			VisualModels.Column(lobby, Vector3.new(x, 44.5, z), 17, STYLE.Gold, { Holiday = true, CastShadow = true })
 		end
 	end
 	for _, z in ipairs({ 278, 318, 358, 398 }) do
 		buildGate(lobby, "HallVault", CFrame.new(0, 44.5, z), 176, 19, STYLE.Gold)
 	end
-	VisualModels.Fireplace(lobby, Vector3.new(-65, 44.5, 330), 1.15, { Holiday = true })
-	VisualModels.Fireplace(lobby, Vector3.new(65, 44.5, 330), 1.15, { Holiday = true })
+	VisualModels.Fireplace(lobby, Vector3.new(-65, 44.5, 330), 1.15, { Holiday = true, CastShadow = true })
+	VisualModels.Fireplace(lobby, Vector3.new(65, 44.5, 330), 1.15, { Holiday = true, CastShadow = true })
 	for _, side in ipairs({ -1, 1 }) do
 		for _, z in ipairs({ 300, 340, 380 }) do
 			decorPart(lobby, "WindowGlass", Vector3.new(0.5, 10, 18), CFrame.new(side * 101, 51, z), STYLE.Ice, Enum.Material.Glass).Transparency = 0.28
@@ -717,7 +719,7 @@ local function buildArenaArchitecture(arena)
 		local canal = decorPart(arena, "FrozenCanal", Vector3.new(420, 0.12, 7), CFrame.new(0, 0.08, side * 84), STYLE.Ice, Enum.Material.Ice)
 		canal.Transparency = 0.18
 		for _, x in ipairs({ -100, 0, 100 }) do
-			VisualModels.Bridge(arena, Vector3.new(x, 0.05, side * 84), 20, 13, STYLE.Gold, { Name = "CanalBridge", Holiday = true })
+			VisualModels.Bridge(arena, Vector3.new(x, 0.05, side * 84), 20, 13, STYLE.Gold, { Name = "CanalBridge", Holiday = true, CastShadow = true })
 		end
 		for _, x in ipairs({ -72, 72 }) do
 			buildGate(arena, "LaneGate", CFrame.new(x, 0, side * 62) * CFrame.Angles(0, math.rad(90), 0), 18, 9, STYLE.Navy)
@@ -773,7 +775,7 @@ local function buildBase(arena, structures, team)
 		for _, forward in ipairs({ -42, 42 }) do
 			local towerCFrame = baseCFrame * CFrame.new(side * 44, 5, forward)
 			local groundPosition = (towerCFrame * CFrame.new(0, -5, 0)).Position
-			local tower = VisualModels.Tower(arena, team .. "CornerTower", groundPosition, 0.55, color, { Holiday = true })
+			local tower = VisualModels.Tower(arena, team .. "CornerTower", groundPosition, 0.55, color, { Holiday = true, CastShadow = true })
 			tower:SetAttribute("BaseGeometry", true)
 			tower:SetAttribute("Team", team)
 			for _, descendant in ipairs(tower:GetDescendants()) do

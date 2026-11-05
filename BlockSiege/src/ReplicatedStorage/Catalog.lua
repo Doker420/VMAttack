@@ -139,6 +139,22 @@ function Catalog.GetNextLevelReward(level)
 	return nil
 end
 
+-- Three different bonus missions are drafted for every participant each match.
+-- Server progress is mirrored to attributes; the client never grants these rewards.
+Catalog.BonusMissionOrder = { "Fortifier", "Siege", "Captain", "ClassAct", "Hunter", "Eliminator" }
+Catalog.BonusMissions = {
+	Fortifier = { Id = "Fortifier", Name = "УКРЕПИТЕЛЬ", Action = "Build", Target = 3, Coins = 15, XP = 30, Hint = "Поставь 3 укрепления" },
+	Siege = { Id = "Siege", Name = "РАЗРУШИТЕЛЬ", Action = "Structure", Target = 2, Coins = 20, XP = 40, Hint = "Разруши 2 вражеских сооружения" },
+	Captain = { Id = "Captain", Name = "ЗАХВАТЧИК", Action = "Capture", Target = 1, Coins = 15, XP = 30, Hint = "Захвати точку 67" },
+	ClassAct = { Id = "ClassAct", Name = "СПЕЦИАЛИСТ", Action = "Ability", Target = 3, Coins = 15, XP = 35, Hint = "Примени F/G трижды" },
+	Hunter = { Id = "Hunter", Name = "ЕГЕРЬ", Action = "Camp", Target = 2, Coins = 20, XP = 40, Hint = "Очисти 2 лагеря в джунглях" },
+	Eliminator = { Id = "Eliminator", Name = "ДУЭЛЯНТ", Action = "Kill", Target = 3, Coins = 20, XP = 40, Hint = "Выведи 3 бойцов из боя" },
+}
+
+function Catalog.GetBonusMission(id)
+	return type(id) == "string" and Catalog.BonusMissions[id] or nil
+end
+
 function Catalog.GetDefense(id)
 	return type(id) == "string" and Catalog.Defenses[id] or nil
 end

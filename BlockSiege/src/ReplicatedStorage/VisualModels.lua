@@ -52,7 +52,10 @@ local function make(parent, name, size, cframe, color, material, options)
 	object.CanCollide = options.Collide == true
 	object.CanTouch = false
 	object.CanQuery = options.Query == true
-	object.CastShadow = options.CastShadow ~= false and options.Holiday ~= true
+	-- Holiday decoration used to disable every shadow, including large fortress
+	-- arches and lobby columns. Architecture can now explicitly keep soft shadows
+	-- while small decorative pieces remain lightweight.
+	object.CastShadow = options.CastShadow == true or (options.CastShadow ~= false and options.Holiday ~= true)
 	if options.Transparency ~= nil then
 		object.Transparency = options.Transparency
 	end

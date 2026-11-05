@@ -15,6 +15,7 @@ local progressionService
 local captureService
 local abilityService
 local neutralService
+local bonusService
 local remotes
 local state
 local phase = "Lobby"
@@ -183,6 +184,9 @@ function MatchService.OnStructureDamage(player, amount, kind, destroyed)
 		stats.Structures = stats.Structures + 1
 		publishStat(player, "Structures", stats.Structures)
 		actionReward(player, reward[1], reward[2], reward[3])
+		if bonusService then
+			bonusService.OnAction(player, "Structure")
+		end
 	end
 end
 
@@ -195,11 +199,20 @@ function MatchService.OnKill(player, victim)
 		stats.Coins = stats.Coins + 2
 		stats.XP = stats.XP + 8
 		publishStat(player, "Kills", stats.Kills)
+		if bonusService then
+			bonusService.OnAction(player, "Kill")
+		end
 	end
 end
 
 function MatchService.OnActionReward(player, coins, xp, reason)
 	if phase == "Battle" and MatchService.IsParticipant(player) then
+		actionReward(player, coins, xp, reason)
+	end
+end
+
+function MatchService.OnBonusReward(player, coins, xp, reason)
+	if (phase == "Build" or phase == "Battle") and MatchService.IsParticipant(player) then
 		actionReward(player, coins, xp, reason)
 	end
 end
@@ -214,6 +227,9 @@ function MatchService.OnCapture67(team)
 			stats.Captures = stats.Captures + 1
 			publishStat(player, "Captures", stats.Captures)
 			actionReward(player, 10, 25, "67 захвачена · команда получает +1 HP/s")
+			if bonusService then
+				bonusService.OnAction(player, "Capture")
+			end
 		end
 	end
 end
@@ -230,6 +246,9 @@ function MatchService.EndMatch(winner, reason)
 	end
 	if neutralService then
 		neutralService.Reset()
+	end
+	if bonusService then
+		bonusService.EndMatch()
 	end
 	state:SetAttribute("Winner", winner or "")
 	state:SetAttribute("Reason", reason or "Ядро уничтожено")
@@ -328,6 +347,9 @@ function MatchService.StartMatch()
 	if abilityService then
 		abilityService.StartMatch(matchId, participants)
 	end
+	if bonusService then
+		bonusService.StartMatch(matchId, participants)
+	end
 	for _, player in ipairs(players) do
 		local stats = progressionService and progressionService.GetStats(player) or nil
 		local capacity = (stats and stats.BuildCapacity or Config.Arena.MaxBuildPerPlayer) + (abilityService and abilityService.GetBuildBonus(player) or 0)
@@ -411,6 +433,9 @@ function MatchService.HandleBuild(player, kind, position, rotation)
 		actionReward(player, 6, 14, "3 укрепления · базовая защита готова")
 	else
 		actionReward(player, 1, 4, "Укрепление установлено")
+	end
+	if bonusService then
+		bonusService.OnAction(player, "Build")
 	end
 	return true, reason
 end
@@ -507,6 +532,9 @@ local function resetToLobby()
 	if neutralService then
 		neutralService.Reset()
 	end
+	if bonusService then
+		bonusService.Reset()
+	end
 	fortressService.Clear()
 	if captureService then
 		captureService.Reset()
@@ -546,6 +574,9 @@ function MatchService.OnPlayerRemoving(player)
 	if abilityService then
 		abilityService.OnPlayerRemoving(player)
 	end
+	if bonusService then
+		bonusService.OnPlayerRemoving(player)
+	end
 	if team then
 		participants[userId] = nil
 		if participantCount() == 0 then
@@ -569,6 +600,7 @@ function MatchService.Init(dependencies)
 	captureService = dependencies.CaptureService
 	abilityService = dependencies.AbilityService
 	neutralService = dependencies.NeutralService
+	bonusService = dependencies.BonusService
 	remotes = dependencies.Remotes
 	state = dependencies.State
 	fortressService.SetPhaseProvider(MatchService.GetPhase)
@@ -612,6 +644,9 @@ function MatchService.Init(dependencies)
 end
 
 function MatchService.Step(deltaTime)
+	if bonusService then
+		bonusService.Step(deltaTime)
+	end
 	if phase == "Lobby" then
 		if intermission then
 			if queueCount() == 0 then

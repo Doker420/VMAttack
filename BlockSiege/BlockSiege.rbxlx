@@ -162,6 +162,22 @@ function Catalog.GetNextLevelReward(level)
 	return nil
 end
 
+-- Three different bonus missions are drafted for every participant each match.
+-- Server progress is mirrored to attributes; the client never grants these rewards.
+Catalog.BonusMissionOrder = { "Fortifier", "Siege", "Captain", "ClassAct", "Hunter", "Eliminator" }
+Catalog.BonusMissions = {
+	Fortifier = { Id = "Fortifier", Name = "УКРЕПИТЕЛЬ", Action = "Build", Target = 3, Coins = 15, XP = 30, Hint = "Поставь 3 укрепления" },
+	Siege = { Id = "Siege", Name = "РАЗРУШИТЕЛЬ", Action = "Structure", Target = 2, Coins = 20, XP = 40, Hint = "Разруши 2 вражеских сооружения" },
+	Captain = { Id = "Captain", Name = "ЗАХВАТЧИК", Action = "Capture", Target = 1, Coins = 15, XP = 30, Hint = "Захвати точку 67" },
+	ClassAct = { Id = "ClassAct", Name = "СПЕЦИАЛИСТ", Action = "Ability", Target = 3, Coins = 15, XP = 35, Hint = "Примени F/G трижды" },
+	Hunter = { Id = "Hunter", Name = "ЕГЕРЬ", Action = "Camp", Target = 2, Coins = 20, XP = 40, Hint = "Очисти 2 лагеря в джунглях" },
+	Eliminator = { Id = "Eliminator", Name = "ДУЭЛЯНТ", Action = "Kill", Target = 3, Coins = 20, XP = 40, Hint = "Выведи 3 бойцов из боя" },
+}
+
+function Catalog.GetBonusMission(id)
+	return type(id) == "string" and Catalog.BonusMissions[id] or nil
+end
+
 function Catalog.GetDefense(id)
 	return type(id) == "string" and Catalog.Defenses[id] or nil
 end
@@ -831,7 +847,10 @@ local function make(parent, name, size, cframe, color, material, options)
 	object.CanCollide = options.Collide == true
 	object.CanTouch = false
 	object.CanQuery = options.Query == true
-	object.CastShadow = options.CastShadow ~= false and options.Holiday ~= true
+	-- Holiday decoration used to disable every shadow, including large fortress
+	-- arches and lobby columns. Architecture can now explicitly keep soft shadows
+	-- while small decorative pieces remain lightweight.
+	object.CastShadow = options.CastShadow == true or (options.CastShadow ~= false and options.Holiday ~= true)
 	if options.Transparency ~= nil then
 		object.Transparency = options.Transparency
 	end
@@ -1756,6 +1775,7 @@ local NeutralService = require(services:WaitForChild("NeutralService"))
 local WeaponService = require(services:WaitForChild("WeaponService"))
 local BotService = require(services:WaitForChild("BotService"))
 local AbilityService = require(services:WaitForChild("AbilityService"))
+local BonusService = require(services:WaitForChild("BonusService"))
 local CaseService = require(services:WaitForChild("CaseService"))
 local ProgressionService = require(services:WaitForChild("ProgressionService"))
 local ShopService = require(services:WaitForChild("ShopService"))
@@ -1766,7 +1786,7 @@ remotes.Name = "Remotes"
 for _, name in ipairs({
 	"Notify", "ProfileUpdate", "CaseOpened", "Results", "CombatFX", "BuildFX", "TrapFX", "CaptureFX", "ProgressionFX",
 	"LobbyAction", "CaseAction", "FireRequest", "BuildRequest", "BuildPreviewRequest", "BuildPreview", "OpenPanel",
-	"ProgressionAction", "ShopAction", "AbilityRequest", "AbilityFX", "AbilityState", "WeaponAction", "ReloadRequest",
+	"ProgressionAction", "ShopAction", "AbilityRequest", "AbilityFX", "AbilityState", "WeaponAction", "ReloadRequest", "BonusFX",
 }) do
 	local remote = Instance.new("RemoteEvent")
 	remote.Name = name
@@ -1789,7 +1809,8 @@ AbilityService.Init({ World = world, Remotes = remotes, State = state, FortressS
 CaseService.Init({ DataService = DataService, Remotes = remotes })
 ShopService.Init({ DataService = DataService, ProgressionService = ProgressionService, Remotes = remotes })
 CaptureService.Init({ World = world, State = state, BotService = BotService, Remotes = remotes })
-NeutralService.Init({ World = world, State = state, BotService = BotService, DataService = DataService, Remotes = remotes })
+NeutralService.Init({ World = world, State = state, BotService = BotService, DataService = DataService, BonusService = BonusService, Remotes = remotes })
+BonusService.Init({ World = world, Remotes = remotes, State = state })
 MatchService.Init({
 	World = world,
 	DataService = DataService,
@@ -1800,9 +1821,11 @@ MatchService.Init({
 	CaptureService = CaptureService,
 	NeutralService = NeutralService,
 	AbilityService = AbilityService,
+	BonusService = BonusService,
 	Remotes = remotes,
 	State = state,
 })
+BonusService.SetProviders(MatchService.GetPhase, MatchService.GetTeam, MatchService.IsParticipant, MatchService.OnBonusReward)
 CaseService.SetEquipHandler(WeaponService.EquipPlayer)
 
 local function onPlayerAdded(player)
@@ -1834,7 +1857,10 @@ remotes.ReloadRequest.OnServerEvent:Connect(function(player)
 	WeaponService.RequestReload(player)
 end)
 remotes.AbilityRequest.OnServerEvent:Connect(function(player, slot, targetPosition)
-	AbilityService.UsePlayerAbility(player, slot, targetPosition)
+	local success = AbilityService.UsePlayerAbility(player, slot, targetPosition)
+	if success and MatchService.GetPhase() == "Battle" and MatchService.IsParticipant(player) then
+		BonusService.OnAction(player, "Ability")
+	end
 end)
 remotes.BuildRequest.OnServerEvent:Connect(function(player, kind, position, rotation)
 	MatchService.HandleBuild(player, kind, position, rotation)
@@ -1896,6 +1922,389 @@ print("[BLOCKSIEGE] 6x6 готов · классы, jungle, башни, мины
         <Properties>
           <string name="Name">Services</string>
         </Properties>
+        <Item class="ModuleScript" referent="36">
+          <Properties>
+            <string name="Name">BonusService</string>
+            <string name="Source"><![CDATA[-- BLOCKSIEGE // MATCH BONUSES AND SUPPLY DROPS
+-- Server-drafted missions, one-time rewards and tangible world pickups.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("BlockSiege")
+local Catalog = require(Shared:WaitForChild("Catalog"))
+
+local BonusService = {}
+local world
+local remotes
+local state
+local supplyFolder
+local phaseProvider = function() return "Lobby" end
+local teamProvider = function() return nil end
+local participantProvider = function() return false end
+local rewardHandler
+local missions = {}
+local supplies = {}
+local battleClock = 0
+local publishClock = 0
+local nextSupplyAt = 8
+local supplySerial = 0
+
+local GOLD = Color3.fromRGB(255, 196, 64)
+local DARK = Color3.fromRGB(55, 46, 40)
+local DROP_PAIRS = {
+	{ Vector3.new(-105, 0, 48), Vector3.new(105, 0, -48) },
+	{ Vector3.new(-55, 0, -42), Vector3.new(55, 0, 42) },
+	{ Vector3.new(0, 0, 62), Vector3.new(0, 0, -62) },
+}
+
+local function activeSupplyCount()
+	local count = 0
+	for _, record in ipairs(supplies) do
+		if not record.Collected and record.Model and record.Model.Parent then
+			count = count + 1
+		end
+	end
+	return count
+end
+
+local function publishSupplyState()
+	if state then
+		state:SetAttribute("SupplyActive", activeSupplyCount())
+		state:SetAttribute("SupplyNext", math.max(0, math.ceil(nextSupplyAt - battleClock)))
+	end
+end
+
+local function clearSupplies()
+	for _, record in ipairs(supplies) do
+		if record.Model then
+			record.Model:Destroy()
+		end
+	end
+	supplies = {}
+	publishSupplyState()
+end
+
+local function clearPlayer(player)
+	if not player then
+		return
+	end
+	missions[player.UserId] = nil
+	player:SetAttribute("BonusMissionCount", 0)
+	player:SetAttribute("BonusCompleted", 0)
+	player:SetAttribute("BonusSupplyCollected", 0)
+	for index = 1, 3 do
+		player:SetAttribute("BonusMission" .. index .. "Id", "")
+		player:SetAttribute("BonusMission" .. index .. "Progress", 0)
+		player:SetAttribute("BonusMission" .. index .. "Completed", false)
+	end
+end
+
+local function shuffledMissionIds(userId, matchId)
+	local ids = table.clone(Catalog.BonusMissionOrder)
+	local random = Random.new((userId * 104729 + matchId * 7919) % 2000000000 + 1)
+	for index = #ids, 2, -1 do
+		local other = random:NextInteger(1, index)
+		ids[index], ids[other] = ids[other], ids[index]
+	end
+	return { ids[1], ids[2], ids[3] }
+end
+
+local function assignMissions(player, matchId)
+	local records = {}
+	for index, id in ipairs(shuffledMissionIds(player.UserId, matchId)) do
+		records[index] = { Id = id, Progress = 0, Completed = false }
+		player:SetAttribute("BonusMission" .. index .. "Id", id)
+		player:SetAttribute("BonusMission" .. index .. "Progress", 0)
+		player:SetAttribute("BonusMission" .. index .. "Completed", false)
+	end
+	missions[player.UserId] = records
+	player:SetAttribute("BonusMissionCount", #records)
+	player:SetAttribute("BonusCompleted", 0)
+	player:SetAttribute("BonusSupplyCollected", 0)
+end
+
+local function emitBonus(position, team, kind)
+	if remotes and remotes.BonusFX and typeof(position) == typeof(Vector3.new()) then
+		remotes.BonusFX:FireAllClients({ Kind = kind or "BonusMission", Position = position, Team = team, Color = GOLD })
+	end
+end
+
+local function playerPosition(player)
+	local character = player and player.Character or nil
+	local root = character and (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart) or nil
+	return root and root.Position or nil
+end
+
+function BonusService.Init(dependencies)
+	world = dependencies.World
+	remotes = dependencies.Remotes
+	state = dependencies.State
+	supplyFolder = world.Root:FindFirstChild("BonusDrops")
+	if not supplyFolder then
+		supplyFolder = Instance.new("Folder")
+		supplyFolder.Name = "BonusDrops"
+		supplyFolder.Parent = world.Root
+	end
+	if state then
+		state:SetAttribute("BonusActive", false)
+		state:SetAttribute("BonusMatchId", 0)
+	end
+	publishSupplyState()
+end
+
+function BonusService.SetProviders(phase, team, participant, reward)
+	phaseProvider = phase or phaseProvider
+	teamProvider = team or teamProvider
+	participantProvider = participant or participantProvider
+	rewardHandler = reward or rewardHandler
+end
+
+function BonusService.StartMatch(matchId, participants)
+	clearSupplies()
+	missions = {}
+	battleClock = 0
+	publishClock = 0
+	nextSupplyAt = 8
+	supplySerial = 0
+	for userId in pairs(participants) do
+		local player = Players:GetPlayerByUserId(userId)
+		if player then
+			assignMissions(player, matchId)
+		end
+	end
+	if state then
+		state:SetAttribute("BonusActive", true)
+		state:SetAttribute("BonusMatchId", matchId)
+	end
+	publishSupplyState()
+end
+
+function BonusService.OnAction(player, action, amount)
+	if not player or not participantProvider(player) then
+		return
+	end
+	local phase = phaseProvider()
+	if phase ~= "Build" and phase ~= "Battle" then
+		return
+	end
+	local records = missions[player.UserId]
+	if not records then
+		return
+	end
+	local increment = math.max(0, tonumber(amount) or 1)
+	if increment <= 0 then
+		return
+	end
+	for index, record in ipairs(records) do
+		local definition = Catalog.GetBonusMission(record.Id)
+		if definition and definition.Action == action and not record.Completed then
+			record.Progress = math.min(definition.Target, record.Progress + increment)
+			player:SetAttribute("BonusMission" .. index .. "Progress", record.Progress)
+			if record.Progress >= definition.Target then
+				record.Completed = true
+				player:SetAttribute("BonusMission" .. index .. "Completed", true)
+				player:SetAttribute("BonusCompleted", (player:GetAttribute("BonusCompleted") or 0) + 1)
+				if rewardHandler then
+					rewardHandler(player, definition.Coins, definition.XP, "БОНУС · " .. definition.Name)
+				end
+				emitBonus(playerPosition(player), teamProvider(player), "BonusMission")
+			end
+		end
+	end
+end
+
+local collectSupply
+
+local function createSupply(position)
+	local model = Instance.new("Model")
+	model.Name = "SupplyDrop"
+	local function part(name, size, cframe, color, material)
+		local object = Instance.new("Part")
+		object.Name = name
+		object.Size = size
+		object.CFrame = cframe
+		object.Color = color
+		object.Material = material
+		object.Anchored = true
+		object.CanCollide = false
+		object.CanTouch = false
+		object.CanQuery = false
+		object.CastShadow = true
+		object.Parent = model
+		return object
+	end
+	local root = part("SupplyRoot", Vector3.new(4.2, 2.8, 4.2), CFrame.new(position + Vector3.new(0, 3, 0)), GOLD, Enum.Material.Metal)
+	root.CanTouch = true
+	part("SupplyLid", Vector3.new(4.6, 0.65, 4.6), CFrame.new(position + Vector3.new(0, 4.65, 0)), DARK, Enum.Material.Metal)
+	part("SupplyBandX", Vector3.new(0.48, 3.25, 4.5), CFrame.new(position + Vector3.new(0, 3.1, 0)), DARK, Enum.Material.Metal)
+	part("SupplyBandZ", Vector3.new(4.5, 3.25, 0.48), CFrame.new(position + Vector3.new(0, 3.1, 0)), DARK, Enum.Material.Metal)
+	local beacon = part("SupplyBeacon", Vector3.new(0.35, 18, 0.35), CFrame.new(position + Vector3.new(0, 12, 0)), GOLD, Enum.Material.Neon)
+	beacon.Transparency = 0.72
+	beacon.CastShadow = false
+	local orb = part("SupplyOrb", Vector3.one * 1.25, CFrame.new(position + Vector3.new(0, 6.3, 0)), GOLD, Enum.Material.Neon)
+	orb.Shape = Enum.PartType.Ball
+	orb.CastShadow = false
+	local light = Instance.new("PointLight")
+	light.Color = GOLD
+	light.Range = 20
+	light.Brightness = 2.2
+	light.Parent = orb
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "SupplyLabel"
+	gui.Size = UDim2.fromOffset(230, 68)
+	gui.StudsOffset = Vector3.new(0, 5.5, 0)
+	gui.AlwaysOnTop = true
+	gui.MaxDistance = 180
+	gui.Parent = root
+	local label = Instance.new("TextLabel")
+	label.BackgroundTransparency = 1
+	label.Size = UDim2.fromScale(1, 1)
+	label.Font = Enum.Font.GothamBold
+	label.Text = "БОНУС\n+15 монет · +30 XP · +25 HP"
+	label.TextColor3 = GOLD
+	label.TextStrokeTransparency = 0.25
+	label.TextScaled = true
+	label.Parent = gui
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "ПОДОБРАТЬ"
+	prompt.ObjectText = "СНАБЖЕНИЕ"
+	prompt.HoldDuration = 0.15
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = root
+	model.PrimaryPart = root
+	local now = os.clock()
+	local record = {
+		Model = model,
+		Root = root,
+		Pivot = root.CFrame,
+		Position = position,
+		Born = now,
+		Until = now + 30,
+		Collected = false,
+		Phase = math.random() * math.pi * 2,
+	}
+	root.Touched:Connect(function(hit)
+		local character = hit and hit:FindFirstAncestorOfClass("Model") or nil
+		local player = character and Players:GetPlayerFromCharacter(character) or nil
+		if player and collectSupply then
+			collectSupply(record, player)
+		end
+	end)
+	prompt.Triggered:Connect(function(player)
+		if collectSupply then
+			collectSupply(record, player)
+		end
+	end)
+	model.Parent = supplyFolder
+	table.insert(supplies, record)
+	return record
+end
+
+collectSupply = function(record, player)
+	if not record or record.Collected or phaseProvider() ~= "Battle" or not participantProvider(player) then
+		return false
+	end
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid") or nil
+	local root = character and character:FindFirstChild("HumanoidRootPart") or nil
+	if not humanoid or humanoid.Health <= 0 or not root or not record.Root or not record.Root.Parent then
+		return false
+	end
+	if (root.Position - record.Root.Position).Magnitude > 14 then
+		return false
+	end
+	record.Collected = true
+	humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + 25)
+	player:SetAttribute("BonusSupplyCollected", (player:GetAttribute("BonusSupplyCollected") or 0) + 1)
+	if rewardHandler then
+		rewardHandler(player, 15, 30, "СНАБЖЕНИЕ · +25 HP")
+	end
+	local position = record.Root.Position
+	local team = teamProvider(player)
+	record.Model:Destroy()
+	emitBonus(position, team, "Supply")
+	publishSupplyState()
+	return true
+end
+
+local function spawnPair()
+	supplySerial = supplySerial + 1
+	local pair = DROP_PAIRS[(supplySerial - 1) % #DROP_PAIRS + 1]
+	for _, position in ipairs(pair) do
+		createSupply(position)
+	end
+	publishSupplyState()
+end
+
+function BonusService.Step(deltaTime)
+	if phaseProvider() ~= "Battle" then
+		return
+	end
+	battleClock = battleClock + deltaTime
+	publishClock = publishClock + deltaTime
+	if battleClock >= nextSupplyAt then
+		if activeSupplyCount() <= 4 then
+			spawnPair()
+		end
+		nextSupplyAt = battleClock + 35
+	end
+	local now = os.clock()
+	for index = #supplies, 1, -1 do
+		local record = supplies[index]
+		if record.Collected or not record.Model or not record.Model.Parent or now >= record.Until then
+			if record.Model then
+				record.Model:Destroy()
+			end
+			table.remove(supplies, index)
+		else
+			local bob = math.sin(now * 2.2 + record.Phase) * 0.45
+			record.Model:PivotTo(record.Pivot * CFrame.new(0, bob, 0) * CFrame.Angles(0, now * 0.65, 0))
+		end
+	end
+	if publishClock >= 0.2 then
+		publishClock = 0
+		publishSupplyState()
+	end
+end
+
+function BonusService.EndMatch()
+	clearSupplies()
+	if state then
+		state:SetAttribute("BonusActive", false)
+	end
+	battleClock = 0
+	publishClock = 0
+	nextSupplyAt = 8
+	publishSupplyState()
+end
+
+function BonusService.Reset()
+	BonusService.EndMatch()
+	missions = {}
+	for _, player in ipairs(Players:GetPlayers()) do
+		clearPlayer(player)
+	end
+end
+
+function BonusService.OnPlayerRemoving(player)
+	if player then
+		clearPlayer(player)
+	end
+end
+
+function BonusService.GetMissions(player)
+	return player and missions[player.UserId] or nil
+end
+
+function BonusService.GetSupplyCount()
+	return activeSupplyCount()
+end
+
+return BonusService
+]]></string>
+          </Properties>
+        </Item>
         <Item class="ModuleScript" referent="11">
           <Properties>
             <string name="Name">BotService</string>
@@ -4327,6 +4736,7 @@ local progressionService
 local captureService
 local abilityService
 local neutralService
+local bonusService
 local remotes
 local state
 local phase = "Lobby"
@@ -4495,6 +4905,9 @@ function MatchService.OnStructureDamage(player, amount, kind, destroyed)
 		stats.Structures = stats.Structures + 1
 		publishStat(player, "Structures", stats.Structures)
 		actionReward(player, reward[1], reward[2], reward[3])
+		if bonusService then
+			bonusService.OnAction(player, "Structure")
+		end
 	end
 end
 
@@ -4507,11 +4920,20 @@ function MatchService.OnKill(player, victim)
 		stats.Coins = stats.Coins + 2
 		stats.XP = stats.XP + 8
 		publishStat(player, "Kills", stats.Kills)
+		if bonusService then
+			bonusService.OnAction(player, "Kill")
+		end
 	end
 end
 
 function MatchService.OnActionReward(player, coins, xp, reason)
 	if phase == "Battle" and MatchService.IsParticipant(player) then
+		actionReward(player, coins, xp, reason)
+	end
+end
+
+function MatchService.OnBonusReward(player, coins, xp, reason)
+	if (phase == "Build" or phase == "Battle") and MatchService.IsParticipant(player) then
 		actionReward(player, coins, xp, reason)
 	end
 end
@@ -4526,6 +4948,9 @@ function MatchService.OnCapture67(team)
 			stats.Captures = stats.Captures + 1
 			publishStat(player, "Captures", stats.Captures)
 			actionReward(player, 10, 25, "67 захвачена · команда получает +1 HP/s")
+			if bonusService then
+				bonusService.OnAction(player, "Capture")
+			end
 		end
 	end
 end
@@ -4542,6 +4967,9 @@ function MatchService.EndMatch(winner, reason)
 	end
 	if neutralService then
 		neutralService.Reset()
+	end
+	if bonusService then
+		bonusService.EndMatch()
 	end
 	state:SetAttribute("Winner", winner or "")
 	state:SetAttribute("Reason", reason or "Ядро уничтожено")
@@ -4640,6 +5068,9 @@ function MatchService.StartMatch()
 	if abilityService then
 		abilityService.StartMatch(matchId, participants)
 	end
+	if bonusService then
+		bonusService.StartMatch(matchId, participants)
+	end
 	for _, player in ipairs(players) do
 		local stats = progressionService and progressionService.GetStats(player) or nil
 		local capacity = (stats and stats.BuildCapacity or Config.Arena.MaxBuildPerPlayer) + (abilityService and abilityService.GetBuildBonus(player) or 0)
@@ -4723,6 +5154,9 @@ function MatchService.HandleBuild(player, kind, position, rotation)
 		actionReward(player, 6, 14, "3 укрепления · базовая защита готова")
 	else
 		actionReward(player, 1, 4, "Укрепление установлено")
+	end
+	if bonusService then
+		bonusService.OnAction(player, "Build")
 	end
 	return true, reason
 end
@@ -4819,6 +5253,9 @@ local function resetToLobby()
 	if neutralService then
 		neutralService.Reset()
 	end
+	if bonusService then
+		bonusService.Reset()
+	end
 	fortressService.Clear()
 	if captureService then
 		captureService.Reset()
@@ -4858,6 +5295,9 @@ function MatchService.OnPlayerRemoving(player)
 	if abilityService then
 		abilityService.OnPlayerRemoving(player)
 	end
+	if bonusService then
+		bonusService.OnPlayerRemoving(player)
+	end
 	if team then
 		participants[userId] = nil
 		if participantCount() == 0 then
@@ -4881,6 +5321,7 @@ function MatchService.Init(dependencies)
 	captureService = dependencies.CaptureService
 	abilityService = dependencies.AbilityService
 	neutralService = dependencies.NeutralService
+	bonusService = dependencies.BonusService
 	remotes = dependencies.Remotes
 	state = dependencies.State
 	fortressService.SetPhaseProvider(MatchService.GetPhase)
@@ -4924,6 +5365,9 @@ function MatchService.Init(dependencies)
 end
 
 function MatchService.Step(deltaTime)
+	if bonusService then
+		bonusService.Step(deltaTime)
+	end
 	if phase == "Lobby" then
 		if intermission then
 			if queueCount() == 0 then
@@ -5958,6 +6402,8 @@ local CREATOR_STORE_ASSETS = {
 		Placements = {
 			{ Parent = "Arena", Position = Vector3.new(-140, 0, 130), Size = 18, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(-25), 0) },
 			{ Parent = "Arena", Position = Vector3.new(140, 0, -130), Size = 18, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(155), 0) },
+			{ Parent = "Lobby", Position = Vector3.new(-91, 44.5, 330), Size = 12, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(90), 0) },
+			{ Parent = "Lobby", Position = Vector3.new(91, 44.5, 330), Size = 12, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(-90), 0) },
 		},
 	},
 }
@@ -5975,7 +6421,7 @@ local CREATOR_STORE_GAMEPLAY_ATTRIBUTES = {
 	"BaseGeometry", "CaptureGeometry", "Team", "StructureId", "Kind", "IsTrap", "DefenseId", "Rig", "CaptureRadius",
 }
 local CREATOR_STORE_MAX_SOURCE_PARTS = 120
-local CREATOR_STORE_MAX_TOTAL_PARTS = 900
+local CREATOR_STORE_MAX_TOTAL_PARTS = 1100
 
 local function clearCreatorStoreGameplayAttributes(instance)
 	local ok, attributes = pcall(function()
@@ -6339,11 +6785,11 @@ local function buildSculptedTerrain()
 end
 
 local function buildGate(parent, prefix, baseCFrame, width, height, accent)
-	return VisualModels.Gate(parent, prefix, baseCFrame, width, height, accent, { Holiday = true })
+	return VisualModels.Gate(parent, prefix, baseCFrame, width, height, accent, { Holiday = true, CastShadow = true })
 end
 
 local function buildCitadelTower(parent, prefix, position, accent)
-	return VisualModels.Tower(parent, prefix, position, 0.72, accent, { Holiday = true })
+	return VisualModels.Tower(parent, prefix, position, 0.72, accent, { Holiday = true, CastShadow = true })
 end
 
 local function buildBaseArchitecture(arena, team, baseCFrame, accent)
@@ -6374,14 +6820,14 @@ local function buildBaseArchitecture(arena, team, baseCFrame, accent)
 	end
 	for _, side in ipairs({ -1, 1 }) do
 		local towerPosition = (facade * CFrame.new(side * 22, 0, 0)).Position
-		local tower = VisualModels.Tower(arena, "BasePillar" .. team .. tostring(side), towerPosition, 0.78, accent, { Holiday = true })
+		local tower = VisualModels.Tower(arena, "BasePillar" .. team .. tostring(side), towerPosition, 0.78, accent, { Holiday = true, CastShadow = true })
 		tagBase(tower)
 		local banner = decorPart(arena, "BaseBanner" .. team, Vector3.new(5.5, 2.8, 0.25), facade * CFrame.new(side * 10, 10, -2), accent, Enum.Material.Fabric)
 		banner:SetAttribute("BaseGeometry", true)
 		banner:SetAttribute("Team", team)
 	end
 	for _, side in ipairs({ -1, 1 }) do
-		local column = VisualModels.Column(arena, (baseCFrame * CFrame.new(side * 30, 0, -15)).Position, 9, accent, { Holiday = true })
+		local column = VisualModels.Column(arena, (baseCFrame * CFrame.new(side * 30, 0, -15)).Position, 9, accent, { Holiday = true, CastShadow = true })
 		column.Name = "BasePillar" .. team .. "Courtyard" .. tostring(side)
 		tagBase(column)
 	end
@@ -6404,14 +6850,14 @@ local function buildLobbyArchitecture(lobby)
 	buildGate(lobby, "LobbyEntry", CFrame.new(0, 44.5, 252), 46, 14, STYLE.Navy)
 	for _, x in ipairs({ -82, 82 }) do
 		for _, z in ipairs({ 270, 305, 350, 395 }) do
-			VisualModels.Column(lobby, Vector3.new(x, 44.5, z), 17, STYLE.Gold, { Holiday = true })
+			VisualModels.Column(lobby, Vector3.new(x, 44.5, z), 17, STYLE.Gold, { Holiday = true, CastShadow = true })
 		end
 	end
 	for _, z in ipairs({ 278, 318, 358, 398 }) do
 		buildGate(lobby, "HallVault", CFrame.new(0, 44.5, z), 176, 19, STYLE.Gold)
 	end
-	VisualModels.Fireplace(lobby, Vector3.new(-65, 44.5, 330), 1.15, { Holiday = true })
-	VisualModels.Fireplace(lobby, Vector3.new(65, 44.5, 330), 1.15, { Holiday = true })
+	VisualModels.Fireplace(lobby, Vector3.new(-65, 44.5, 330), 1.15, { Holiday = true, CastShadow = true })
+	VisualModels.Fireplace(lobby, Vector3.new(65, 44.5, 330), 1.15, { Holiday = true, CastShadow = true })
 	for _, side in ipairs({ -1, 1 }) do
 		for _, z in ipairs({ 300, 340, 380 }) do
 			decorPart(lobby, "WindowGlass", Vector3.new(0.5, 10, 18), CFrame.new(side * 101, 51, z), STYLE.Ice, Enum.Material.Glass).Transparency = 0.28
@@ -6447,7 +6893,7 @@ local function buildArenaArchitecture(arena)
 		local canal = decorPart(arena, "FrozenCanal", Vector3.new(420, 0.12, 7), CFrame.new(0, 0.08, side * 84), STYLE.Ice, Enum.Material.Ice)
 		canal.Transparency = 0.18
 		for _, x in ipairs({ -100, 0, 100 }) do
-			VisualModels.Bridge(arena, Vector3.new(x, 0.05, side * 84), 20, 13, STYLE.Gold, { Name = "CanalBridge", Holiday = true })
+			VisualModels.Bridge(arena, Vector3.new(x, 0.05, side * 84), 20, 13, STYLE.Gold, { Name = "CanalBridge", Holiday = true, CastShadow = true })
 		end
 		for _, x in ipairs({ -72, 72 }) do
 			buildGate(arena, "LaneGate", CFrame.new(x, 0, side * 62) * CFrame.Angles(0, math.rad(90), 0), 18, 9, STYLE.Navy)
@@ -6503,7 +6949,7 @@ local function buildBase(arena, structures, team)
 		for _, forward in ipairs({ -42, 42 }) do
 			local towerCFrame = baseCFrame * CFrame.new(side * 44, 5, forward)
 			local groundPosition = (towerCFrame * CFrame.new(0, -5, 0)).Position
-			local tower = VisualModels.Tower(arena, team .. "CornerTower", groundPosition, 0.55, color, { Holiday = true })
+			local tower = VisualModels.Tower(arena, team .. "CornerTower", groundPosition, 0.55, color, { Holiday = true, CastShadow = true })
 			tower:SetAttribute("BaseGeometry", true)
 			tower:SetAttribute("Team", team)
 			for _, descendant in ipairs(tower:GetDescendants()) do
@@ -7746,6 +8192,7 @@ local world
 local remotes
 local dataService
 local rewardHandler
+local bonusService
 local botService
 local state
 local phaseProvider = function() return "Lobby" end
@@ -7833,6 +8280,9 @@ local function neutralDeath(record, model)
 		elseif dataService then
 			dataService.Award(player, 8, 18, "Нейтральный лагерь очищен")
 		end
+		if bonusService then
+			bonusService.OnAction(player, "Camp")
+		end
 	end
 	defeated = defeated + 1
 	record.RespawnAt = os.clock() + (Config.Objectives.NeutralRespawn or 45)
@@ -7898,6 +8348,7 @@ function NeutralService.Init(dependencies)
 	world = dependencies.World
 	remotes = dependencies.Remotes
 	dataService = dependencies.DataService
+	bonusService = dependencies.BonusService
 	botService = dependencies.BotService
 	state = dependencies.State
 	if not world.Neutrals then
@@ -8526,27 +8977,91 @@ corner(captureTrack, 4)
 local captureFill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = C.Gold, BorderSizePixel = 0 }, captureTrack)
 corner(captureFill, 4)
 
-local objectiveFrame = new("Frame", {
+local guideVisible = true
+local coachFrame = new("Frame", {
+	Position = UDim2.new(0, 16, 0, 190),
+	Size = UDim2.new(0, 340, 0, 136),
+	BackgroundColor3 = C.Background,
+	BackgroundTransparency = 0.04,
+}, gui)
+corner(coachFrame, 10)
+gradient(coachFrame, Color3.fromRGB(29, 48, 66), Color3.fromRGB(10, 18, 31))
+local coachTitle = text(coachFrame, "ПОДСКАЗКА", UDim2.new(1, -24, 0, 23), UDim2.new(0, 12, 0, 7), 15, C.Gold)
+coachTitle.Font = Enum.Font.GothamBold
+coachTitle.TextXAlignment = Enum.TextXAlignment.Left
+local coachText = text(coachFrame, "", UDim2.new(1, -24, 0, 66), UDim2.new(0, 12, 0, 32), 14, C.Text)
+coachText.TextXAlignment = Enum.TextXAlignment.Left
+coachText.TextYAlignment = Enum.TextYAlignment.Top
+local coachFooter = text(coachFrame, "", UDim2.new(1, -100, 0, 24), UDim2.new(0, 12, 0, 105), 11, C.Muted)
+coachFooter.TextXAlignment = Enum.TextXAlignment.Left
+local coachNext = button(coachFrame, "ЕЩЁ ›", UDim2.new(0, 72, 0, 26), UDim2.new(1, -84, 0, 102), C.Panel)
+coachNext.TextSize = 12
+
+local bonusFrame = new("Frame", {
 	AnchorPoint = Vector2.new(1, 0),
 	Position = UDim2.new(1, -16, 0, 190),
-	Size = UDim2.new(0, 318, 0, 150),
+	Size = UDim2.new(0, 330, 0, 258),
 	BackgroundColor3 = C.Background,
 	BackgroundTransparency = 0.04,
 	Visible = false,
 }, gui)
-corner(objectiveFrame, 10)
-new("UIStroke", { Color = C.Green, Thickness = 1 }, objectiveFrame)
-local objectiveTitle = text(objectiveFrame, "ТЕКУЩАЯ ЗАДАЧА", UDim2.new(1, -24, 0, 28), UDim2.new(0, 12, 0, 8), 16, C.Green)
-objectiveTitle.Font = Enum.Font.GothamBold
-objectiveTitle.TextXAlignment = Enum.TextXAlignment.Left
-local objectiveText = text(objectiveFrame, "", UDim2.new(1, -24, 0, 58), UDim2.new(0, 12, 0, 38), 15, C.Text)
-objectiveText.TextXAlignment = Enum.TextXAlignment.Left
-local objectiveTrack = new("Frame", { Position = UDim2.new(0, 12, 0, 103), Size = UDim2.new(1, -24, 0, 11), BackgroundColor3 = C.Panel }, objectiveFrame)
-corner(objectiveTrack, 5)
-local objectiveFill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = C.Green }, objectiveTrack)
-corner(objectiveFill, 5)
-local objectiveBonus = text(objectiveFrame, "", UDim2.new(1, -24, 0, 27), UDim2.new(0, 12, 0, 119), 12, C.Gold)
-objectiveBonus.TextXAlignment = Enum.TextXAlignment.Left
+corner(bonusFrame, 10)
+gradient(bonusFrame, Color3.fromRGB(45, 43, 52), Color3.fromRGB(12, 20, 32))
+new("UIStroke", { Color = C.Gold, Thickness = 1.2, Transparency = 0.08 }, bonusFrame)
+local bonusTitle = text(bonusFrame, "БОНУСЫ МАТЧА", UDim2.new(1, -24, 0, 25), UDim2.new(0, 12, 0, 6), 17, C.Gold)
+bonusTitle.Font = Enum.Font.GothamBold
+bonusTitle.TextXAlignment = Enum.TextXAlignment.Left
+local bonusSummary = text(bonusFrame, "3 задания · награда сразу", UDim2.new(1, -24, 0, 20), UDim2.new(0, 12, 0, 30), 12, C.Muted)
+bonusSummary.TextXAlignment = Enum.TextXAlignment.Left
+local missionRows = {}
+for index = 1, 3 do
+	local row = new("Frame", {
+		Position = UDim2.new(0, 12, 0, 51 + (index - 1) * 50),
+		Size = UDim2.new(1, -24, 0, 46),
+		BackgroundColor3 = C.Panel,
+		BackgroundTransparency = 0.18,
+		BorderSizePixel = 0,
+	}, bonusFrame)
+	corner(row, 7)
+	local name = text(row, "", UDim2.new(1, -88, 0, 20), UDim2.new(0, 9, 0, 3), 14, C.Text)
+	name.Font = Enum.Font.GothamBold
+	name.TextXAlignment = Enum.TextXAlignment.Left
+	local hint = text(row, "", UDim2.new(1, -88, 0, 20), UDim2.new(0, 9, 0, 23), 11, C.Muted)
+	hint.TextXAlignment = Enum.TextXAlignment.Left
+	local progress = text(row, "", UDim2.new(0, 76, 0, 40), UDim2.new(1, -80, 0, 3), 12, C.Gold)
+	progress.TextXAlignment = Enum.TextXAlignment.Right
+	missionRows[index] = { Frame = row, Name = name, Hint = hint, Progress = progress }
+end
+local supplyLabel = text(bonusFrame, "", UDim2.new(1, -24, 0, 43), UDim2.new(0, 12, 0, 207), 12, C.Gold)
+supplyLabel.TextXAlignment = Enum.TextXAlignment.Left
+local guideToggle = button(gui, "H · СКРЫТЬ ПОДСКАЗКИ", UDim2.new(0, 220, 0, 30), UDim2.new(1, -346, 0, 151), C.Panel)
+guideToggle.TextSize = 12
+
+local waypointPart = new("Part", {
+	Name = "LocalEnemyCoreWaypoint",
+	Size = Vector3.one,
+	Transparency = 1,
+	Anchored = true,
+	CanCollide = false,
+	CanTouch = false,
+	CanQuery = false,
+	CastShadow = false,
+}, Workspace)
+local waypointGui = new("BillboardGui", {
+	Name = "EnemyCoreDirection",
+	Size = UDim2.fromOffset(250, 66),
+	StudsOffset = Vector3.new(0, 18, 0),
+	AlwaysOnTop = true,
+	MaxDistance = 0,
+	LightInfluence = 0,
+	Enabled = false,
+}, waypointPart)
+local waypointBack = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = C.Background, BackgroundTransparency = 0.2 }, waypointGui)
+corner(waypointBack, 8)
+new("UIStroke", { Color = C.Orange, Thickness = 2 }, waypointBack)
+local waypointLabel = text(waypointBack, "", UDim2.new(1, -12, 1, -8), UDim2.new(0, 6, 0, 4), 16, C.Text)
+waypointLabel.Font = Enum.Font.GothamBold
+waypointLabel.TextStrokeTransparency = 0.35
 
 local rewardToast = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0),
@@ -8689,6 +9204,171 @@ local previewRotation
 local previewValid = false
 local previewDirty = true
 local lastResult
+local coachPage = 0
+local coachManualUntil = 0
+
+local function setGuideVisible(visible)
+	guideVisible = visible
+	guideToggle.Text = visible and "H · СКРЫТЬ ПОДСКАЗКИ" or "H · ПОКАЗАТЬ ПОМОЩЬ"
+	coachFrame.Visible = visible
+	bonusFrame.Visible = visible
+	waypointGui.Enabled = visible
+end
+
+local function coreDirection(team)
+	if team == "" then
+		return "↑", 0, nil
+	end
+	local enemy = Config.OtherTeam(team)
+	local target = Config.BaseCFrame(enemy).Position + Vector3.new(0, 12, 0)
+	local camera = Workspace.CurrentCamera
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart") or nil
+	local origin = root and root.Position or (camera and camera.CFrame.Position) or target
+	local distance = (target - origin).Magnitude
+	local arrow = "↑"
+	if camera and (target - camera.CFrame.Position).Magnitude > 0.1 then
+		local direction = camera.CFrame:VectorToObjectSpace((target - camera.CFrame.Position).Unit)
+		local angle = math.atan2(direction.X, -direction.Z)
+		local arrows = { "↑", "↗", "→", "↘", "↓", "↙", "←", "↖" }
+		local index = math.floor((angle + math.pi / 8) / (math.pi / 4)) % 8 + 1
+		arrow = arrows[index]
+	end
+	return arrow, math.floor(distance + 0.5), target
+end
+
+local function updateWaypoint(phase, team)
+	local visible = guideVisible and phase == "Battle" and team ~= ""
+	waypointGui.Enabled = visible
+	if not visible then
+		return
+	end
+	local arrow, distance, target = coreDirection(team)
+	if target then
+		waypointPart.Position = target
+		waypointLabel.Text = string.format("%s  ВРАЖЕСКОЕ ЯДРО\n%d м · уничтожь для победы", arrow, distance)
+		waypointLabel.TextColor3 = C[Config.OtherTeam(team)] or C.Orange
+	end
+end
+
+local function updateBonusMissions(phase, team)
+	bonusFrame.Visible = guideVisible and (phase == "Build" or phase == "Battle") and team ~= ""
+	local completedCount = player:GetAttribute("BonusCompleted") or 0
+	local collected = player:GetAttribute("BonusSupplyCollected") or 0
+	bonusSummary.Text = string.format("Выполнено %d/3 · ящики: %d · награда сразу", completedCount, collected)
+	for index, row in ipairs(missionRows) do
+		local definition = Catalog.GetBonusMission(player:GetAttribute("BonusMission" .. index .. "Id") or "")
+		row.Frame.Visible = definition ~= nil
+		if definition then
+			local progress = math.min(definition.Target, player:GetAttribute("BonusMission" .. index .. "Progress") or 0)
+			local completed = player:GetAttribute("BonusMission" .. index .. "Completed") == true
+			row.Name.Text = (completed and "✓ " or "") .. definition.Name
+			row.Name.TextColor3 = completed and C.Green or C.Text
+			row.Hint.Text = definition.Hint
+			row.Progress.Text = completed and string.format("ГОТОВО\n+%d · %dXP", definition.Coins, definition.XP) or string.format("%d/%d\n+%d · %dXP", progress, definition.Target, definition.Coins, definition.XP)
+			row.Progress.TextColor3 = completed and C.Green or C.Gold
+			row.Frame.BackgroundColor3 = completed and Color3.fromRGB(25, 65, 55) or C.Panel
+		end
+	end
+	local active = state:GetAttribute("SupplyActive") or 0
+	local nextSupply = state:GetAttribute("SupplyNext") or 0
+	if phase == "Build" then
+		supplyLabel.Text = "СНАБЖЕНИЕ · золотые ящики появятся в бою\n+15 монет · +30 XP · +25 HP"
+	elseif active > 0 then
+		supplyLabel.Text = string.format("ЯЩИКИ НА КАРТЕ: %d · иди к золотому лучу\n+15 монет · +30 XP · +25 HP", active)
+	else
+		supplyLabel.Text = string.format("ДО СНАБЖЕНИЯ: %d с\n+15 монет · +30 XP · +25 HP", nextSupply)
+	end
+end
+
+local function updateCoach(phase, team, remaining, captureOwner)
+	coachFrame.Visible = guideVisible and phase ~= "Results"
+	guideToggle.Visible = phase ~= "Results"
+	guideToggle.Text = guideVisible and "H · СКРЫТЬ ПОДСКАЗКИ" or "H · ПОКАЗАТЬ ПОМОЩЬ"
+	if not coachFrame.Visible then
+		return
+	end
+	local arrow, distance = coreDirection(team)
+	local builds = player:GetAttribute("MatchBuilds") or 0
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid") or nil
+	local root = character and character:FindFirstChild("HumanoidRootPart") or nil
+	local ammo = character and character:GetAttribute("Ammo") or 0
+	local magazine = character and character:GetAttribute("Magazine") or 0
+	local reloading = character and character:GetAttribute("Reloading") == true
+	local manual = os.clock() < coachManualUntil
+	local hints = {}
+	local title = "ПОДСКАЗКА"
+	if phase == "Lobby" then
+		title = "НАЧНИ ЗДЕСЬ · ЛОББИ"
+		hints = {
+			"Нажми БЫСТРЫЙ СТАРТ: пустые места заполнят боты, строго 6×6. Обе команды строят, победа — уничтожение вражеского ядра.",
+			"Нажми L или подойди к GEAR: открой кейс за игровые монеты/жетон, затем нажми на оружие в инвентаре, чтобы экипировать его.",
+			"DAILY даёт ежедневную награду. DEFENSE продаёт шипы, мины и огненную ловушку. FORGE улучшает HP, броню, скорость и лимит построек.",
+			"Перед боем осмотри витрину: есть огнестрельное оружие, ножи и легендарная перчатка. В матче класс и способности F/G выдаются случайно.",
+		}
+		coachFooter.Text = "L — снаряжение · H — скрыть/показать помощь"
+	elseif (phase == "Build" or phase == "Battle") and team == "" then
+		title = "НАБЛЮДЕНИЕ · СЛЕДУЮЩИЙ МАТЧ"
+		coachText.Text = "Ты не занимаешь слот в этом матче. Дождись результатов и возврата в лобби, затем нажми БЫСТРЫЙ СТАРТ или встань в очередь 6×6."
+		coachFooter.Text = "H — скрыть/показать помощь"
+	elseif phase == "Build" then
+		title = builds < 3 and "ШАГ 1 · ЗАЩИТИ СВОЮ КРЕПОСТЬ" or "ЗАЩИТА ГОТОВА · ДО ШТУРМА " .. tostring(remaining) .. " С"
+		hints = {
+			"Выбери 1 СТЕНА, 2 БАРРИКАДА или 3 БАШНЯ. Наведи прицел внутрь своей базы: зелёная модель — точное место установки, красная — запрет.",
+			"Q/R и видимые кнопки ↶ ↷ поворачивают на 90°. Нажми ПОСТАВИТЬ, B или ЛКМ только после зелёного серверного предпросмотра.",
+			"Стены закрывают подходы, башни атакуют врагов. Купленные в DEFENSE ловушки выбираются клавишами 4–6. Каждая постройка даёт монеты и XP.",
+			"Справа — 3 бонусных задания. Укрепитель засчитывает постройки уже сейчас. В бою появятся золотые ящики с монетами, XP и лечением.",
+		}
+		if not manual and ghostHasServerPreview and not previewValid then
+			title = "КРАСНЫЙ КОНТУР · ИЗМЕНИ ПОЗИЦИЮ"
+			coachText.Text = "Объект не установлен. Наведи прицел на свободную площадку внутри своей базы, отойди от других моделей и дождись зелёного контура."
+		elseif not manual and builds == 0 then
+			coachText.Text = hints[1]
+		elseif not manual and builds < 3 then
+			coachText.Text = string.format("Построено %d/3. Добавь стены у прохода и башню рядом с ядром. Точная позиция и угол видны до подтверждения — преждевременной установки нет.", builds)
+		else
+			coachText.Text = hints[(coachPage % #hints) + 1]
+		end
+		coachFooter.Text = "Q/R — поворот · B — поставить · H — помощь"
+	elseif phase == "Battle" then
+		title = "ШАГ 2 · УНИЧТОЖЬ ВРАЖЕСКОЕ ЯДРО"
+		local abilityF = player:GetAttribute("Ability1Name") or "способность F"
+		local abilityG = player:GetAttribute("Ability2Name") or "способность G"
+		local supplies = state:GetAttribute("SupplyActive") or 0
+		hints = {
+			string.format("Следуй за стрелкой %s: до вражеского ядра %d м. ЛКМ — огонь, R — перезарядка. Сносить башни и стены тоже выгодно: за них есть награды.", arrow, distance),
+			"Захвати 67: встань в центральный круг и удерживай его. Команда получает монеты, XP и +1 HP/s. Если точку оспаривают — сначала выбей противника.",
+			string.format("Твой случайный класс: %s. F — %s; G — %s. Применяй способности по откату: задание Специалист награждает три использования.", player:GetAttribute("ClassName") or "класс назначается", abilityF, abilityG),
+			"Золотой вертикальный луч отмечает снабжение. Подойди к ящику или нажми ProximityPrompt: +15 монет, +30 XP и +25 HP. Ящик исчезает через 30 секунд.",
+			"Выполняй 3 задания справа: разрушения, 67, F/G, лагеря, убийства или постройки. Награда начисляется сразу и каждое задание выполняется один раз за матч.",
+		}
+		local ownCore = state:GetAttribute(team .. "Core") or 0
+		local ownMaximum = math.max(1, state:GetAttribute(team .. "CoreMax") or 1)
+		local near67 = root and (root.Position - Vector3.new(0, root.Position.Y, 0)).Magnitude < 32
+		if not manual and (reloading or (magazine > 0 and humanoid and humanoid.Health > 0 and ammo == 0)) then
+			title = "ПЕРЕЗАРЯДКА · НЕ СТОЙ ОТКРЫТО"
+			coachText.Text = reloading and "Оружие перезаряжается. Укройся за стеной или используй F/G; после перезарядки продолжай штурм по стрелке." or "Магазин пуст — нажми R. Во время перезарядки используй укрытие и способности F/G."
+		elseif not manual and ownCore / ownMaximum < 0.3 then
+			title = "ТВОЯ КРЕПОСТЬ В ОПАСНОСТИ"
+			coachText.Text = "У своего ядра осталось меньше 30% HP. Вернись по командной метке, устрани штурмующих и используй защитные способности — затем продолжи атаку."
+		elseif not manual and near67 and captureOwner ~= team then
+			title = "67 РЯДОМ · УДЕРЖИВАЙ КРУГ"
+			coachText.Text = "Оставайся внутри центральной зоны. Захват даёт всей команде награду и +1 HP/s; враг в круге оспаривает прогресс."
+		elseif not manual and supplies > 0 and (player:GetAttribute("BonusSupplyCollected") or 0) == 0 then
+			title = "БОНУС НА КАРТЕ · ЗОЛОТОЙ ЛУЧ"
+			coachText.Text = "Снабжение уже лежит на арене. Найди золотой ящик у светового столба и подойди вплотную: +15 монет, +30 XP, +25 HP."
+		else
+			coachText.Text = hints[(coachPage % #hints) + 1]
+		end
+		coachFooter.Text = string.format("%s ядро: %d м · F/G — класс · H — помощь", arrow, distance)
+	end
+	coachTitle.Text = title
+	if phase == "Lobby" then
+		coachText.Text = hints[(coachPage % #hints) + 1]
+	end
+end
+
 local function refreshInventory()
 	for _, child in ipairs(inventory:GetChildren()) do
 		if child:IsA("TextButton") then
@@ -8876,7 +9556,6 @@ local function refresh()
 	weaponLabel.Visible = phase == "Battle"
 	fireButton.Visible = phase == "Battle" and UserInputService.TouchEnabled
 	resultsPanel.Visible = phase == "Results"
-	objectiveFrame.Visible = (phase == "Build" or phase == "Battle") and (player:GetAttribute("Team") or "") ~= ""
 	rewardToast.Position = UDim2.new(0.5, 0, 0, phase == "Results" and 118 or 190)
 	coreFrame.Visible = phase ~= "Lobby"
 	queueButton.Text = player:GetAttribute("Queued") and "ВЫЙТИ ИЗ ОЧЕРЕДИ" or "В ОЧЕРЕДЬ 6×6"
@@ -8910,27 +9589,23 @@ local function refresh()
 	captureTitle.TextColor3 = captureContested and C.Orange or (C[captureOwner] or C.Gold)
 	captureFill.BackgroundColor3 = C[captureOwner] or C.Gold
 	captureFill.Size = UDim2.fromScale(math.clamp(captureProgress / 100, 0, 1), 1)
-	if phase == "Build" then
-		local builds = player:GetAttribute("MatchBuilds") or 0
-		objectiveTitle.Text = builds < 3 and "ШАГ 1 · ЗАЩИТИ КРЕПОСТЬ" or "ЗАЩИТА ГОТОВА"
-		objectiveText.Text = builds < 3 and string.format("Поставь 3 укрепления: %d/3\nВыбери модель, поверни и подтверди позицию.", builds) or "Базовая защита стоит. Можно улучшить позицию до начала штурма."
-		objectiveFill.Size = UDim2.fromScale(math.clamp(builds / 3, 0, 1), 1)
-		objectiveFill.BackgroundColor3 = builds >= 3 and C.Green or C.Gold
-		objectiveBonus.Text = "Каждая постройка даёт монеты и XP"
-	elseif phase == "Battle" then
-		local enemy = team ~= "" and Config.OtherTeam(team) or nil
-		local enemyHealth = enemy and (state:GetAttribute(enemy .. "Core") or 0) or 0
-		local enemyMaximum = enemy and math.max(1, state:GetAttribute(enemy .. "CoreMax") or 1) or 1
-		objectiveTitle.Text = "ГЛАВНАЯ ЦЕЛЬ · ВРАЖЕСКОЕ ЯДРО"
-		objectiveText.Text = string.format("Ядро противника: %d HP\nЛомай башни и стены, затем уничтожь ядро.", enemyHealth)
-		objectiveFill.Size = UDim2.fromScale(math.clamp(1 - enemyHealth / enemyMaximum, 0, 1), 1)
-		objectiveFill.BackgroundColor3 = C.Orange
-		objectiveBonus.Text = captureOwner == team and "67 удерживается · команда лечится" or "Захвати 67: +10 монет · +25 XP · +1 HP/s"
-	end
+	updateBonusMissions(phase, team)
+	updateCoach(phase, team, remaining, captureOwner)
+	updateWaypoint(phase, team)
 	if phase == "Results" then
 		updateResults()
 	end
 end
+
+guideToggle.Activated:Connect(function()
+	setGuideVisible(not guideVisible)
+	refresh()
+end)
+coachNext.Activated:Connect(function()
+	coachPage = coachPage + 1
+	coachManualUntil = os.clock() + 8
+	refresh()
+end)
 
 queueButton.Activated:Connect(function()
 	remotes.LobbyAction:FireServer("Queue")
@@ -9099,6 +9774,9 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		rotateBuild(-1)
 	elseif input.KeyCode == Enum.KeyCode.B then
 		requestBuild()
+	elseif input.KeyCode == Enum.KeyCode.H then
+		setGuideVisible(not guideVisible)
+		refresh()
 	elseif input.KeyCode == Enum.KeyCode.L then
 		casePanel.Visible = not casePanel.Visible
 	end
@@ -9241,6 +9919,25 @@ remotes.CaptureFX.OnClientEvent:Connect(function(payload)
 	if payload.Team then
 		notify("67 ЗАХВАЧЕНА · +1 HP/s · " .. (payload.Team == "Blue" and "СИНИЕ" or "ОРАНЖЕВЫЕ"))
 	end
+end)
+remotes.BonusFX.OnClientEvent:Connect(function(payload)
+	if not payload.Position then
+		return
+	end
+	local color = payload.Color or C.Gold
+	effect(payload.Position, color, payload.Kind == "Supply" and 7 or 5, 0.5)
+	burst(payload.Position, color, 18, 13)
+	local anchor = new("Part", {
+		Position = payload.Position + Vector3.new(0, 3, 0), Size = Vector3.one, Transparency = 1,
+		Anchored = true, CanCollide = false, CanTouch = false, CanQuery = false, CastShadow = false,
+	}, Workspace)
+	local tag = new("BillboardGui", { Size = UDim2.fromOffset(250, 48), AlwaysOnTop = true, MaxDistance = 140 }, anchor)
+	local label = text(tag, payload.Kind == "Supply" and "СНАБЖЕНИЕ СОБРАНО!" or "БОНУС ВЫПОЛНЕН!", UDim2.fromScale(1, 1), UDim2.new(), 20, color)
+	label.Font = Enum.Font.GothamBold
+	label.TextStrokeTransparency = 0.2
+	TweenService:Create(anchor, TweenInfo.new(1.2), { Position = anchor.Position + Vector3.new(0, 6, 0) }):Play()
+	TweenService:Create(label, TweenInfo.new(1.2), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+	Debris:AddItem(anchor, 1.25)
 end)
 remotes.BuildPreview.OnClientEvent:Connect(function(payload)
 	if payload.Kind ~= selectedBuild or (payload.Rotation or 0) ~= buildRotation or state:GetAttribute("Phase") ~= "Build" then

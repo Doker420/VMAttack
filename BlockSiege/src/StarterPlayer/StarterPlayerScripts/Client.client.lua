@@ -189,27 +189,91 @@ corner(captureTrack, 4)
 local captureFill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = C.Gold, BorderSizePixel = 0 }, captureTrack)
 corner(captureFill, 4)
 
-local objectiveFrame = new("Frame", {
+local guideVisible = true
+local coachFrame = new("Frame", {
+	Position = UDim2.new(0, 16, 0, 190),
+	Size = UDim2.new(0, 340, 0, 136),
+	BackgroundColor3 = C.Background,
+	BackgroundTransparency = 0.04,
+}, gui)
+corner(coachFrame, 10)
+gradient(coachFrame, Color3.fromRGB(29, 48, 66), Color3.fromRGB(10, 18, 31))
+local coachTitle = text(coachFrame, "ПОДСКАЗКА", UDim2.new(1, -24, 0, 23), UDim2.new(0, 12, 0, 7), 15, C.Gold)
+coachTitle.Font = Enum.Font.GothamBold
+coachTitle.TextXAlignment = Enum.TextXAlignment.Left
+local coachText = text(coachFrame, "", UDim2.new(1, -24, 0, 66), UDim2.new(0, 12, 0, 32), 14, C.Text)
+coachText.TextXAlignment = Enum.TextXAlignment.Left
+coachText.TextYAlignment = Enum.TextYAlignment.Top
+local coachFooter = text(coachFrame, "", UDim2.new(1, -100, 0, 24), UDim2.new(0, 12, 0, 105), 11, C.Muted)
+coachFooter.TextXAlignment = Enum.TextXAlignment.Left
+local coachNext = button(coachFrame, "ЕЩЁ ›", UDim2.new(0, 72, 0, 26), UDim2.new(1, -84, 0, 102), C.Panel)
+coachNext.TextSize = 12
+
+local bonusFrame = new("Frame", {
 	AnchorPoint = Vector2.new(1, 0),
 	Position = UDim2.new(1, -16, 0, 190),
-	Size = UDim2.new(0, 318, 0, 150),
+	Size = UDim2.new(0, 330, 0, 258),
 	BackgroundColor3 = C.Background,
 	BackgroundTransparency = 0.04,
 	Visible = false,
 }, gui)
-corner(objectiveFrame, 10)
-new("UIStroke", { Color = C.Green, Thickness = 1 }, objectiveFrame)
-local objectiveTitle = text(objectiveFrame, "ТЕКУЩАЯ ЗАДАЧА", UDim2.new(1, -24, 0, 28), UDim2.new(0, 12, 0, 8), 16, C.Green)
-objectiveTitle.Font = Enum.Font.GothamBold
-objectiveTitle.TextXAlignment = Enum.TextXAlignment.Left
-local objectiveText = text(objectiveFrame, "", UDim2.new(1, -24, 0, 58), UDim2.new(0, 12, 0, 38), 15, C.Text)
-objectiveText.TextXAlignment = Enum.TextXAlignment.Left
-local objectiveTrack = new("Frame", { Position = UDim2.new(0, 12, 0, 103), Size = UDim2.new(1, -24, 0, 11), BackgroundColor3 = C.Panel }, objectiveFrame)
-corner(objectiveTrack, 5)
-local objectiveFill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = C.Green }, objectiveTrack)
-corner(objectiveFill, 5)
-local objectiveBonus = text(objectiveFrame, "", UDim2.new(1, -24, 0, 27), UDim2.new(0, 12, 0, 119), 12, C.Gold)
-objectiveBonus.TextXAlignment = Enum.TextXAlignment.Left
+corner(bonusFrame, 10)
+gradient(bonusFrame, Color3.fromRGB(45, 43, 52), Color3.fromRGB(12, 20, 32))
+new("UIStroke", { Color = C.Gold, Thickness = 1.2, Transparency = 0.08 }, bonusFrame)
+local bonusTitle = text(bonusFrame, "БОНУСЫ МАТЧА", UDim2.new(1, -24, 0, 25), UDim2.new(0, 12, 0, 6), 17, C.Gold)
+bonusTitle.Font = Enum.Font.GothamBold
+bonusTitle.TextXAlignment = Enum.TextXAlignment.Left
+local bonusSummary = text(bonusFrame, "3 задания · награда сразу", UDim2.new(1, -24, 0, 20), UDim2.new(0, 12, 0, 30), 12, C.Muted)
+bonusSummary.TextXAlignment = Enum.TextXAlignment.Left
+local missionRows = {}
+for index = 1, 3 do
+	local row = new("Frame", {
+		Position = UDim2.new(0, 12, 0, 51 + (index - 1) * 50),
+		Size = UDim2.new(1, -24, 0, 46),
+		BackgroundColor3 = C.Panel,
+		BackgroundTransparency = 0.18,
+		BorderSizePixel = 0,
+	}, bonusFrame)
+	corner(row, 7)
+	local name = text(row, "", UDim2.new(1, -88, 0, 20), UDim2.new(0, 9, 0, 3), 14, C.Text)
+	name.Font = Enum.Font.GothamBold
+	name.TextXAlignment = Enum.TextXAlignment.Left
+	local hint = text(row, "", UDim2.new(1, -88, 0, 20), UDim2.new(0, 9, 0, 23), 11, C.Muted)
+	hint.TextXAlignment = Enum.TextXAlignment.Left
+	local progress = text(row, "", UDim2.new(0, 76, 0, 40), UDim2.new(1, -80, 0, 3), 12, C.Gold)
+	progress.TextXAlignment = Enum.TextXAlignment.Right
+	missionRows[index] = { Frame = row, Name = name, Hint = hint, Progress = progress }
+end
+local supplyLabel = text(bonusFrame, "", UDim2.new(1, -24, 0, 43), UDim2.new(0, 12, 0, 207), 12, C.Gold)
+supplyLabel.TextXAlignment = Enum.TextXAlignment.Left
+local guideToggle = button(gui, "H · СКРЫТЬ ПОДСКАЗКИ", UDim2.new(0, 220, 0, 30), UDim2.new(1, -346, 0, 151), C.Panel)
+guideToggle.TextSize = 12
+
+local waypointPart = new("Part", {
+	Name = "LocalEnemyCoreWaypoint",
+	Size = Vector3.one,
+	Transparency = 1,
+	Anchored = true,
+	CanCollide = false,
+	CanTouch = false,
+	CanQuery = false,
+	CastShadow = false,
+}, Workspace)
+local waypointGui = new("BillboardGui", {
+	Name = "EnemyCoreDirection",
+	Size = UDim2.fromOffset(250, 66),
+	StudsOffset = Vector3.new(0, 18, 0),
+	AlwaysOnTop = true,
+	MaxDistance = 0,
+	LightInfluence = 0,
+	Enabled = false,
+}, waypointPart)
+local waypointBack = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = C.Background, BackgroundTransparency = 0.2 }, waypointGui)
+corner(waypointBack, 8)
+new("UIStroke", { Color = C.Orange, Thickness = 2 }, waypointBack)
+local waypointLabel = text(waypointBack, "", UDim2.new(1, -12, 1, -8), UDim2.new(0, 6, 0, 4), 16, C.Text)
+waypointLabel.Font = Enum.Font.GothamBold
+waypointLabel.TextStrokeTransparency = 0.35
 
 local rewardToast = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0),
@@ -352,6 +416,171 @@ local previewRotation
 local previewValid = false
 local previewDirty = true
 local lastResult
+local coachPage = 0
+local coachManualUntil = 0
+
+local function setGuideVisible(visible)
+	guideVisible = visible
+	guideToggle.Text = visible and "H · СКРЫТЬ ПОДСКАЗКИ" or "H · ПОКАЗАТЬ ПОМОЩЬ"
+	coachFrame.Visible = visible
+	bonusFrame.Visible = visible
+	waypointGui.Enabled = visible
+end
+
+local function coreDirection(team)
+	if team == "" then
+		return "↑", 0, nil
+	end
+	local enemy = Config.OtherTeam(team)
+	local target = Config.BaseCFrame(enemy).Position + Vector3.new(0, 12, 0)
+	local camera = Workspace.CurrentCamera
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart") or nil
+	local origin = root and root.Position or (camera and camera.CFrame.Position) or target
+	local distance = (target - origin).Magnitude
+	local arrow = "↑"
+	if camera and (target - camera.CFrame.Position).Magnitude > 0.1 then
+		local direction = camera.CFrame:VectorToObjectSpace((target - camera.CFrame.Position).Unit)
+		local angle = math.atan2(direction.X, -direction.Z)
+		local arrows = { "↑", "↗", "→", "↘", "↓", "↙", "←", "↖" }
+		local index = math.floor((angle + math.pi / 8) / (math.pi / 4)) % 8 + 1
+		arrow = arrows[index]
+	end
+	return arrow, math.floor(distance + 0.5), target
+end
+
+local function updateWaypoint(phase, team)
+	local visible = guideVisible and phase == "Battle" and team ~= ""
+	waypointGui.Enabled = visible
+	if not visible then
+		return
+	end
+	local arrow, distance, target = coreDirection(team)
+	if target then
+		waypointPart.Position = target
+		waypointLabel.Text = string.format("%s  ВРАЖЕСКОЕ ЯДРО\n%d м · уничтожь для победы", arrow, distance)
+		waypointLabel.TextColor3 = C[Config.OtherTeam(team)] or C.Orange
+	end
+end
+
+local function updateBonusMissions(phase, team)
+	bonusFrame.Visible = guideVisible and (phase == "Build" or phase == "Battle") and team ~= ""
+	local completedCount = player:GetAttribute("BonusCompleted") or 0
+	local collected = player:GetAttribute("BonusSupplyCollected") or 0
+	bonusSummary.Text = string.format("Выполнено %d/3 · ящики: %d · награда сразу", completedCount, collected)
+	for index, row in ipairs(missionRows) do
+		local definition = Catalog.GetBonusMission(player:GetAttribute("BonusMission" .. index .. "Id") or "")
+		row.Frame.Visible = definition ~= nil
+		if definition then
+			local progress = math.min(definition.Target, player:GetAttribute("BonusMission" .. index .. "Progress") or 0)
+			local completed = player:GetAttribute("BonusMission" .. index .. "Completed") == true
+			row.Name.Text = (completed and "✓ " or "") .. definition.Name
+			row.Name.TextColor3 = completed and C.Green or C.Text
+			row.Hint.Text = definition.Hint
+			row.Progress.Text = completed and string.format("ГОТОВО\n+%d · %dXP", definition.Coins, definition.XP) or string.format("%d/%d\n+%d · %dXP", progress, definition.Target, definition.Coins, definition.XP)
+			row.Progress.TextColor3 = completed and C.Green or C.Gold
+			row.Frame.BackgroundColor3 = completed and Color3.fromRGB(25, 65, 55) or C.Panel
+		end
+	end
+	local active = state:GetAttribute("SupplyActive") or 0
+	local nextSupply = state:GetAttribute("SupplyNext") or 0
+	if phase == "Build" then
+		supplyLabel.Text = "СНАБЖЕНИЕ · золотые ящики появятся в бою\n+15 монет · +30 XP · +25 HP"
+	elseif active > 0 then
+		supplyLabel.Text = string.format("ЯЩИКИ НА КАРТЕ: %d · иди к золотому лучу\n+15 монет · +30 XP · +25 HP", active)
+	else
+		supplyLabel.Text = string.format("ДО СНАБЖЕНИЯ: %d с\n+15 монет · +30 XP · +25 HP", nextSupply)
+	end
+end
+
+local function updateCoach(phase, team, remaining, captureOwner)
+	coachFrame.Visible = guideVisible and phase ~= "Results"
+	guideToggle.Visible = phase ~= "Results"
+	guideToggle.Text = guideVisible and "H · СКРЫТЬ ПОДСКАЗКИ" or "H · ПОКАЗАТЬ ПОМОЩЬ"
+	if not coachFrame.Visible then
+		return
+	end
+	local arrow, distance = coreDirection(team)
+	local builds = player:GetAttribute("MatchBuilds") or 0
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid") or nil
+	local root = character and character:FindFirstChild("HumanoidRootPart") or nil
+	local ammo = character and character:GetAttribute("Ammo") or 0
+	local magazine = character and character:GetAttribute("Magazine") or 0
+	local reloading = character and character:GetAttribute("Reloading") == true
+	local manual = os.clock() < coachManualUntil
+	local hints = {}
+	local title = "ПОДСКАЗКА"
+	if phase == "Lobby" then
+		title = "НАЧНИ ЗДЕСЬ · ЛОББИ"
+		hints = {
+			"Нажми БЫСТРЫЙ СТАРТ: пустые места заполнят боты, строго 6×6. Обе команды строят, победа — уничтожение вражеского ядра.",
+			"Нажми L или подойди к GEAR: открой кейс за игровые монеты/жетон, затем нажми на оружие в инвентаре, чтобы экипировать его.",
+			"DAILY даёт ежедневную награду. DEFENSE продаёт шипы, мины и огненную ловушку. FORGE улучшает HP, броню, скорость и лимит построек.",
+			"Перед боем осмотри витрину: есть огнестрельное оружие, ножи и легендарная перчатка. В матче класс и способности F/G выдаются случайно.",
+		}
+		coachFooter.Text = "L — снаряжение · H — скрыть/показать помощь"
+	elseif (phase == "Build" or phase == "Battle") and team == "" then
+		title = "НАБЛЮДЕНИЕ · СЛЕДУЮЩИЙ МАТЧ"
+		coachText.Text = "Ты не занимаешь слот в этом матче. Дождись результатов и возврата в лобби, затем нажми БЫСТРЫЙ СТАРТ или встань в очередь 6×6."
+		coachFooter.Text = "H — скрыть/показать помощь"
+	elseif phase == "Build" then
+		title = builds < 3 and "ШАГ 1 · ЗАЩИТИ СВОЮ КРЕПОСТЬ" or "ЗАЩИТА ГОТОВА · ДО ШТУРМА " .. tostring(remaining) .. " С"
+		hints = {
+			"Выбери 1 СТЕНА, 2 БАРРИКАДА или 3 БАШНЯ. Наведи прицел внутрь своей базы: зелёная модель — точное место установки, красная — запрет.",
+			"Q/R и видимые кнопки ↶ ↷ поворачивают на 90°. Нажми ПОСТАВИТЬ, B или ЛКМ только после зелёного серверного предпросмотра.",
+			"Стены закрывают подходы, башни атакуют врагов. Купленные в DEFENSE ловушки выбираются клавишами 4–6. Каждая постройка даёт монеты и XP.",
+			"Справа — 3 бонусных задания. Укрепитель засчитывает постройки уже сейчас. В бою появятся золотые ящики с монетами, XP и лечением.",
+		}
+		if not manual and ghostHasServerPreview and not previewValid then
+			title = "КРАСНЫЙ КОНТУР · ИЗМЕНИ ПОЗИЦИЮ"
+			coachText.Text = "Объект не установлен. Наведи прицел на свободную площадку внутри своей базы, отойди от других моделей и дождись зелёного контура."
+		elseif not manual and builds == 0 then
+			coachText.Text = hints[1]
+		elseif not manual and builds < 3 then
+			coachText.Text = string.format("Построено %d/3. Добавь стены у прохода и башню рядом с ядром. Точная позиция и угол видны до подтверждения — преждевременной установки нет.", builds)
+		else
+			coachText.Text = hints[(coachPage % #hints) + 1]
+		end
+		coachFooter.Text = "Q/R — поворот · B — поставить · H — помощь"
+	elseif phase == "Battle" then
+		title = "ШАГ 2 · УНИЧТОЖЬ ВРАЖЕСКОЕ ЯДРО"
+		local abilityF = player:GetAttribute("Ability1Name") or "способность F"
+		local abilityG = player:GetAttribute("Ability2Name") or "способность G"
+		local supplies = state:GetAttribute("SupplyActive") or 0
+		hints = {
+			string.format("Следуй за стрелкой %s: до вражеского ядра %d м. ЛКМ — огонь, R — перезарядка. Сносить башни и стены тоже выгодно: за них есть награды.", arrow, distance),
+			"Захвати 67: встань в центральный круг и удерживай его. Команда получает монеты, XP и +1 HP/s. Если точку оспаривают — сначала выбей противника.",
+			string.format("Твой случайный класс: %s. F — %s; G — %s. Применяй способности по откату: задание Специалист награждает три использования.", player:GetAttribute("ClassName") or "класс назначается", abilityF, abilityG),
+			"Золотой вертикальный луч отмечает снабжение. Подойди к ящику или нажми ProximityPrompt: +15 монет, +30 XP и +25 HP. Ящик исчезает через 30 секунд.",
+			"Выполняй 3 задания справа: разрушения, 67, F/G, лагеря, убийства или постройки. Награда начисляется сразу и каждое задание выполняется один раз за матч.",
+		}
+		local ownCore = state:GetAttribute(team .. "Core") or 0
+		local ownMaximum = math.max(1, state:GetAttribute(team .. "CoreMax") or 1)
+		local near67 = root and (root.Position - Vector3.new(0, root.Position.Y, 0)).Magnitude < 32
+		if not manual and (reloading or (magazine > 0 and humanoid and humanoid.Health > 0 and ammo == 0)) then
+			title = "ПЕРЕЗАРЯДКА · НЕ СТОЙ ОТКРЫТО"
+			coachText.Text = reloading and "Оружие перезаряжается. Укройся за стеной или используй F/G; после перезарядки продолжай штурм по стрелке." or "Магазин пуст — нажми R. Во время перезарядки используй укрытие и способности F/G."
+		elseif not manual and ownCore / ownMaximum < 0.3 then
+			title = "ТВОЯ КРЕПОСТЬ В ОПАСНОСТИ"
+			coachText.Text = "У своего ядра осталось меньше 30% HP. Вернись по командной метке, устрани штурмующих и используй защитные способности — затем продолжи атаку."
+		elseif not manual and near67 and captureOwner ~= team then
+			title = "67 РЯДОМ · УДЕРЖИВАЙ КРУГ"
+			coachText.Text = "Оставайся внутри центральной зоны. Захват даёт всей команде награду и +1 HP/s; враг в круге оспаривает прогресс."
+		elseif not manual and supplies > 0 and (player:GetAttribute("BonusSupplyCollected") or 0) == 0 then
+			title = "БОНУС НА КАРТЕ · ЗОЛОТОЙ ЛУЧ"
+			coachText.Text = "Снабжение уже лежит на арене. Найди золотой ящик у светового столба и подойди вплотную: +15 монет, +30 XP, +25 HP."
+		else
+			coachText.Text = hints[(coachPage % #hints) + 1]
+		end
+		coachFooter.Text = string.format("%s ядро: %d м · F/G — класс · H — помощь", arrow, distance)
+	end
+	coachTitle.Text = title
+	if phase == "Lobby" then
+		coachText.Text = hints[(coachPage % #hints) + 1]
+	end
+end
+
 local function refreshInventory()
 	for _, child in ipairs(inventory:GetChildren()) do
 		if child:IsA("TextButton") then
@@ -539,7 +768,6 @@ local function refresh()
 	weaponLabel.Visible = phase == "Battle"
 	fireButton.Visible = phase == "Battle" and UserInputService.TouchEnabled
 	resultsPanel.Visible = phase == "Results"
-	objectiveFrame.Visible = (phase == "Build" or phase == "Battle") and (player:GetAttribute("Team") or "") ~= ""
 	rewardToast.Position = UDim2.new(0.5, 0, 0, phase == "Results" and 118 or 190)
 	coreFrame.Visible = phase ~= "Lobby"
 	queueButton.Text = player:GetAttribute("Queued") and "ВЫЙТИ ИЗ ОЧЕРЕДИ" or "В ОЧЕРЕДЬ 6×6"
@@ -573,27 +801,23 @@ local function refresh()
 	captureTitle.TextColor3 = captureContested and C.Orange or (C[captureOwner] or C.Gold)
 	captureFill.BackgroundColor3 = C[captureOwner] or C.Gold
 	captureFill.Size = UDim2.fromScale(math.clamp(captureProgress / 100, 0, 1), 1)
-	if phase == "Build" then
-		local builds = player:GetAttribute("MatchBuilds") or 0
-		objectiveTitle.Text = builds < 3 and "ШАГ 1 · ЗАЩИТИ КРЕПОСТЬ" or "ЗАЩИТА ГОТОВА"
-		objectiveText.Text = builds < 3 and string.format("Поставь 3 укрепления: %d/3\nВыбери модель, поверни и подтверди позицию.", builds) or "Базовая защита стоит. Можно улучшить позицию до начала штурма."
-		objectiveFill.Size = UDim2.fromScale(math.clamp(builds / 3, 0, 1), 1)
-		objectiveFill.BackgroundColor3 = builds >= 3 and C.Green or C.Gold
-		objectiveBonus.Text = "Каждая постройка даёт монеты и XP"
-	elseif phase == "Battle" then
-		local enemy = team ~= "" and Config.OtherTeam(team) or nil
-		local enemyHealth = enemy and (state:GetAttribute(enemy .. "Core") or 0) or 0
-		local enemyMaximum = enemy and math.max(1, state:GetAttribute(enemy .. "CoreMax") or 1) or 1
-		objectiveTitle.Text = "ГЛАВНАЯ ЦЕЛЬ · ВРАЖЕСКОЕ ЯДРО"
-		objectiveText.Text = string.format("Ядро противника: %d HP\nЛомай башни и стены, затем уничтожь ядро.", enemyHealth)
-		objectiveFill.Size = UDim2.fromScale(math.clamp(1 - enemyHealth / enemyMaximum, 0, 1), 1)
-		objectiveFill.BackgroundColor3 = C.Orange
-		objectiveBonus.Text = captureOwner == team and "67 удерживается · команда лечится" or "Захвати 67: +10 монет · +25 XP · +1 HP/s"
-	end
+	updateBonusMissions(phase, team)
+	updateCoach(phase, team, remaining, captureOwner)
+	updateWaypoint(phase, team)
 	if phase == "Results" then
 		updateResults()
 	end
 end
+
+guideToggle.Activated:Connect(function()
+	setGuideVisible(not guideVisible)
+	refresh()
+end)
+coachNext.Activated:Connect(function()
+	coachPage = coachPage + 1
+	coachManualUntil = os.clock() + 8
+	refresh()
+end)
 
 queueButton.Activated:Connect(function()
 	remotes.LobbyAction:FireServer("Queue")
@@ -762,6 +986,9 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		rotateBuild(-1)
 	elseif input.KeyCode == Enum.KeyCode.B then
 		requestBuild()
+	elseif input.KeyCode == Enum.KeyCode.H then
+		setGuideVisible(not guideVisible)
+		refresh()
 	elseif input.KeyCode == Enum.KeyCode.L then
 		casePanel.Visible = not casePanel.Visible
 	end
@@ -904,6 +1131,25 @@ remotes.CaptureFX.OnClientEvent:Connect(function(payload)
 	if payload.Team then
 		notify("67 ЗАХВАЧЕНА · +1 HP/s · " .. (payload.Team == "Blue" and "СИНИЕ" or "ОРАНЖЕВЫЕ"))
 	end
+end)
+remotes.BonusFX.OnClientEvent:Connect(function(payload)
+	if not payload.Position then
+		return
+	end
+	local color = payload.Color or C.Gold
+	effect(payload.Position, color, payload.Kind == "Supply" and 7 or 5, 0.5)
+	burst(payload.Position, color, 18, 13)
+	local anchor = new("Part", {
+		Position = payload.Position + Vector3.new(0, 3, 0), Size = Vector3.one, Transparency = 1,
+		Anchored = true, CanCollide = false, CanTouch = false, CanQuery = false, CastShadow = false,
+	}, Workspace)
+	local tag = new("BillboardGui", { Size = UDim2.fromOffset(250, 48), AlwaysOnTop = true, MaxDistance = 140 }, anchor)
+	local label = text(tag, payload.Kind == "Supply" and "СНАБЖЕНИЕ СОБРАНО!" or "БОНУС ВЫПОЛНЕН!", UDim2.fromScale(1, 1), UDim2.new(), 20, color)
+	label.Font = Enum.Font.GothamBold
+	label.TextStrokeTransparency = 0.2
+	TweenService:Create(anchor, TweenInfo.new(1.2), { Position = anchor.Position + Vector3.new(0, 6, 0) }):Play()
+	TweenService:Create(label, TweenInfo.new(1.2), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+	Debris:AddItem(anchor, 1.25)
 end)
 remotes.BuildPreview.OnClientEvent:Connect(function(payload)
 	if payload.Kind ~= selectedBuild or (payload.Rotation or 0) ~= buildRotation or state:GetAttribute("Phase") ~= "Build" then
