@@ -261,9 +261,11 @@ function VisualModels.Tower(parent, prefix, position, scale, accent, options)
 	for _, y in ipairs({ 4.2, 11.8, 13.4 }) do
 		cylinder(object, "TowerBand", 5.45 * scale, 0.55 * scale, CFrame.new(position + Vector3.new(0, y * scale, 0)), accent, Enum.Material.Metal, { Holiday = options.Holiday })
 	end
-	-- A rounded dome and snow cap replace the old cube roof.
+	-- A rounded dome replaces the old cube roof; snow is explicit opt-in.
 	sphere(object, "TowerDome", Vector3.new(11.4, 5.2, 11.4) * scale, CFrame.new(position + Vector3.new(0, 15.3 * scale, 0)), INK, Enum.Material.Slate, { Holiday = options.Holiday, Texture = TEXTURES.Stone })
-	sphere(object, "TowerRoofSnow", Vector3.new(9.7, 1.1, 9.7) * scale, CFrame.new(position + Vector3.new(0, 17.2 * scale, 0)), SNOW, Enum.Material.Snow, { Holiday = options.Holiday, Texture = TEXTURES.Snow })
+	if options.Snow then
+		sphere(object, "TowerRoofSnow", Vector3.new(9.7, 1.1, 9.7) * scale, CFrame.new(position + Vector3.new(0, 17.2 * scale, 0)), SNOW, Enum.Material.Snow, { Holiday = options.Holiday, Texture = TEXTURES.Snow })
+	end
 	cylinder(object, "TowerSpire", 0.42 * scale, 4.8 * scale, CFrame.new(position + Vector3.new(0, 19.3 * scale, 0)), GOLD, Enum.Material.Metal, { Holiday = options.Holiday })
 	sphere(object, "TowerSpireGem", Vector3.one * 1.05 * scale, CFrame.new(position + Vector3.new(0, 21.9 * scale, 0)), accent, Enum.Material.Neon, { Holiday = options.Holiday })
 	for index = 0, 7 do
@@ -301,7 +303,9 @@ function VisualModels.Gate(parent, prefix, baseCFrame, width, height, accent, op
 		for _, y in ipairs({ 1.2, height * 0.55, height - 1.2 }) do
 			cylinder(parent, prefix .. "PillarBand", 1.9, 0.5, baseCFrame * CFrame.new(side * radius, y, 0), accent, Enum.Material.Metal, { Holiday = options.Holiday })
 		end
-		sphere(parent, prefix .. "PillarCap", Vector3.new(4.1, 1.1, 4.1), baseCFrame * CFrame.new(side * radius, height + 0.3, 0), SNOW, Enum.Material.Snow, { Holiday = options.Holiday })
+		if options.Snow then
+			sphere(parent, prefix .. "PillarCap", Vector3.new(4.1, 1.1, 4.1), baseCFrame * CFrame.new(side * radius, height + 0.3, 0), SNOW, Enum.Material.Snow, { Holiday = options.Holiday })
+		end
 	end
 	local archCenterY = height - 4.2
 	local archRadius = math.max(3, radius - 0.4)
@@ -322,7 +326,9 @@ function VisualModels.Gate(parent, prefix, baseCFrame, width, height, accent, op
 	end
 	-- Keep the old names for compatibility, but use sloped sculpted pieces.
 	make(parent, prefix .. "Roof", Vector3.new(width + 3, 2.2, 5.5), baseCFrame * CFrame.new(0, height + 1.5, 0), INK, Enum.Material.Slate, { ClassName = "WedgePart", Holiday = options.Holiday })
-	make(parent, prefix .. "RoofSnow", Vector3.new(width + 3.3, 0.45, 5.8), baseCFrame * CFrame.new(0, height + 2.8, 0), SNOW, Enum.Material.Snow, { ClassName = "WedgePart", Holiday = options.Holiday, Texture = TEXTURES.Snow })
+	if options.Snow then
+		make(parent, prefix .. "RoofSnow", Vector3.new(width + 3.3, 0.45, 5.8), baseCFrame * CFrame.new(0, height + 2.8, 0), SNOW, Enum.Material.Snow, { ClassName = "WedgePart", Holiday = options.Holiday, Texture = TEXTURES.Snow })
+	end
 	return first
 end
 
@@ -424,9 +430,11 @@ function VisualModels.Wall(parent, cframe, accent, options)
 			ClassName = "WedgePart", Holiday = options.Holiday,
 		})
 	end
-	beam(object, "WallSnowCap", (cframe * CFrame.new(-5.2, 5.75, 0)).Position, (cframe * CFrame.new(5.2, 5.75, 0)).Position, 0.2, SNOW, Enum.Material.Snow, {
-		Texture = TEXTURES.Snow, Holiday = options.Holiday,
-	})
+	if options.Snow then
+		beam(object, "WallSnowCap", (cframe * CFrame.new(-5.2, 5.75, 0)).Position, (cframe * CFrame.new(5.2, 5.75, 0)).Position, 0.2, SNOW, Enum.Material.Snow, {
+			Texture = TEXTURES.Snow, Holiday = options.Holiday,
+		})
+	end
 	return object
 end
 
@@ -572,9 +580,11 @@ function VisualModels.Barricade(parent, cframe, accent, options)
 		})
 	end
 	beam(object, "BarricadeRope", point(-5.1, 0.25, -1.02), point(5.1, 0.25, -1.02), 0.11, Color3.fromRGB(185, 145, 89), Enum.Material.Fabric, { Holiday = options.Holiday })
-	beam(object, "BarricadeSnow", point(-5.35, 1.68, 0), point(5.35, 1.68, 0), 0.16, SNOW, Enum.Material.Snow, {
-		Texture = TEXTURES.Snow, Holiday = options.Holiday,
-	})
+	if options.Snow then
+		beam(object, "BarricadeSnow", point(-5.35, 1.68, 0), point(5.35, 1.68, 0), 0.16, SNOW, Enum.Material.Snow, {
+			Texture = TEXTURES.Snow, Holiday = options.Holiday,
+		})
+	end
 	for index = 0, 6 do
 		local x = -4.5 + index * 1.5
 		make(object, "BarricadeSpike", Vector3.new(0.62, 1.55, 0.62), frame(x, 3.05, 0, CFrame.Angles(0, 0, math.rad(index % 2 == 0 and -8 or 8))), STONE_LIGHT, Enum.Material.Metal, {

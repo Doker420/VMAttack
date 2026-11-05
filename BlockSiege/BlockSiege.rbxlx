@@ -1244,9 +1244,11 @@ function VisualModels.Tower(parent, prefix, position, scale, accent, options)
 	for _, y in ipairs({ 4.2, 11.8, 13.4 }) do
 		cylinder(object, "TowerBand", 5.45 * scale, 0.55 * scale, CFrame.new(position + Vector3.new(0, y * scale, 0)), accent, Enum.Material.Metal, { Holiday = options.Holiday })
 	end
-	-- A rounded dome and snow cap replace the old cube roof.
+	-- A rounded dome replaces the old cube roof; snow is explicit opt-in.
 	sphere(object, "TowerDome", Vector3.new(11.4, 5.2, 11.4) * scale, CFrame.new(position + Vector3.new(0, 15.3 * scale, 0)), INK, Enum.Material.Slate, { Holiday = options.Holiday, Texture = TEXTURES.Stone })
-	sphere(object, "TowerRoofSnow", Vector3.new(9.7, 1.1, 9.7) * scale, CFrame.new(position + Vector3.new(0, 17.2 * scale, 0)), SNOW, Enum.Material.Snow, { Holiday = options.Holiday, Texture = TEXTURES.Snow })
+	if options.Snow then
+		sphere(object, "TowerRoofSnow", Vector3.new(9.7, 1.1, 9.7) * scale, CFrame.new(position + Vector3.new(0, 17.2 * scale, 0)), SNOW, Enum.Material.Snow, { Holiday = options.Holiday, Texture = TEXTURES.Snow })
+	end
 	cylinder(object, "TowerSpire", 0.42 * scale, 4.8 * scale, CFrame.new(position + Vector3.new(0, 19.3 * scale, 0)), GOLD, Enum.Material.Metal, { Holiday = options.Holiday })
 	sphere(object, "TowerSpireGem", Vector3.one * 1.05 * scale, CFrame.new(position + Vector3.new(0, 21.9 * scale, 0)), accent, Enum.Material.Neon, { Holiday = options.Holiday })
 	for index = 0, 7 do
@@ -1284,7 +1286,9 @@ function VisualModels.Gate(parent, prefix, baseCFrame, width, height, accent, op
 		for _, y in ipairs({ 1.2, height * 0.55, height - 1.2 }) do
 			cylinder(parent, prefix .. "PillarBand", 1.9, 0.5, baseCFrame * CFrame.new(side * radius, y, 0), accent, Enum.Material.Metal, { Holiday = options.Holiday })
 		end
-		sphere(parent, prefix .. "PillarCap", Vector3.new(4.1, 1.1, 4.1), baseCFrame * CFrame.new(side * radius, height + 0.3, 0), SNOW, Enum.Material.Snow, { Holiday = options.Holiday })
+		if options.Snow then
+			sphere(parent, prefix .. "PillarCap", Vector3.new(4.1, 1.1, 4.1), baseCFrame * CFrame.new(side * radius, height + 0.3, 0), SNOW, Enum.Material.Snow, { Holiday = options.Holiday })
+		end
 	end
 	local archCenterY = height - 4.2
 	local archRadius = math.max(3, radius - 0.4)
@@ -1305,7 +1309,9 @@ function VisualModels.Gate(parent, prefix, baseCFrame, width, height, accent, op
 	end
 	-- Keep the old names for compatibility, but use sloped sculpted pieces.
 	make(parent, prefix .. "Roof", Vector3.new(width + 3, 2.2, 5.5), baseCFrame * CFrame.new(0, height + 1.5, 0), INK, Enum.Material.Slate, { ClassName = "WedgePart", Holiday = options.Holiday })
-	make(parent, prefix .. "RoofSnow", Vector3.new(width + 3.3, 0.45, 5.8), baseCFrame * CFrame.new(0, height + 2.8, 0), SNOW, Enum.Material.Snow, { ClassName = "WedgePart", Holiday = options.Holiday, Texture = TEXTURES.Snow })
+	if options.Snow then
+		make(parent, prefix .. "RoofSnow", Vector3.new(width + 3.3, 0.45, 5.8), baseCFrame * CFrame.new(0, height + 2.8, 0), SNOW, Enum.Material.Snow, { ClassName = "WedgePart", Holiday = options.Holiday, Texture = TEXTURES.Snow })
+	end
 	return first
 end
 
@@ -1407,9 +1413,11 @@ function VisualModels.Wall(parent, cframe, accent, options)
 			ClassName = "WedgePart", Holiday = options.Holiday,
 		})
 	end
-	beam(object, "WallSnowCap", (cframe * CFrame.new(-5.2, 5.75, 0)).Position, (cframe * CFrame.new(5.2, 5.75, 0)).Position, 0.2, SNOW, Enum.Material.Snow, {
-		Texture = TEXTURES.Snow, Holiday = options.Holiday,
-	})
+	if options.Snow then
+		beam(object, "WallSnowCap", (cframe * CFrame.new(-5.2, 5.75, 0)).Position, (cframe * CFrame.new(5.2, 5.75, 0)).Position, 0.2, SNOW, Enum.Material.Snow, {
+			Texture = TEXTURES.Snow, Holiday = options.Holiday,
+		})
+	end
 	return object
 end
 
@@ -1555,9 +1563,11 @@ function VisualModels.Barricade(parent, cframe, accent, options)
 		})
 	end
 	beam(object, "BarricadeRope", point(-5.1, 0.25, -1.02), point(5.1, 0.25, -1.02), 0.11, Color3.fromRGB(185, 145, 89), Enum.Material.Fabric, { Holiday = options.Holiday })
-	beam(object, "BarricadeSnow", point(-5.35, 1.68, 0), point(5.35, 1.68, 0), 0.16, SNOW, Enum.Material.Snow, {
-		Texture = TEXTURES.Snow, Holiday = options.Holiday,
-	})
+	if options.Snow then
+		beam(object, "BarricadeSnow", point(-5.35, 1.68, 0), point(5.35, 1.68, 0), 0.16, SNOW, Enum.Material.Snow, {
+			Texture = TEXTURES.Snow, Holiday = options.Holiday,
+		})
+	end
 	for index = 0, 6 do
 		local x = -4.5 + index * 1.5
 		make(object, "BarricadeSpike", Vector3.new(0.62, 1.55, 0.62), frame(x, 3.05, 0, CFrame.Angles(0, 0, math.rad(index % 2 == 0 and -8 or 8))), STONE_LIGHT, Enum.Material.Metal, {
@@ -8481,7 +8491,7 @@ local function buildTree(parent, position, scale)
 	-- The old five-cube VoxelTree is intentionally gone. The trunk remains a
 	-- small gameplay obstacle; the sculpted crown is non-interactive.
 	return VisualModels.Tree(parent, position, scale, {
-		Name = "FortressPine", Snow = true, Collide = true, Query = true,
+		Name = "FortressPine", Snow = false, Collide = true, Query = true,
 	})
 end
 
@@ -8559,8 +8569,8 @@ local CREATOR_STORE_ASSETS = {
 	{
 		Key = "Snowman", Id = 67187780, Title = "Snowman",
 		Placements = {
-			{ Parent = "Lobby", Position = Vector3.new(-68, 44.5, 320), Size = 8, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(20), 0) },
-			{ Parent = "Lobby", Position = Vector3.new(68, 44.5, 320), Size = 8, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(-20), 0) },
+			{ Parent = "Lobby", Position = Vector3.new(-42, 44.5, 360), Size = 8, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(20), 0) },
+			{ Parent = "Lobby", Position = Vector3.new(42, 44.5, 360), Size = 8, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(-20), 0) },
 		},
 	},
 	{
@@ -8590,8 +8600,8 @@ local CREATOR_STORE_ASSETS = {
 			{ Parent = "Arena", Position = Vector3.new(220, 0, 118), Size = 25, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(-22), 0) },
 			{ Parent = "Arena", Position = Vector3.new(-120, 0, 125), Size = 20, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(41), 0) },
 			{ Parent = "Arena", Position = Vector3.new(120, 0, -125), Size = 20, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(-37), 0) },
-			{ Parent = "Lobby", Position = Vector3.new(86, 44.5, 382), Size = 18, Fit = "Height" },
-			{ Parent = "Lobby", Position = Vector3.new(-86, 44.5, 278), Size = 18, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(30), 0) },
+			{ Parent = "Lobby", Position = Vector3.new(94, 44.5, 230), Size = 18, Fit = "Height" },
+			{ Parent = "Lobby", Position = Vector3.new(-94, 44.5, 230), Size = 18, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(30), 0) },
 		},
 	},
 	{
@@ -8599,7 +8609,7 @@ local CREATOR_STORE_ASSETS = {
 		Placements = {
 			{ Parent = "Arena", Position = Vector3.new(-190, 0, -125), Size = 25, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(20), 0) },
 			{ Parent = "Arena", Position = Vector3.new(190, 0, 125), Size = 25, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(200), 0) },
-			{ Parent = "Lobby", Position = Vector3.new(0, 44.5, 260), Size = 18, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(180), 0) },
+			{ Parent = "Lobby", Position = Vector3.new(0, 44.5, 400), Size = 18, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(180), 0) },
 		},
 	},
 	{
@@ -8607,8 +8617,8 @@ local CREATOR_STORE_ASSETS = {
 		Placements = {
 			{ Parent = "Arena", Position = Vector3.new(-140, 0, 130), Size = 18, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(-25), 0) },
 			{ Parent = "Arena", Position = Vector3.new(140, 0, -130), Size = 18, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(155), 0) },
-			{ Parent = "Lobby", Position = Vector3.new(-91, 44.5, 330), Size = 12, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(90), 0) },
-			{ Parent = "Lobby", Position = Vector3.new(91, 44.5, 330), Size = 12, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(-90), 0) },
+			{ Parent = "Lobby", Position = Vector3.new(-92, 44.5, 372), Size = 12, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(90), 0) },
+			{ Parent = "Lobby", Position = Vector3.new(92, 44.5, 372), Size = 12, Fit = "Height", Rotation = CFrame.Angles(0, math.rad(-90), 0) },
 		},
 	},
 }
@@ -8914,7 +8924,7 @@ local function decorateLobby(lobby)
 	}) do
 		decorPart(lobby, "LobbySnowPatch", entry[2], CFrame.new(entry[1]), HOLIDAY.Snow, Enum.Material.Snow)
 	end
-	decorPart(lobby, "LootboxSnowCap", Vector3.new(9.2, 0.34, 9.2), CFrame.new(0, 51.65, 318), HOLIDAY.Snow, Enum.Material.Snow)
+	decorPart(lobby, "LootboxSnowCap", Vector3.new(9.2, 0.34, 9.2), CFrame.new(-24, 51.65, 318), HOLIDAY.Snow, Enum.Material.Snow)
 	buildChristmasTree(lobby, Vector3.new(-24, 44.5, 350), 0.72)
 	for _, entry in ipairs({
 		{ Vector3.new(-8, 44.5, 347), 0.8, HOLIDAY.Red }, { Vector3.new(8, 44.5, 347), 0.75, HOLIDAY.Green },
@@ -8922,8 +8932,8 @@ local function decorateLobby(lobby)
 	}) do
 		buildGift(lobby, entry[1], entry[2], entry[3])
 	end
-	buildSnowman(lobby, Vector3.new(-68, 44.5, 350), 0.9)
-	buildSnowman(lobby, Vector3.new(68, 44.5, 350), 0.9)
+	buildSnowman(lobby, Vector3.new(-42, 44.5, 360), 0.9)
+	buildSnowman(lobby, Vector3.new(42, 44.5, 360), 0.9)
 	buildGarland(lobby, Vector3.new(-78, 60, 268), Vector3.new(78, 60, 268), 3, 16)
 	buildGarland(lobby, Vector3.new(-78, 60, 392), Vector3.new(78, 60, 392), 3, 16)
 	buildGarland(lobby, Vector3.new(-81, 60, 275), Vector3.new(-81, 60, 385), 2, 12)
@@ -8973,6 +8983,9 @@ local function buildSculptedTerrain()
 			{ Vector3.new(-180, -24, -245), 40 }, { Vector3.new(180, -24, 245), 40 },
 			{ Vector3.new(0, -28, -255), 46 }, { Vector3.new(0, -28, 255), 46 },
 			{ Vector3.new(-395, -25, 0), 44 }, { Vector3.new(395, -25, 0), 44 },
+			-- Taller distant shelves belong to the elevated lobby horizon, not the arena.
+			{ Vector3.new(-220, -8, 330), 64 }, { Vector3.new(220, -8, 330), 64 },
+			{ Vector3.new(-180, -6, 485), 58 }, { Vector3.new(180, -6, 485), 58 }, { Vector3.new(0, -10, 510), 66 },
 		}
 		for ridgeIndex, ridge in ipairs(ridges) do
 			local center, radius = ridge[1], ridge[2]
@@ -8982,7 +8995,7 @@ local function buildSculptedTerrain()
 				terrain:FillBall(center + offset, radius * (1 - (lobe - 1) * 0.13), Enum.Material.Rock)
 			end
 			if ridgeIndex % 3 ~= 0 then
-				terrain:FillBall(center + Vector3.new(0, radius * 0.36, 0), radius * 0.64, Enum.Material.Snow)
+				terrain:FillBall(center + Vector3.new(0, radius * 0.36, 0), radius * 0.64, Enum.Material.Slate)
 			end
 		end
 		local clouds = terrain:FindFirstChild("BlockSiegeClouds")
@@ -9009,7 +9022,7 @@ local function buildBaseArchitecture(arena, team, baseCFrame, accent)
 	-- Keep all three original gate coordinates: BaseCFrame faces the enemy,
 	-- so using a different world-space offset for Orange would move the gate.
 	local facade = baseCFrame * CFrame.new(0, 0, 50)
-	local gatePrefixes = { team .. "FrostGate", team .. "RearGate", team .. "InnerGate" }
+	local gatePrefixes = { team .. "CircuitGate", team .. "RearGate", team .. "InnerGate" }
 	buildGate(arena, gatePrefixes[1], facade, 32, 15, accent)
 	buildGate(arena, gatePrefixes[2], baseCFrame * CFrame.new(0, 0, -52), 64, 12, STYLE.Navy)
 	buildGate(arena, gatePrefixes[3], baseCFrame * CFrame.new(0, 0, -28), 32, 11, accent)
@@ -9057,20 +9070,98 @@ local function buildBaseArchitecture(arena, team, baseCFrame, accent)
 	inlay:SetAttribute("Team", team)
 end
 
+local function buildLobbyGarden(lobby)
+	-- Landscaped shelves sit OUTSIDE the existing safety-wall rectangle. They
+	-- provide a real horizon around the glass hall without expanding gameplay.
+	local shelves = {
+		{ Vector3.new(-124, 36, 330), Vector3.new(28, 8, 190) },
+		{ Vector3.new(124, 36, 330), Vector3.new(28, 8, 190) },
+		{ Vector3.new(0, 36, 230), Vector3.new(220, 8, 30) },
+		{ Vector3.new(0, 36, 430), Vector3.new(220, 8, 30) },
+	}
+	for _, entry in ipairs(shelves) do
+		local center, size = entry[1], entry[2]
+		makePart(lobby, "LobbyGardenStone", size, CFrame.new(center), STYLE.Navy, Enum.Material.Cobblestone, true)
+		makePart(lobby, "LobbyGardenDirt", size - Vector3.new(1, 3, 1), CFrame.new(center + Vector3.new(0, 5, 0)), C.Dirt, Enum.Material.Ground, true)
+		makePart(lobby, "LobbyGardenGrass", size - Vector3.new(2, 7, 2), CFrame.new(center + Vector3.new(0, 8, 0)), C.Grass, Enum.Material.Grass, true)
+	end
+	for _, position in ipairs({
+		Vector3.new(-124, 44.5, 255), Vector3.new(124, 44.5, 255), Vector3.new(-124, 44.5, 315), Vector3.new(124, 44.5, 315),
+		Vector3.new(-124, 44.5, 390), Vector3.new(124, 44.5, 390), Vector3.new(-75, 44.5, 430), Vector3.new(75, 44.5, 430),
+		Vector3.new(-65, 44.5, 230), Vector3.new(65, 44.5, 230),
+	}) do
+		VisualModels.Rock(lobby, position, 1.15, { Snow = false })
+	end
+	for _, position in ipairs({
+		Vector3.new(-128, 44.5, 280), Vector3.new(128, 44.5, 280), Vector3.new(-128, 44.5, 350), Vector3.new(128, 44.5, 350),
+		Vector3.new(-128, 44.5, 410), Vector3.new(128, 44.5, 410), Vector3.new(-40, 44.5, 432), Vector3.new(40, 44.5, 432),
+		Vector3.new(-30, 44.5, 230), Vector3.new(30, 44.5, 230),
+	}) do
+		VisualModels.Tree(lobby, position, 0.68, { Name = "LobbyLandscapePine", Snow = false, Collide = false, Query = false })
+	end
+end
+
+local function buildLobbyPromenade(lobby)
+	-- The old central row of pedestals is replaced by a clear 24-stud promenade.
+	-- Floor details are non-colliding and never become an invisible trip hazard.
+	decorPart(lobby, "LobbyPromenade", Vector3.new(24, 0.16, 154), CFrame.new(0, 44.57, 330), STYLE.Navy, Enum.Material.Slate)
+	for _, side in ipairs({ -1, 1 }) do
+		decorPart(lobby, "GalleryFloor", Vector3.new(20, 0.15, 116), CFrame.new(side * 76, 44.57, 308), STYLE.IvoryDark, Enum.Material.Cobblestone)
+		decorPart(lobby, "GalleryOuterInlay", Vector3.new(0.3, 0.18, 116), CFrame.new(side * 87, 44.65, 308), STYLE.Gold, Enum.Material.Metal)
+		decorPart(lobby, "PromenadeEdge", Vector3.new(0.28, 0.18, 150), CFrame.new(side * 12, 44.66, 330), STYLE.Gold, Enum.Material.Metal)
+	end
+	for z = 258, 402, 12 do
+		decorPart(lobby, "PromenadeSlabJoint", Vector3.new(21, 0.06, 0.24), CFrame.new(0, 44.68, z), STYLE.IvoryDark, Enum.Material.Metal)
+	end
+	-- The three-node emblem makes the Circuit mechanic part of the architecture.
+	local center = Vector3.new(0, 44.75, 350)
+	local points = {
+		center + Vector3.new(0, 0, -10), center + Vector3.new(-9, 0, 6), center + Vector3.new(9, 0, 6),
+	}
+	for index = 1, 3 do
+		local from, to = points[index], points[index % 3 + 1]
+		decorPart(lobby, "LobbyCircuitInlay", Vector3.new(0.28, 0.08, (to - from).Magnitude), CFrame.lookAt((from + to) * 0.5, to), index == 1 and STYLE.Gold or STYLE.Blue, Enum.Material.Neon)
+		local node = decorPart(lobby, "LobbyCircuitNode", Vector3.new(0.16, 2.5, 2.5), CFrame.new(from) * CFrame.Angles(0, 0, math.rad(90)), index == 1 and STYLE.Gold or STYLE.Blue, Enum.Material.Neon)
+		node.Shape = Enum.PartType.Cylinder
+	end
+	for _, side in ipairs({ -1, 1 }) do
+		for _, z in ipairs({ 274, 306, 338, 370, 402 }) do
+			decorPart(lobby, "PromenadeLightBase", Vector3.new(1.3, 0.5, 1.3), CFrame.new(side * 14, 44.75, z), STYLE.Navy, Enum.Material.Metal)
+			local bulb = decorPart(lobby, "PromenadeLight", Vector3.new(0.8, 0.35, 0.8), CFrame.new(side * 14, 45.15, z), STYLE.Warm, Enum.Material.Neon)
+			holidayGlow(bulb, STYLE.Warm, 11, 0.75)
+		end
+		-- Benches and planters frame the rear/side plazas, never the central route.
+		local benchCenter = Vector3.new(side * 34, 44.5, 388)
+		decorPart(lobby, "LobbyBenchSeat", Vector3.new(10, 0.6, 3), CFrame.new(benchCenter + Vector3.new(0, 1.5, 0)), C.Wood, Enum.Material.WoodPlanks)
+		decorPart(lobby, "LobbyBenchBack", Vector3.new(10, 2, 0.5), CFrame.new(benchCenter + Vector3.new(0, 2.4, 1.25)), C.Wood, Enum.Material.WoodPlanks)
+		for _, x in ipairs({ -3.5, 3.5 }) do
+			decorPart(lobby, "LobbyBenchLeg", Vector3.new(0.55, 1.5, 2.2), CFrame.new(benchCenter + Vector3.new(x, 0.75, 0)), STYLE.Navy, Enum.Material.Metal)
+		end
+		for _, z in ipairs({ 262, 398 }) do
+			local planter = Vector3.new(side * 58, 44.5, z)
+			decorPart(lobby, "LobbyPlanter", Vector3.new(7, 0.8, 7), CFrame.new(planter + Vector3.new(0, 0.4, 0)), STYLE.IvoryDark, Enum.Material.Slate)
+			decorPart(lobby, "LobbyPlanterSoil", Vector3.new(6, 0.25, 6), CFrame.new(planter + Vector3.new(0, 0.85, 0)), C.Dirt, Enum.Material.Ground)
+			VisualModels.Tree(lobby, planter + Vector3.new(0, 0.95, 0), 0.36, { Name = "LobbyPlanterPine", Snow = false, Collide = false, Query = false })
+		end
+	end
+end
+
 local function buildLobbyArchitecture(lobby)
-	-- A vaulted winter hall: round columns, curved ribs and warm fireplaces,
+	buildLobbyGarden(lobby)
+	buildLobbyPromenade(lobby)
+	-- A vaulted circuit hall: round columns, curved ribs and warm fireplaces,
 	-- rather than a corridor made from rectangular roof blocks.
 	buildGate(lobby, "LobbyEntry", CFrame.new(0, 44.5, 252), 46, 14, STYLE.Navy)
-	for _, x in ipairs({ -82, 82 }) do
+	for _, x in ipairs({ -94, 94 }) do
 		for _, z in ipairs({ 270, 305, 350, 395 }) do
 			VisualModels.Column(lobby, Vector3.new(x, 44.5, z), 17, STYLE.Gold, { Holiday = true, CastShadow = true })
 		end
 	end
 	for _, z in ipairs({ 278, 318, 358, 398 }) do
-		buildGate(lobby, "HallVault", CFrame.new(0, 44.5, z), 176, 19, STYLE.Gold)
+		buildGate(lobby, "HallVault", CFrame.new(0, 44.5, z), 196, 19, STYLE.Gold)
 	end
-	VisualModels.Fireplace(lobby, Vector3.new(-65, 44.5, 330), 1.15, { Holiday = true, CastShadow = true })
-	VisualModels.Fireplace(lobby, Vector3.new(65, 44.5, 330), 1.15, { Holiday = true, CastShadow = true })
+	VisualModels.Fireplace(lobby, Vector3.new(-94, 44.5, 330), 1.05, { Holiday = true, CastShadow = true })
+	VisualModels.Fireplace(lobby, Vector3.new(94, 44.5, 330), 1.05, { Holiday = true, CastShadow = true })
 	for _, side in ipairs({ -1, 1 }) do
 		for _, z in ipairs({ 300, 340, 380 }) do
 			decorPart(lobby, "WindowGlass", Vector3.new(0.5, 10, 18), CFrame.new(side * 101, 51, z), STYLE.Ice, Enum.Material.Glass).Transparency = 0.28
@@ -9084,6 +9175,7 @@ local function buildLobbyArchitecture(lobby)
 	for _, entry in ipairs({
 		{ Vector3.new(-48, 44.6, 344), STYLE.Blue }, { Vector3.new(48, 44.6, 344), STYLE.Gold },
 		{ Vector3.new(-48, 44.6, 300), STYLE.Warm }, { Vector3.new(48, 44.6, 300), Color3.fromRGB(178, 125, 224) },
+		{ Vector3.new(-28, 44.6, 372), Color3.fromRGB(103, 229, 183) },
 	}) do
 		decorPart(lobby, "ShopRug", Vector3.new(20, 0.12, 16), CFrame.new(entry[1]), entry[2], Enum.Material.Fabric)
 	end
@@ -9101,7 +9193,30 @@ local function buildLobbyArchitecture(lobby)
 	end
 end
 
+local function buildArenaGarden(arena)
+	-- Edge gardens live beyond BotBoundsX/Z. They frame the valley and hide the
+	-- rectangular boundary without silently changing combat navigation.
+	for _, side in ipairs({ -1, 1 }) do
+		for index, x in ipairs({ -260, -208, -156, 156, 208, 260 }) do
+			local z = side * 164
+			decorPart(arena, "EdgeMeadow", Vector3.new(44, 0.12, 18), CFrame.new(x, 0.08, z), Color3.fromRGB(58, 108, 76), Enum.Material.Grass)
+			VisualModels.Tree(arena, Vector3.new(x, 0, z), 0.66 + (index % 3) * 0.08, { Name = "ValleyEdgePine", Snow = false, Collide = false, Query = false })
+			VisualModels.Rock(arena, Vector3.new(x + 14, 0, z - side * 3), 0.78 + (index % 2) * 0.15, { Snow = false })
+		end
+		for index, z in ipairs({ -132, -88, -44, 44, 88, 132 }) do
+			local x = side * 304
+			decorPart(arena, "SideMeadow", Vector3.new(18, 0.12, 38), CFrame.new(x, 0.08, z), Color3.fromRGB(58, 108, 76), Enum.Material.Grass)
+			VisualModels.Tree(arena, Vector3.new(x, 0, z), 0.7 + (index % 2) * 0.1, { Name = "ValleySidePine", Snow = false, Collide = false, Query = false })
+			VisualModels.Rock(arena, Vector3.new(x - side * 3, 0, z + 13), 0.82, { Snow = false })
+		end
+		for _, x in ipairs({ -225, -135, -45, 45, 135, 225 }) do
+			VisualModels.Rock(arena, Vector3.new(x, 0, side * 172), 1.35, { Snow = false })
+		end
+	end
+end
+
 local function buildArenaArchitecture(arena)
+	buildArenaGarden(arena)
 	local routeWarmth = Color3.fromRGB(255, 205, 139)
 	for _, lane in ipairs(Config.Objectives.Lanes) do
 		local inward = lane == 0 and 15 or (lane > 0 and -11 or 11)
@@ -9131,7 +9246,7 @@ local function buildArenaArchitecture(arena)
 	for _, position in ipairs({
 		Vector3.new(-45, 0, -35), Vector3.new(45, 0, 35), Vector3.new(-45, 0, 35), Vector3.new(45, 0, -35),
 	}) do
-		VisualModels.Rock(arena, position, 1.15, { Snow = true })
+		VisualModels.Rock(arena, position, 1.15, { Snow = false })
 	end
 	for _, side in ipairs({ -1, 1 }) do
 		for _, forward in ipairs({ -1, 1 }) do
@@ -9142,7 +9257,7 @@ local function buildArenaArchitecture(arena)
 	for _, position in ipairs({
 		Vector3.new(-285, 0, -128), Vector3.new(285, 0, 128), Vector3.new(-285, 0, 128), Vector3.new(285, 0, -128),
 	}) do
-		VisualModels.Rock(arena, position, 2.2, { Snow = true })
+		VisualModels.Rock(arena, position, 2.2, { Snow = false })
 	end
 end
 
@@ -9267,32 +9382,34 @@ local function buildLobby(lobby, winterDecor)
 		end
 	end
 
-	local crate = makePart(lobby, "LobbyLootbox", Vector3.new(9, 7, 9), CFrame.new(0, 48, 318), C.Gold, Enum.Material.Metal, true)
+	local crate = makePart(lobby, "LobbyLootbox", Vector3.new(9, 7, 9), CFrame.new(-24, 48, 318), C.Gold, Enum.Material.Metal, true)
 	local crateLight = Instance.new("PointLight")
 	crateLight.Color = C.Gold
 	crateLight.Brightness = 1.2
 	crateLight.Range = 18
 	crateLight.Parent = crate
-	makePart(lobby, "LootboxBand", Vector3.new(9.5, 1.2, 9.5), CFrame.new(0, 49, 318), C.StoneDark, Enum.Material.Metal, true)
+	makePart(lobby, "LootboxBand", Vector3.new(9.5, 1.2, 9.5), CFrame.new(-24, 49, 318), C.StoneDark, Enum.Material.Metal, true)
 	billboard(crate, "GEAR // ЛУТБОКС", C.Gold)
 	local lootPrompt = prompt(crate, "ОТКРЫТЬ", "Игровые кейсы · шансы 65 / 30 / 5")
 
-	local board = makePart(lobby, "StartBoard", Vector3.new(18, 12, 1.5), CFrame.new(-30, 51, 318), C.StoneDark, Enum.Material.WoodPlanks, true)
+	local board = makePart(lobby, "StartBoard", Vector3.new(18, 12, 1.5), CFrame.new(24, 51, 318), C.StoneDark, Enum.Material.WoodPlanks, true)
 	billboard(board, "BLOCK // БОЙ 6×6", C.White, Vector3.new(0, 0, 0))
 	local startPrompt = prompt(board, "В БОЙ", "Быстрый старт · боты заполняют команды")
 
-	local displayColumns = math.max(1, math.ceil(#Catalog.WeaponOrder / 2))
 	for index, weaponId in ipairs(Catalog.WeaponOrder) do
-		local row = math.floor((index - 1) / displayColumns)
-		local column = (index - 1) % displayColumns
-		local x = (column - (displayColumns - 1) / 2) * 24
-		local z = 292 - row * 16
+		local side = index <= 7 and -1 or 1
+		local slot = (index - 1) % 7
+		local x = side * 76
+		local z = 260 + slot * 16
+		decorPart(lobby, "GalleryBay", Vector3.new(1, 7, 14), CFrame.new(side * 88, 48.5, z), STYLE.Navy, Enum.Material.Slate)
+		decorPart(lobby, "GalleryBayAccent", Vector3.new(0.35, 6, 0.35), CFrame.new(side * 87.4, 48.5, z - 6.4), side < 0 and STYLE.Blue or STYLE.Gold, Enum.Material.Neon)
 		local pedestal = makePart(lobby, "WeaponPedestal", Vector3.new(10, 3, 10), CFrame.new(x, 46, z), C.Stone, Enum.Material.Cobblestone, true)
 		holidayGlow(pedestal, Color3.fromRGB(255, 224, 177), 10, 0.65)
 		local weapon = WeaponModels.Build(weaponId)
 		weapon.Name = "Display_" .. weaponId
+		weapon:SetAttribute("GallerySlot", index)
 		weapon.Parent = lobby
-		weapon:PivotTo(CFrame.new(x, 50, z) * CFrame.Angles(0, math.rad(90), 0))
+		weapon:PivotTo(CFrame.new(x, 50, z) * CFrame.Angles(0, math.rad(side * 90), 0))
 		for _, item in ipairs(weapon:GetDescendants()) do
 			if item:IsA("BasePart") then
 				item.Anchored = true
@@ -9309,7 +9426,7 @@ local function buildLobby(lobby, winterDecor)
 	local dailyPrompt = buildNpc(lobby, "DailyBonus", Vector3.new(48, 44.5, 344), Color3.fromRGB(255, 211, 78), "DAILY // БОНУС", "ПОЛУЧИТЬ", "Монеты · XP · жетон кейса")
 	local shopPrompt = buildNpc(lobby, "CosmeticShop", Vector3.new(48, 44.5, 300), Color3.fromRGB(195, 117, 255), "ROBUX // КОСМЕТИКА", "МАГАЗИН", "Только внешний вид · без pay-to-win")
 	local defensePrompt = buildNpc(lobby, "DefenseWorkshop", Vector3.new(-48, 44.5, 300), Color3.fromRGB(255, 133, 71), "DEFENSE // ЛОВУШКИ", "КУПИТЬ ЧЕРТЁЖ", "Шипы · мины · огнемёт за монеты")
-	local expeditionPrompt = buildNpc(lobby, "ExpeditionHub", Vector3.new(0, 44.5, 370), Color3.fromRGB(103, 229, 183), "PVE // ЭКСПЕДИЦИИ", "ВЫБРАТЬ РЕЙД", "Уровни · волны · боссы · рейтинг")
+	local expeditionPrompt = buildNpc(lobby, "ExpeditionHub", Vector3.new(-28, 44.5, 372), Color3.fromRGB(103, 229, 183), "PVE // ЭКСПЕДИЦИИ", "ВЫБРАТЬ РЕЙД", "Уровни · волны · боссы · рейтинг")
 	local upgradePad = makePart(lobby, "UpgradePad", Vector3.new(16, 0.35, 12), CFrame.new(-48, 44.8, 344), Color3.fromRGB(40, 120, 145), Enum.Material.Metal, false)
 	upgradePad.CanQuery = false
 	local dailyPad = makePart(lobby, "DailyPad", Vector3.new(16, 0.35, 12), CFrame.new(48, 44.8, 344), Color3.fromRGB(150, 110, 35), Enum.Material.Metal, false)
@@ -9318,10 +9435,10 @@ local function buildLobby(lobby, winterDecor)
 	shopPad.CanQuery = false
 	local defensePad = makePart(lobby, "DefensePad", Vector3.new(16, 0.35, 12), CFrame.new(-48, 44.8, 300), Color3.fromRGB(150, 65, 35), Enum.Material.Metal, false)
 	defensePad.CanQuery = false
-	local expeditionPad = makePart(lobby, "ExpeditionPad", Vector3.new(18, 0.35, 12), CFrame.new(0, 44.8, 370), Color3.fromRGB(40, 135, 105), Enum.Material.Metal, false)
+	local expeditionPad = makePart(lobby, "ExpeditionPad", Vector3.new(18, 0.35, 12), CFrame.new(-28, 44.8, 372), Color3.fromRGB(40, 135, 105), Enum.Material.Metal, false)
 	expeditionPad.CanQuery = false
 
-	for _, position in ipairs({ Vector3.new(-70, 44.5, 370), Vector3.new(70, 44.5, 370), Vector3.new(-70, 44.5, 280), Vector3.new(70, 44.5, 280) }) do
+	for _, position in ipairs({ Vector3.new(-64, 44.5, 368), Vector3.new(64, 44.5, 368), Vector3.new(-64, 44.5, 388), Vector3.new(64, 44.5, 388) }) do
 		buildChristmasTree(winterDecor, position, 0.55)
 	end
 	decorateLobby(winterDecor)
@@ -9379,7 +9496,7 @@ local function buildDotaFrontier(arena)
 		local campRock = makePart(campModel, "CampRock", Vector3.new(5, 4, 5), CFrame.new(camp.Position + Vector3.new(10, 2, -7)), C.Stone, Enum.Material.Slate, true)
 		campRock.Transparency = 1
 		campRock.CanQuery = true
-		VisualModels.Rock(campModel, camp.Position + Vector3.new(10, 0, -7), 0.82, { Snow = true })
+		VisualModels.Rock(campModel, camp.Position + Vector3.new(10, 0, -7), 0.82, { Snow = false })
 		local marker = makePart(campModel, "CampLabelAnchor", Vector3.new(1, 1, 1), CFrame.new(camp.Position + Vector3.new(0, 9, 0)), C.White, Enum.Material.SmoothPlastic, false)
 		marker.Transparency = 1
 		marker.CanQuery = false
@@ -9491,10 +9608,10 @@ function WorldBuilder.Build()
 	for _, side in ipairs({ -1, 1 }) do
 		local zWall = makePart(arena, "ArenaBoundary", Vector3.new(presentation.ArenaWidth, 20, 2), CFrame.new(0, 8, side * presentation.ArenaEdgeZ), STYLE.Navy, Enum.Material.Slate, true)
 		zWall.CanQuery = false
-		decorPart(arena, "ArenaBoundarySnow", Vector3.new(presentation.ArenaWidth, 0.5, 2.5), CFrame.new(0, 18.25, side * presentation.ArenaEdgeZ), HOLIDAY.Snow, Enum.Material.Snow)
+		decorPart(arena, "ArenaBoundaryCap", Vector3.new(presentation.ArenaWidth, 0.5, 2.5), CFrame.new(0, 18.25, side * presentation.ArenaEdgeZ), STYLE.IvoryDark, Enum.Material.Slate)
 		local xWall = makePart(arena, "ArenaBoundary", Vector3.new(2, 20, presentation.ArenaDepth), CFrame.new(side * presentation.ArenaEdgeX, 8, 0), STYLE.Navy, Enum.Material.Slate, true)
 		xWall.CanQuery = false
-		decorPart(arena, "ArenaBoundarySnow", Vector3.new(2.5, 0.5, presentation.ArenaDepth), CFrame.new(side * presentation.ArenaEdgeX, 18.25, 0), HOLIDAY.Snow, Enum.Material.Snow)
+		decorPart(arena, "ArenaBoundaryCap", Vector3.new(2.5, 0.5, presentation.ArenaDepth), CFrame.new(side * presentation.ArenaEdgeX, 18.25, 0), STYLE.IvoryDark, Enum.Material.Slate)
 	end
 	-- The terrain/cloud system and tiled ground materials carry the horizon and
 	-- surface detail. Avoid scatter made from tiny cubes across the combat view.
