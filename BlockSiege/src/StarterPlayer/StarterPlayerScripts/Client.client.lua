@@ -175,7 +175,7 @@ local queueButton = button(lobbyDock, "В ОЧЕРЕДЬ 6×6", UDim2.new(1, -24
 local quickButton = button(lobbyDock, "БЫСТРЫЙ СТАРТ + БОТЫ", UDim2.new(1, -24, 0, 38), UDim2.new(0, 12, 0, 80), C.Green)
 quickButton.TextColor3 = Color3.fromRGB(15, 42, 34)
 local caseButton = button(lobbyDock, "ЛУТБОКС / ОРУЖИЕ  [L]", UDim2.new(1, -24, 0, 38), UDim2.new(0, 12, 0, 124), C.Panel)
-local lobbyHint = text(gui, "1 · построй защиту   2 · уничтожь ядро   3 · получи награду и уровень", UDim2.new(0, 560, 0, 52), UDim2.new(0, 310, 1, -112), 17, C.Muted)
+local lobbyHint = text(gui, "1 · замкни контур   2 · удерживай 67   3 · BREACH по вражескому ядру", UDim2.new(0, 560, 0, 52), UDim2.new(0, 310, 1, -112), 17, C.Muted)
 
 local buildDock = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -16), Size = UDim2.new(0.9, 0, 0, 132), BackgroundColor3 = C.Background, BackgroundTransparency = 0.16,
@@ -564,7 +564,7 @@ local function updateCoach(phase, team, remaining, captureOwner)
 		hints = {
 			"Выбери 1 СТЕНА, 2 БАРРИКАДА или 3 БАШНЯ. Наведи прицел внутрь своей базы: зелёная модель — точное место установки, красная — запрет.",
 			"Q/R и видимые кнопки ↶ ↷ поворачивают на 90°. Нажми ПОСТАВИТЬ, B или ЛКМ только после зелёного серверного предпросмотра.",
-			"Стены закрывают подходы, башни атакуют врагов. Купленные в DEFENSE ловушки выбираются клавишами 4–6. Каждая постройка даёт монеты и XP.",
+			"Уникальный контур BLOCKSIEGE: поставь рядом СТЕНУ, БАРРИКАДУ и БАШНЮ. Световые связи покажут замкнутую тройку; в бою 67 зарядит её и откроет Breach по вражескому ядру. Ловушки 4–6 остаются отдельной защитой.",
 			"Справа — 3 бонусных задания. Укрепитель засчитывает постройки уже сейчас. В бою появятся золотые ящики с монетами, XP и лечением.",
 		}
 		if not manual and ghostHasServerPreview and not previewValid then
@@ -585,7 +585,7 @@ local function updateCoach(phase, team, remaining, captureOwner)
 		local supplies = state:GetAttribute("SupplyActive") or 0
 		hints = {
 			string.format("Следуй за стрелкой %s: до вражеского ядра %d м. ЛКМ — огонь, R — перезарядка. Сносить башни и стены тоже выгодно: за них есть награды.", arrow, distance),
-			"Захвати 67: встань в центральный круг и удерживай его. Команда получает монеты, XP и +1 HP/s. Если точку оспаривают — сначала выбей противника.",
+			"Удерживай 67: команда получает монеты, XP и +1 HP/s, а замкнутый контур крепости накапливает заряд. При 100% открывается Breach — короткое окно усиленного урона по вражескому ядру. Разрушай светящиеся узлы врага, чтобы разорвать его следующую зарядку.",
 			string.format("Твой случайный класс: %s. F — %s; G — %s. Применяй способности по откату: задание Специалист награждает три использования.", player:GetAttribute("ClassName") or "класс назначается", abilityF, abilityG),
 			"Золотой вертикальный луч отмечает снабжение. Подойди к ящику или нажми ProximityPrompt: +15 монет, +30 XP и +25 HP. Ящик исчезает через 30 секунд.",
 			"Выполняй 3 задания справа: разрушения, 67, F/G, лагеря, убийства или постройки. Награда начисляется сразу и каждое задание выполняется один раз за матч.",
@@ -600,6 +600,9 @@ local function updateCoach(phase, team, remaining, captureOwner)
 		elseif not manual and ownCore / ownMaximum < 0.3 then
 			title = "ТВОЯ КРЕПОСТЬ В ОПАСНОСТИ"
 			coachText.Text = "У своего ядра осталось меньше 30% HP. Вернись по командной метке, устрани штурмующих и используй защитные способности — затем продолжи атаку."
+		elseif not manual and (state:GetAttribute(team .. "CircuitBreach") or 0) > 0 then
+			title = "BREACH · ОКНО ШТУРМА"
+			coachText.Text = "Контур заряжен. Сейчас твоя команда наносит усиленный урон вражескому ядру — следуй за командной стрелкой и сфокусируй огонь, пока окно не закрылось."
 		elseif not manual and near67 and captureOwner ~= team then
 			title = "67 РЯДОМ · УДЕРЖИВАЙ КРУГ"
 			coachText.Text = "Оставайся внутри центральной зоны. Захват даёт всей команде награду и +1 HP/s; враг в круге оспаривает прогресс."
@@ -888,6 +891,30 @@ local function refresh()
 	local seasonName = state:GetAttribute("SeasonName") or "NEW YEAR 2026"
 	local seasonColor = state:GetAttribute("SeasonColor") or C.Gold
 	seasonLabel.Text = rich("BLOCKSIEGE", C.Cyan) .. " " .. rich("// " .. tostring(seasonName), seasonColor)
+	local circuitTeam = player:GetAttribute("Team") or ""
+	if (phase == "Build" or phase == "Battle") and Config.Teams[circuitTeam] then
+		local online = state:GetAttribute(circuitTeam .. "CircuitOnline") == true
+		local types = state:GetAttribute(circuitTeam .. "CircuitTypeCount") or 0
+		local charge = state:GetAttribute(circuitTeam .. "CircuitCharge") or 0
+		local breach = state:GetAttribute(circuitTeam .. "CircuitBreach") or 0
+		local cooldown = state:GetAttribute(circuitTeam .. "CircuitCooldown") or 0
+		local owner = state:GetAttribute("Capture67Owner") or ""
+		local multiplier = math.floor((Config.Arena.CircuitCoreMultiplier - 1) * 100 + 0.5)
+		if breach > 0 then
+			seasonLabel.Text = rich(string.format("BREACH %ds · УРОН ПО ВРАЖЕСКОМУ ЯДРУ +%d%%", math.ceil(breach), multiplier), C.Gold)
+		elseif not online then
+			local copy = types >= 3 and "КОНТУР РАЗОРВАН · СБЛИЗЬ ТРИ РАЗНЫХ УЗЛА" or string.format("КОНТУР %d/3 · СТЕНА + БАРРИКАДА + БАШНЯ", types)
+			seasonLabel.Text = rich(copy, C.Orange)
+		elseif phase == "Build" then
+			seasonLabel.Text = rich("КОНТУР ЗАМКНУТ · В БОЮ УДЕРЖИВАЙ 67 → BREACH", C.Cyan)
+		elseif cooldown > 0 then
+			seasonLabel.Text = rich(string.format("КОНТУР · ПЕРЕЗАРЯДКА %ds", math.ceil(cooldown)), C.Muted)
+		elseif owner == circuitTeam then
+			seasonLabel.Text = rich(string.format("67 ЗАРЯЖАЕТ КОНТУР · %d%%", charge), C.Green)
+		else
+			seasonLabel.Text = rich(string.format("КОНТУР ГОТОВ · УДЕРЖИВАЙ 67 · %d%%", charge), C.Cyan)
+		end
+	end
 	timeLabel.Text = remaining > 0 and rich(string.format("%02d:%02d", math.floor(remaining / 60), remaining % 60), C.Gold) or ""
 	lobbyDock.Visible = phase == "Lobby"
 	lobbyHint.Visible = phase == "Lobby" and (not Workspace.CurrentCamera or (Workspace.CurrentCamera.ViewportSize.X >= 700 and Workspace.CurrentCamera.ViewportSize.Y >= 680))
@@ -1235,6 +1262,13 @@ remotes.CombatFX.OnClientEvent:Connect(function(payload)
 			TweenService:Create(beam, TweenInfo.new(0.07), { Transparency = 1 }):Play()
 			Debris:AddItem(beam, 0.08)
 		end
+	elseif payload.Kind == "CircuitBreach" then
+		local color = C[payload.Team] or C.Gold
+		effect(payload.Position, color, 15, 0.75)
+		burst(payload.Position, C.Gold, 30, 24)
+		local own = payload.Team == (player:GetAttribute("Team") or "")
+		notify(own and "BREACH · КОНТУР ЗАРЯЖЕН · ФОКУС НА ВРАЖЕСКОМ ЯДРЕ" or "ВРАЖЕСКИЙ BREACH · ЗАЩИТИ СВОЁ ЯДРО")
+		refresh()
 	elseif payload.Kind == "CoreDestroyed" then
 		local color = C[payload.Team] or C.Gold
 		effect(payload.Position, color, 18, 0.8)
@@ -1280,7 +1314,8 @@ remotes.CaptureFX.OnClientEvent:Connect(function(payload)
 		burst(payload.Position, color, 18, 14)
 	end
 	if payload.Team then
-		notify("67 ЗАХВАЧЕНА · +1 HP/s · " .. (payload.Team == "Blue" and "СИНИЕ" or "ОРАНЖЕВЫЕ"))
+		local circuit = state:GetAttribute(payload.Team .. "CircuitOnline") == true
+		notify("67 ЗАХВАЧЕНА · +1 HP/s" .. (circuit and " · КОНТУР ЗАРЯЖАЕТСЯ" or "") .. " · " .. (payload.Team == "Blue" and "СИНИЕ" or "ОРАНЖЕВЫЕ"))
 	end
 end)
 remotes.BonusFX.OnClientEvent:Connect(function(payload)

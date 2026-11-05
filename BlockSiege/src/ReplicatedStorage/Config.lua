@@ -20,6 +20,13 @@ local Config = {
 		MaxBuildPerPlayer = 14,
 		BotBuildsPerBot = 3,
 		HideEnemyBaseDuringBuild = true,
+		-- Собственная связанная петля BLOCKSIEGE: три разных узла образуют
+		-- контур, 67 заряжает его, а короткий Breach усиливает только урон по ядру.
+		CircuitMaxLink = 78,
+		CircuitChargePerSecond = 12.5,
+		CircuitBreachDuration = 8,
+		CircuitBreachCooldown = 20,
+		CircuitCoreMultiplier = 1.25,
 		BotBoundsX = 300,
 		BotBoundsZ = 160,
 	},

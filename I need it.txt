@@ -17,6 +17,7 @@ BLOCKSIEGE — ЕДИНЫЙ PRODUCTION-БРИФ
 
 23 ПУНКТА ЗАПРОСА
 1. Уникальность: собственный BLOCKSIEGE visual language, читаемые силуэты, цвета команд, необычные fortress/события и связанная игровая петля; не заявлять «вирусность» или «идеал» как факт.
+   Текущий gameplay/visual anchor: КОНТУР // BREACH — Wall + Barricade + Tower замыкают световую схему, владение 67 заряжает её, а 8-секундный Breach даёт ×1,25 только по вражескому ядру; разрушение узлов и cooldown создают counterplay. Это часть fortress 6v6, не отдельный режим и не платный bonus.
 2. Качественные лобби и ландшафт: безопасная навигация, понятные NPC/витрины, полноценные материалы, растительность, архитектура, декорации без перекрытия проходов и HUD.
 3. Качественные модели, эффекты боя и polish: оружие в руках, melee, deployables, impact/telegraph/death FX, без второй летящей пушки и невидимого оружия.
 4. Готовые ассеты: использовать только проверенные/разрешённые Creator Store assets, с fallback, очисткой скриптов/collision/вредоносных свойств и credits.
@@ -41,7 +42,7 @@ BLOCKSIEGE — ЕДИНЫЙ PRODUCTION-БРИФ
 23. Рейтинги в лобби: отдельные Level и Coins boards, server snapshots, корректные места/тай-брейки, online/offline ограничения явно документированы.
 
 MVP / TEST / PRODUCTION
-MVP: текущий fortress 6v6 + LiveOps/Admin + сезонный контроллер + PvE expedition + Level/Coins leaderboard + death feedback + cosmetic shop + исходники/place/ZIP.
+MVP: текущий fortress 6v6 + КОНТУР // BREACH + LiveOps/Admin + сезонный контроллер + PvE expedition + Level/Coins leaderboard + death feedback + cosmetic shop + исходники/place/ZIP.
 TEST: Luau parse/analyzer, native server suites, security/validation, lifecycle/reward/leaderboard/expedition tests, XML parity, ZIP CRC/byte parity, static HUD geometry. Это не live acceptance.
 PRODUCTION: владелец задаёт Game Pass IDs и загружает новые audio/Toolbox assets; затем обязательный Roblox Studio и приватный live test: реальный рендер, FPS, network delay, touch/gamepad, DataStore, purchases, permissions, 2–12 clients, bot navigation, animation/voice и визуальное качество. Только после этого Public release.
 

@@ -65,6 +65,7 @@ AbilityService.Init({ World = world, Remotes = remotes, State = state, FortressS
 CaseService.Init({ DataService = DataService, Remotes = remotes })
 ShopService.Init({ DataService = DataService, ProgressionService = ProgressionService, Remotes = remotes })
 CaptureService.Init({ World = world, State = state, BotService = BotService, Remotes = remotes })
+FortressService.SetCaptureProvider(CaptureService.GetOwner)
 NeutralService.Init({ World = world, State = state, BotService = BotService, DataService = DataService, BonusService = BonusService, Remotes = remotes })
 BonusService.Init({ World = world, Remotes = remotes, State = state })
 EventService.Init({ World = world, Remotes = remotes, State = state, BonusService = BonusService, FortressService = FortressService, BotService = BotService })

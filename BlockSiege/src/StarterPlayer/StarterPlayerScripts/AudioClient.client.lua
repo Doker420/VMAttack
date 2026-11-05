@@ -142,6 +142,9 @@ remotes.CombatFX.OnClientEvent:Connect(function(payload)
 		playSfx("Hit", 0.32, 0.95 + math.random() * 0.1)
 	elseif payload.Kind == "StructureDestroyed" then
 		playSfx("Destroy", 0.72, 0.94 + math.random() * 0.12)
+	elseif payload.Kind == "CircuitBreach" then
+		playSfx("HeavyShot", 0.72, 0.62)
+		playSfx("CaseOpened", 0.5, 1.24)
 	elseif payload.Kind == "CoreDestroyed" then
 		playSfx("CoreDestroyed", 1, 1)
 	elseif payload.Kind == "ExpeditionShot" then

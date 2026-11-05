@@ -29,6 +29,20 @@ end
 local targetsProvider = function()
 	return {}
 end
+local captureProvider = function()
+	return nil
+end
+local circuitFolder
+local circuits = {}
+local circuitDirty = {}
+local CIRCUIT_KINDS = { "Wall", "Barricade", "Tower" }
+local isBreachActive
+
+local function markCircuitDirty(team)
+	if Config.Teams[team] then
+		circuitDirty[team] = true
+	end
+end
 
 local STRUCTURE_TEXTURES = {
 	[Enum.Material.Cobblestone] = { Asset = "rbxassetid://9438459300", Tile = 5, Transparency = 0.1 },
@@ -158,7 +172,7 @@ local function createCore(team)
 	return entry
 end
 
-local function createStructure(team, kind, cframe)
+local function createStructure(team, kind, cframe, circuitEligible)
 	local definition = Config.BuildKinds[kind]
 	if not definition then
 		return nil
@@ -251,6 +265,39 @@ local function createStructure(team, kind, cframe)
 	entry.NextTrigger = 0
 	entry.NextAttack = os.clock() + 0.8
 	CombatModels.RegisterStructureAnimation(entry)
+	entry.CircuitEligible = circuitEligible == true and (kind == "Wall" or kind == "Barricade" or kind == "Tower")
+	model:SetAttribute("CircuitNode", entry.CircuitEligible)
+	if entry.CircuitEligible then
+		-- Visuals are added after registerEntry: they are deliberately not damage
+		-- proxies, navigation obstacles or extra structure hit points.
+		local node = Instance.new("Part")
+		node.Name = "CircuitNodeVisual"
+		node.Shape = Enum.PartType.Ball
+		node.Size = Vector3.new(1.8, 1.8, 1.8)
+		node.CFrame = root.CFrame * CFrame.new(0, root.Size.Y / 2 + 2.2, 0)
+		node.Color = Color3.fromRGB(86, 99, 112)
+		node.Material = Enum.Material.Neon
+		node.Anchored = true
+		node.CanCollide = false
+		node.CanTouch = false
+		node.CanQuery = false
+		node.CastShadow = false
+		node:SetAttribute("Team", team)
+		node:SetAttribute("BaseGeometry", true)
+		node.Parent = model
+		local light = Instance.new("PointLight")
+		light.Name = "CircuitNodeLight"
+		light.Color = color
+		light.Brightness = 0
+		light.Range = 12
+		-- Keep Enabled stable for BaseVisibilityClient's original-state cache;
+		-- server updates Brightness while the client alone controls fog hiding.
+		light.Enabled = true
+		light.Parent = node
+		entry.CircuitVisual = node
+		model:SetAttribute("CircuitLinked", false)
+		markCircuitDirty(team)
+	end
 	return entry
 end
 
@@ -274,6 +321,9 @@ local function removeEntry(entry)
 		return
 	end
 	entry.Active = false
+	if entry.CircuitEligible then
+		markCircuitDirty(entry.Team)
+	end
 	for _, part in ipairs(entry.Parts) do
 		partIndex[part] = nil
 	end
@@ -287,6 +337,9 @@ function FortressService.Init(dependencies)
 	world = dependencies.World
 	remotes = dependencies.Remotes
 	state = dependencies.State
+	circuitFolder = Instance.new("Folder")
+	circuitFolder.Name = "CircuitVisuals"
+	circuitFolder.Parent = world.Root
 end
 
 function FortressService.SetPhaseProvider(provider)
@@ -319,6 +372,12 @@ function FortressService.SetTargetsProvider(provider)
 	end
 end
 
+function FortressService.SetCaptureProvider(provider)
+	captureProvider = provider or function()
+		return nil
+	end
+end
+
 function FortressService.Clear()
 	for _, entry in pairs(entries) do
 		entry.Active = false
@@ -330,6 +389,20 @@ function FortressService.Clear()
 	partIndex = {}
 	cores = {}
 	buildCounts = {}
+	circuits = {}
+	circuitDirty = {}
+	if circuitFolder then
+		circuitFolder:ClearAllChildren()
+	end
+	if state then
+		for _, team in ipairs(Config.TeamOrder) do
+			state:SetAttribute(team .. "CircuitOnline", false)
+			state:SetAttribute(team .. "CircuitTypeCount", 0)
+			state:SetAttribute(team .. "CircuitCharge", 0)
+			state:SetAttribute(team .. "CircuitBreach", 0)
+			state:SetAttribute(team .. "CircuitCooldown", 0)
+		end
+	end
 end
 
 function FortressService.Reset()
@@ -438,7 +511,7 @@ function FortressService.BuildPlayer(player, team, kind, position, rotation)
 	if not cframe then
 		return false, reason
 	end
-	local entry = createStructure(team, kind, cframe)
+	local entry = createStructure(team, kind, cframe, true)
 	local count = (buildCounts[player.UserId] or 0) + 1
 	buildCounts[player.UserId] = count
 	local capacity = buildCapacityProvider(player)
@@ -474,7 +547,7 @@ function FortressService.BuildBot(team, slot, buildIndex)
 		local position = (Config.BaseCFrame(team) * CFrame.new(pad[1] + offset[1], 0, pad[2] + offset[2])).Position
 		local cframe = placement(team, kind, position)
 		if cframe then
-			createStructure(team, kind, cframe)
+			createStructure(team, kind, cframe, true)
 			return true
 		end
 	end
@@ -511,7 +584,9 @@ function FortressService.DamagePart(part, amount, attackingTeam, player)
 	if not entry or not entry.Active or entry.Team == attackingTeam then
 		return 0
 	end
-	local applied = math.min(entry.Health, math.max(0, amount))
+	local breach = entry.Kind == "Core" and isBreachActive(attackingTeam, os.clock())
+	local multiplier = breach and Config.Arena.CircuitCoreMultiplier or 1
+	local applied = math.min(entry.Health, math.max(0, tonumber(amount) or 0) * multiplier)
 	if applied <= 0 then
 		return 0
 	end
@@ -520,7 +595,7 @@ function FortressService.DamagePart(part, amount, attackingTeam, player)
 	if player and damageHandler then
 		damageHandler(player, applied, entry.Kind, entry.Health <= 0)
 	end
-	remotes.CombatFX:FireAllClients({ Kind = "StructureHit", Position = part.Position, Team = entry.Team })
+	remotes.CombatFX:FireAllClients({ Kind = "StructureHit", Position = part.Position, Team = entry.Team, CircuitBreach = breach })
 	if entry.Kind == "Core" then
 		updateState(entry.Team)
 	end
@@ -599,6 +674,214 @@ function FortressService.GetEntries()
 	return result
 end
 
+local function ensureCircuit(team)
+	local circuit = circuits[team]
+	if circuit then
+		return circuit
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = team .. "Circuit"
+	folder.Parent = circuitFolder
+	circuit = { Charge = 0, BreachUntil = 0, NextBreach = 0, Online = false, TypeCount = 0, Nodes = {}, Beams = {}, Folder = folder }
+	circuits[team] = circuit
+	return circuit
+end
+
+isBreachActive = function(team, now)
+	local circuit = circuits[team]
+	return circuit ~= nil and now < (circuit.BreachUntil or 0)
+end
+
+local function circuitNodePosition(entry)
+	local root = entry.Model and entry.Model.PrimaryPart
+	return root.Position + Vector3.new(0, root.Size.Y / 2 + 2.2, 0)
+end
+
+local function createCircuitBeam(folder, team, from, to)
+	local distance = (to - from).Magnitude
+	if distance < 0.1 then
+		return nil
+	end
+	local beam = Instance.new("Part")
+	beam.Name = "CircuitLink"
+	beam.Size = Vector3.new(0.34, 0.34, distance)
+	beam.CFrame = CFrame.lookAt((from + to) * 0.5, to)
+	beam.Color = Config.Teams[team].Color
+	beam.Material = Enum.Material.Neon
+	beam.Transparency = 0.35
+	beam.Anchored = true
+	beam.CanCollide = false
+	beam.CanTouch = false
+	beam.CanQuery = false
+	beam.CastShadow = false
+	beam:SetAttribute("Team", team)
+	beam:SetAttribute("BaseGeometry", true)
+	beam.Parent = folder
+	return beam
+end
+
+local function refreshCircuit(team)
+	local circuit = ensureCircuit(team)
+	circuit.Folder:ClearAllChildren()
+	local byKind = { Wall = {}, Barricade = {}, Tower = {} }
+	local all = {}
+	local positions = {}
+	for id = 1, nextId do
+		local entry = entries[id]
+		if entry and entry.Active and entry.Team == team and entry.CircuitEligible and entry.Model and entry.Model.PrimaryPart then
+			table.insert(byKind[entry.Kind], entry)
+			table.insert(all, entry)
+			positions[entry] = circuitNodePosition(entry)
+		end
+	end
+	local typeCount = 0
+	for _, kind in ipairs(CIRCUIT_KINDS) do
+		if #byKind[kind] > 0 then
+			typeCount = typeCount + 1
+		end
+	end
+	local best
+	local bestScore = math.huge
+	for _, wall in ipairs(byKind.Wall) do
+		for _, barricade in ipairs(byKind.Barricade) do
+			for _, tower in ipairs(byKind.Tower) do
+				local ab = (positions[wall] - positions[barricade]).Magnitude
+				local bc = (positions[barricade] - positions[tower]).Magnitude
+				local ca = (positions[tower] - positions[wall]).Magnitude
+				if math.max(ab, bc, ca) <= Config.Arena.CircuitMaxLink then
+					local score = ab + bc + ca
+					if score < bestScore then
+						bestScore = score
+						best = { wall, barricade, tower }
+					end
+				end
+			end
+		end
+	end
+	for _, entry in ipairs(all) do
+		entry.Model:SetAttribute("CircuitLinked", false)
+		if entry.CircuitVisual then
+			entry.CircuitVisual.Color = Color3.fromRGB(86, 99, 112)
+		end
+	end
+	circuit.Nodes = best or {}
+	circuit.Online = best ~= nil
+	circuit.TypeCount = typeCount
+	circuit.Beams = {}
+	if best then
+		for _, entry in ipairs(best) do
+			entry.Model:SetAttribute("CircuitLinked", true)
+			if entry.CircuitVisual then
+				entry.CircuitVisual.Color = Config.Teams[team].Color
+			end
+		end
+		for index = 1, 3 do
+			local beam = createCircuitBeam(circuit.Folder, team, positions[best[index]], positions[best[index % 3 + 1]])
+			if beam then
+				table.insert(circuit.Beams, beam)
+			end
+		end
+	end
+	circuitDirty[team] = false
+	if state then
+		state:SetAttribute(team .. "CircuitOnline", circuit.Online)
+		state:SetAttribute(team .. "CircuitTypeCount", typeCount)
+	end
+end
+
+local function publishCircuit(team, now)
+	local circuit = ensureCircuit(team)
+	local breach = math.max(0, (circuit.BreachUntil or 0) - now)
+	local cooldown = math.max(0, (circuit.NextBreach or 0) - now)
+	if state then
+		state:SetAttribute(team .. "CircuitCharge", math.floor((circuit.Charge or 0) + 0.5))
+		state:SetAttribute(team .. "CircuitBreach", breach)
+		state:SetAttribute(team .. "CircuitCooldown", cooldown)
+	end
+	local phase = phaseProvider()
+	local visible = phase == "Build" or phase == "Battle"
+	local activeBreach = breach > 0
+	local color = activeBreach and Color3.fromRGB(255, 220, 110) or Config.Teams[team].Color
+	for _, beam in ipairs(circuit.Beams) do
+		if beam.Parent then
+			beam.Color = color
+			beam.Transparency = visible and (activeBreach and 0.02 or 0.35) or 1
+		end
+	end
+	for id = 1, nextId do
+		local entry = entries[id]
+		if entry and entry.Active and entry.Team == team and entry.CircuitEligible and entry.CircuitVisual then
+			local linked = entry.Model:GetAttribute("CircuitLinked") == true
+			entry.CircuitVisual.Transparency = visible and (linked and 0.05 or 0.65) or 1
+			if linked then
+				entry.CircuitVisual.Color = color
+			end
+			local light = entry.CircuitVisual:FindFirstChild("CircuitNodeLight")
+			if light then
+				light.Brightness = visible and linked and (activeBreach and 2.4 or 1.5) or 0
+				light.Color = color
+			end
+		end
+	end
+	local core = cores[team]
+	local enemyCircuit = circuits[Config.OtherTeam(team)]
+	if core and core.Active then
+		core.Model:SetAttribute("BreachVulnerable", enemyCircuit ~= nil and now < (enemyCircuit.BreachUntil or 0))
+	end
+end
+
+local function updateCircuit(team, deltaTime, now)
+	if circuitDirty[team] or not circuits[team] then
+		refreshCircuit(team)
+	end
+	local circuit = ensureCircuit(team)
+	if phaseProvider() ~= "Battle" then
+		circuit.Charge = 0
+		circuit.BreachUntil = 0
+		circuit.NextBreach = 0
+	else
+		local activeBreach = isBreachActive(team, now)
+		if not activeBreach then
+			circuit.BreachUntil = 0
+			if now >= (circuit.NextBreach or 0) then
+				if circuit.Online and captureProvider() == team then
+					circuit.Charge = math.min(100, (circuit.Charge or 0) + Config.Arena.CircuitChargePerSecond * deltaTime)
+					if circuit.Charge >= 100 then
+						circuit.Charge = 0
+						circuit.BreachUntil = now + Config.Arena.CircuitBreachDuration
+						circuit.NextBreach = now + Config.Arena.CircuitBreachCooldown
+						if remotes and remotes.CombatFX then
+							remotes.CombatFX:FireAllClients({
+								Kind = "CircuitBreach", Team = team, Position = FortressService.GetCorePosition(Config.OtherTeam(team)),
+								Duration = Config.Arena.CircuitBreachDuration, Multiplier = Config.Arena.CircuitCoreMultiplier,
+							})
+						end
+					end
+				else
+					local decay = circuit.Online and 2 or 25
+					circuit.Charge = math.max(0, (circuit.Charge or 0) - decay * deltaTime)
+				end
+			end
+		end
+	end
+	publishCircuit(team, now)
+end
+
+function FortressService.GetCircuitState(team)
+	local circuit = circuits[team]
+	if not circuit then
+		return { Online = false, TypeCount = 0, Charge = 0, Breach = 0, Cooldown = 0, NodeIds = {} }
+	end
+	local nodeIds = {}
+	for _, entry in ipairs(circuit.Nodes) do
+		table.insert(nodeIds, entry.Id)
+	end
+	return {
+		Online = circuit.Online, TypeCount = circuit.TypeCount, Charge = circuit.Charge,
+		Breach = math.max(0, circuit.BreachUntil - os.clock()), Cooldown = math.max(0, circuit.NextBreach - os.clock()), NodeIds = nodeIds,
+	}
+end
+
 local function applyTrapDamage(model, amount)
 	local humanoid = model and model:FindFirstChildOfClass("Humanoid")
 	if not humanoid or humanoid.Health <= 0 then
@@ -651,8 +934,12 @@ local function towerAttack(entry, definition, root, now)
 	})
 end
 
-function FortressService.Step()
+function FortressService.Step(deltaTime)
 	local now = os.clock()
+	local step = math.clamp(tonumber(deltaTime) or 0.05, 0, 0.25)
+	for _, team in ipairs(Config.TeamOrder) do
+		updateCircuit(team, step, now)
+	end
 	-- Traps remain visually alive during Build; only damage is Battle-gated.
 	for _, entry in pairs(entries) do
 		if entry.Active and entry.PlacementLocked and entry.Model and entry.Model.PrimaryPart and entry.PlacementCFrame then
